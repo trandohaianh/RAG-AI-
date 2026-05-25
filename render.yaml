@@ -1,0 +1,46 @@
+# Render Blueprint — deploy 1-click: https://render.com/deploy
+# Sau deploy: dán URL frontend vào README mục Live Demo
+
+databases:
+  - name: rag-postgres
+    plan: free
+    databaseName: rag_dw
+    user: rag
+
+services:
+  - type: web
+    name: rag-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATA_DIR
+        value: /app/data
+      - key: MEDALLION_ENABLED
+        value: "true"
+      - key: POSTGRES_URL
+        fromDatabase:
+          name: rag-postgres
+          property: connectionString
+      # Sau deploy: set = https://<tên-rag-web>.onrender.com
+      - key: CORS_ORIGINS
+        sync: false
+
+  - type: web
+    name: rag-web
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: free
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: rag-api
+          property: host

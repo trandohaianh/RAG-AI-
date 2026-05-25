@@ -1,0 +1,26 @@
+{
+  "expectation_suite_name": "document_chunks",
+  "description": "Validate chunks trước khi ghi Silver layer (RAG ingest)",
+  "expectations": [
+    {
+      "expectation_type": "expect_table_row_count_to_be_between",
+      "kwargs": { "min_value": 1 }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": { "column": "content" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": { "column": "source" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_unique",
+      "kwargs": { "column": "content_hash" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": { "column": "char_count", "min_value": 10, "max_value": 1500 }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Backend chạy trong docker compose
+  - job_name: rag-backend-docker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8000"]
+        labels:
+          service: rag-api
+
+  # Backend chạy local (uvicorn / start-web.ps1) — Windows/Mac Docker Desktop
+  - job_name: rag-backend-host
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+        labels:
+          service: rag-api-local
