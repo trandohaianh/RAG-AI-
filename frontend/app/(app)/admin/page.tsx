@@ -59,7 +59,7 @@ export default function AdminPage() {
   return (
     <div className="h-full overflow-y-auto p-4 md:p-6 space-y-8">
       <div>
-        <h1 className="text-xl font-semibold">Bảng điều khiển Admin</h1>
+        <h1 className="text-xl font-semibold">Bảng quản trị</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Tài khoản đăng nhập: {user.email} ({user.role})
         </p>

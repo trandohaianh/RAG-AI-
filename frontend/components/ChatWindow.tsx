@@ -189,7 +189,7 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
                   Xin chào! Tôi có thể giúp gì?
                 </h2>
                 <p className="mt-1.5 text-[13px] text-slate-500">
-                  Trả lời theo tài liệu đã upload (PDF, DOCX, TXT, ảnh OCR)
+                  Trả lời theo tài liệu đã tải lên (PDF, DOCX, TXT, ảnh)
                 </p>
                 <p className="mt-3.5 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-[11px] font-medium text-primary">
                   ↓ Gợi ý câu hỏi nằm ngay trên ô nhập chat
@@ -251,7 +251,7 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
                   </button>
                 ))}
                 {docs.length === 0 && (
-                  <p className="px-2.5 py-2 text-[12px] text-slate-400">Chưa có tài liệu — upload ở tab Tài liệu</p>
+                  <p className="px-2.5 py-2 text-[12px] text-slate-400">Chưa có tài liệu — tải lên ở mục Tài liệu</p>
                 )}
               </div>
             </>

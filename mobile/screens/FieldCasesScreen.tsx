@@ -95,7 +95,7 @@ export default function FieldCasesScreen({ navigation, route }: any) {
       if (online) {
         setModal(true);
       } else {
-        Alert.alert("Cần kết nối mạng", "Tạo ca mới cần đồng bộ với workspace.");
+        Alert.alert("Cần kết nối mạng", "Tạo ca mới cần kết nối với máy chủ.");
       }
       navigation.setParams({ create: false });
     });
@@ -140,7 +140,7 @@ export default function FieldCasesScreen({ navigation, route }: any) {
         <TouchableOpacity
           style={[styles.addButton, offline && styles.addButtonDisabled]}
           onPress={() => offline
-            ? Alert.alert("Cần kết nối mạng", "Tạo ca mới cần đồng bộ với workspace. Ca đã tải trước đó vẫn có thể xử lý offline.")
+            ? Alert.alert("Cần kết nối mạng", "Tạo ca mới cần kết nối với máy chủ. Ca đã tải trước đó vẫn có thể xử lý offline.")
             : setModal(true)}
         >
           <Ionicons name="add" size={22} color="#fff" />

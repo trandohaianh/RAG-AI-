@@ -31,15 +31,15 @@ export default function DocsPage() {
       <div>
         <h1 className="text-xl font-semibold">Quản lý tài liệu</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          PDF, DOCX, TXT và <strong className="text-foreground">ảnh OCR</strong> (PNG/JPG) — tuần 3–4
+          PDF, DOCX, TXT và <strong className="text-foreground">ảnh</strong> (PNG/JPG) — chữ trong ảnh được đọc tự động
         </p>
       </div>
 
       <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm space-y-2 max-w-3xl">
-        <p className="font-medium text-primary">📷 OCR ảnh (tuần 3–4)</p>
+        <p className="font-medium text-primary">📷 Đọc chữ từ ảnh (OCR)</p>
         <p className="text-muted-foreground">
           Kéo thả hoặc chọn file <strong>PNG, JPG, JPEG, WebP, GIF</strong> — hệ thống dùng Gemini
-          đọc chữ trong ảnh, rồi index như văn bản. Sau đó sang <strong>Chat</strong> để hỏi nội dung
+          đọc chữ trong ảnh, rồi lập chỉ mục như văn bản. Sau đó sang <strong>Chat</strong> để hỏi nội dung
           ảnh.
         </p>
       </div>

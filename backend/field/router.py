@@ -140,7 +140,7 @@ def _workspace_for_user(db: Session, workspace_id: int, user_id: int) -> FieldWo
         )
     )
     if not workspace:
-        raise HTTPException(status_code=404, detail="Không tìm thấy workspace")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đội")
     return workspace
 
 
@@ -321,7 +321,7 @@ def add_member(
         )
     )
     if not actor_membership or actor_membership.role != "owner":
-        raise HTTPException(status_code=403, detail="Chỉ chủ workspace được thêm thành viên")
+        raise HTTPException(status_code=403, detail="Chỉ trưởng đội được thêm thành viên")
     account = db.scalar(select(User).where(User.email == body.email.strip().lower()))
     if not account:
         raise HTTPException(
@@ -335,7 +335,7 @@ def add_member(
         )
     )
     if existing:
-        raise HTTPException(status_code=409, detail="Người dùng đã ở trong workspace")
+        raise HTTPException(status_code=409, detail="Người dùng đã ở trong đội")
     membership = FieldWorkspaceMember(
         workspace_id=workspace.id, user_id=account.id, role="technician"
     )
@@ -385,7 +385,7 @@ def create_case(
             )
         )
         if not assignee:
-            raise HTTPException(status_code=422, detail="Người được giao không thuộc workspace")
+            raise HTTPException(status_code=422, detail="Người được giao không thuộc đội")
     case = ServiceCase(
         workspace_id=workspace_id,
         created_by=user.id,
@@ -447,7 +447,7 @@ def update_case(
             )
             if not assignee:
                 raise HTTPException(
-                    status_code=422, detail="Người được giao không thuộc workspace"
+                    status_code=422, detail="Người được giao không thuộc đội"
                 )
         case.assigned_to = body.assigned_to
         _add_event(db, case.id, user.id, "assigned", "Cập nhật người phụ trách")

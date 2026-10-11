@@ -110,7 +110,7 @@ function EmbedChatInner() {
 
   if (!token) {
     return (
-      <div className="p-4 text-sm text-destructive">Thiếu embed token trong URL.</div>
+      <div className="p-4 text-sm text-destructive">Thiếu mã nhúng trong đường dẫn.</div>
     );
   }
 
@@ -127,7 +127,7 @@ function EmbedChatInner() {
               của tài khoản chủ token.
             </p>
             <Button variant="link" size="sm" className="mt-3" asChild>
-              <Link href="/chat">Mở app RAG đầy đủ (sidebar, upload, thống kê) →</Link>
+              <Link href="/chat">Mở ứng dụng đầy đủ (tài liệu, thống kê) →</Link>
             </Button>
           </div>
         )}

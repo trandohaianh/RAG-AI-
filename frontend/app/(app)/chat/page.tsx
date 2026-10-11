@@ -63,7 +63,7 @@ export default function ChatIndexPage() {
       <div>
         <h2 className="text-lg font-semibold mb-2">Bắt đầu hỏi đáp</h2>
         <p className="text-sm text-muted-foreground">
-          Upload tài liệu PDF, DOCX hoặc TXT trước, sau đó tạo cuộc trò chuyện để hỏi về nội dung.
+          Tải tài liệu PDF, DOCX, TXT hoặc ảnh lên trước, sau đó tạo cuộc trò chuyện để hỏi về nội dung.
         </p>
       </div>
       <div className="flex flex-col sm:flex-row gap-2 w-full">

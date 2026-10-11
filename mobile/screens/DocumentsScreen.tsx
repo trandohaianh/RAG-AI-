@@ -71,7 +71,7 @@ export default function DocumentsScreen() {
       Alert.alert("Thành công", `${res.chunks} chunks đã được lập chỉ mục`);
       load();
     } catch (e) {
-      Alert.alert("Upload thất bại", getErrorMessage(e));
+      Alert.alert("Tải lên thất bại", getErrorMessage(e));
     } finally {
       setUploading(false);
     }
@@ -122,15 +122,15 @@ export default function DocumentsScreen() {
         </View>
         {scope === "personal" || workspaceRole === "owner" ? (
           <GradientButton
-            title={uploading ? "Đang upload..." : "＋ Upload tài liệu"}
+            title={uploading ? "Đang tải lên..." : "＋ Tải tài liệu lên"}
             onPress={onPick}
             loading={uploading}
           />
         ) : (
-          <Text style={styles.hint}>Chỉ chủ workspace được nạp/xóa tri thức dùng chung.</Text>
+          <Text style={styles.hint}>Chỉ trưởng đội được thêm/xóa tài liệu dùng chung.</Text>
         )}
         <Text style={styles.hint}>
-          {scope === "team" ? "Tài liệu dùng chung trong workspace đang chọn." : "Tài liệu riêng của tài khoản."} PDF, DOCX, TXT hoặc ảnh.
+          {scope === "team" ? "Tài liệu dùng chung của đội đang chọn." : "Tài liệu riêng của tài khoản."} PDF, DOCX, TXT hoặc ảnh.
         </Text>
       </View>
 

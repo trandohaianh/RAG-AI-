@@ -112,7 +112,7 @@ export default function FieldHomeScreen({ navigation }: any) {
         <View style={styles.workspaceIcon}><Ionicons name="people" size={18} color={colors.primary} /></View>
         <View style={{ flex: 1 }}>
           <Text style={styles.mutedLabel}>WORKSPACE ĐỘI</Text>
-          <Text style={styles.workspaceName}>{workspace?.name || "Chưa có workspace"}</Text>
+          <Text style={styles.workspaceName}>{workspace?.name || "Chưa có đội"}</Text>
         </View>
         <Text style={styles.memberCount}>{workspace?.member_count ?? 0} thành viên</Text>
       </View>
@@ -167,7 +167,7 @@ export default function FieldHomeScreen({ navigation }: any) {
       <View style={styles.modules}>
         <Module icon="book-outline" title="Tri thức kỹ thuật" subtitle="SOP, manuals, nguồn dẫn" onPress={() => navigation.navigate("Knowledge")} />
         <Module icon="chatbubble-ellipses-outline" title="RAG Assistant" subtitle="Hỏi trên tài liệu đã nạp" onPress={() => navigation.navigate("ChatList")} />
-        <Module icon="people-outline" title="Đội & phân quyền" subtitle="Workspace và thành viên" onPress={() => navigation.navigate("Team")} />
+        <Module icon="people-outline" title="Đội & phân quyền" subtitle="Đội và thành viên" onPress={() => navigation.navigate("Team")} />
       </View>
     </ScrollView>
   );

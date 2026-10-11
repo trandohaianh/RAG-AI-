@@ -37,12 +37,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   const tabs = [
-    { href: "/field", label: "Field Ops" },
+    { href: "/field", label: "Ca hiện trường" },
     { href: "/chat", label: "Chat" },
     { href: "/docs", label: "Tài liệu" },
     { href: "/analytics", label: "Thống kê" },
     { href: "/settings", label: "Cài đặt" },
-    ...(user.role === "admin" ? [{ href: "/admin", label: "Admin" }] : []),
+    ...(user.role === "admin" ? [{ href: "/admin", label: "Quản trị" }] : []),
   ];
 
   return (

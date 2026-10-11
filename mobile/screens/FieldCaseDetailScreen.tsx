@@ -147,7 +147,7 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
   function confirmDiscard(action: RejectedFieldAction) {
     Alert.alert(
       "Bỏ thao tác này?",
-      "Thao tác sẽ bị xóa khỏi thiết bị và không được gửi lên workspace.",
+      "Thao tác sẽ bị xóa khỏi thiết bị và không được gửi lên máy chủ.",
       [
         { text: "Giữ lại", style: "cancel" },
         { text: "Bỏ", style: "destructive", onPress: () => resolveRejected(action, false) },
@@ -352,7 +352,7 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
               <Text style={styles.syncHint}>
                 {syncMessage || (offline
                   ? "Thay đổi được lưu an toàn trên thiết bị và sẽ đồng bộ khi mạng hoạt động."
-                  : "Chạm để thử đồng bộ với workspace.")}
+                  : "Chạm để thử đồng bộ lại.")}
               </Text>
             </View>
             <Ionicons name="sync" size={18} color={offline ? "#9A3412" : colors.primary} />

@@ -119,7 +119,7 @@ def _require_workspace_member(db: Session, workspace_id: int, user_id: int) -> N
         .first()
     )
     if not member:
-        raise HTTPException(status_code=404, detail="Không tìm thấy workspace")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đội")
 
 
 def _require_workspace_owner(db: Session, workspace_id: int, user_id: int) -> None:
@@ -134,7 +134,7 @@ def _require_workspace_owner(db: Session, workspace_id: int, user_id: int) -> No
     )
     if not owner:
         raise HTTPException(
-            status_code=403, detail="Chỉ chủ workspace được cập nhật tri thức dùng chung"
+            status_code=403, detail="Chỉ trưởng đội được cập nhật tài liệu dùng chung"
         )
 
 

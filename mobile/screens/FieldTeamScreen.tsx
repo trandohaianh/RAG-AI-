@@ -66,7 +66,7 @@ export default function FieldTeamScreen() {
       await api.createFieldWorkspace(workspaceName.trim());
       setWorkspaceName(""); setModal(null); await load();
     } catch (e) {
-      Alert.alert("Không tạo được workspace", api.getErrorMessage(e));
+      Alert.alert("Không tạo được đội", api.getErrorMessage(e));
     } finally {
       setSaving(false);
     }
@@ -113,7 +113,7 @@ export default function FieldTeamScreen() {
       <View style={styles.sectionHeader}>
         <View>
           <Text style={styles.sectionTitle}>Thành viên</Text>
-          <Text style={styles.subtitle}>Tài khoản đã đăng ký có thể tham gia workspace</Text>
+          <Text style={styles.subtitle}>Tài khoản đã đăng ký có thể được thêm vào đội</Text>
         </View>
         {workspace?.role === "owner" && (
           <TouchableOpacity style={styles.inviteButton} onPress={() => setModal("member")}>
@@ -129,7 +129,7 @@ export default function FieldTeamScreen() {
             <View style={styles.avatar}><Text style={styles.avatarText}>{member.email.slice(0, 1).toUpperCase()}</Text></View>
             <View style={{ flex: 1 }}>
               <Text style={styles.memberEmail}>{member.email}</Text>
-              <Text style={styles.memberRole}>{member.role === "owner" ? "Chủ workspace" : "Kỹ thuật viên"}</Text>
+              <Text style={styles.memberRole}>{member.role === "owner" ? "Trưởng đội" : "Kỹ thuật viên"}</Text>
             </View>
             <Ionicons name="shield-checkmark-outline" size={18} color={member.role === "owner" ? colors.primary : colors.textMuted} />
           </View>
@@ -138,14 +138,14 @@ export default function FieldTeamScreen() {
 
       <View style={styles.notice}>
         <Ionicons name="information-circle-outline" size={19} color={colors.primary} />
-        <Text style={styles.noticeText}>Thành viên cần đăng ký tài khoản trước. Quyền truy cập ca sửa được giới hạn theo workspace.</Text>
+        <Text style={styles.noticeText}>Thành viên cần đăng ký tài khoản trước. Chỉ thành viên trong đội mới xem được ca sửa của đội.</Text>
       </View>
 
       <Modal visible={modal !== null} transparent animationType="slide" onRequestClose={() => setModal(null)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modal}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{modal === "member" ? "Thêm thành viên" : "Tạo workspace"}</Text>
+              <Text style={styles.modalTitle}>{modal === "member" ? "Thêm thành viên" : "Tạo đội"}</Text>
               <TouchableOpacity onPress={() => setModal(null)}><Ionicons name="close" size={22} color={colors.textMuted} /></TouchableOpacity>
             </View>
             {modal === "member" ? (
@@ -158,7 +158,7 @@ export default function FieldTeamScreen() {
               <>
                 <Text style={styles.modalHint}>Tạo không gian riêng cho một đội hoặc khu vực vận hành.</Text>
                 <TextInput style={styles.input} value={workspaceName} onChangeText={setWorkspaceName} placeholder="Ví dụ: Đội FTTH Quận 1" placeholderTextColor={colors.textMuted} />
-                <GradientButton title="Tạo workspace" onPress={createWorkspace} loading={saving} />
+                <GradientButton title="Tạo đội" onPress={createWorkspace} loading={saving} />
               </>
             )}
           </View>

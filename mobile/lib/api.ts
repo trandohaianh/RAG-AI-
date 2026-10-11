@@ -278,7 +278,7 @@ export async function uploadDocument(
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new ApiError(data.detail || "Upload thất bại", res.status);
+    throw new ApiError(data.detail || "Tải lên thất bại", res.status);
   }
   return res.json();
 }

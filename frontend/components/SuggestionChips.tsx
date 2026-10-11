@@ -53,7 +53,7 @@ export default function SuggestionChips({ onPick, disabled }: Props) {
         {loading && <span className="font-normal">— đang tải từ tài liệu…</span>}
       </div>
       {fromDoc.length > 0 && (
-        <p className="text-xs text-primary">Có {fromDoc.length} gợi ý từ file đã upload</p>
+        <p className="text-xs text-primary">Có {fromDoc.length} gợi ý từ tài liệu đã tải lên</p>
       )}
       <div className="flex flex-wrap gap-2">
         {chips.map((s) => (

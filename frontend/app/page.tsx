@@ -53,8 +53,8 @@ const FEATURES = [
   },
   {
     icon: Layers,
-    title: "Workspace tri thức đội",
-    desc: "SOP và manuals được lập chỉ mục trong kho dùng chung, giới hạn theo workspace.",
+    title: "Kho tri thức của đội",
+    desc: "Quy trình và tài liệu hướng dẫn được lập chỉ mục trong kho dùng chung, chỉ thành viên đội truy cập.",
   },
   {
     icon: Lock,
@@ -145,7 +145,7 @@ export default function HomePage() {
           </h1>
           <p className="mx-auto mt-4 max-w-lg text-[15px] leading-relaxed text-slate-500">
             Nhận ca đã được tổng đài bàn giao, đưa đúng quy trình theo model thiết bị đến điện thoại
-            kỹ thuật viên, rồi lưu kết quả xử lý có trích dẫn nguồn vào cùng một workspace.
+            kỹ thuật viên, rồi lưu kết quả xử lý có trích dẫn nguồn vào kho chung của đội.
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
             <Button className="min-w-[180px] gap-2" asChild>
@@ -274,7 +274,7 @@ export default function HomePage() {
               <div className="p-6">
                 <p className="text-[13px] font-semibold text-slate-900">Hỏi trực tiếp trong app</p>
                 <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
-                  Upload tài liệu, đặt câu hỏi bằng ngôn ngữ tự nhiên — nhận câu trả lời kèm trích
+                  Tải tài liệu lên, đặt câu hỏi bằng ngôn ngữ tự nhiên — nhận câu trả lời kèm trích
                   dẫn nguồn và điểm tin cậy sau mỗi lượt.
                 </p>
               </div>
@@ -314,7 +314,7 @@ export default function HomePage() {
                 <p className="text-[13px] font-semibold text-slate-900">Nhúng vào website khác</p>
                 <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
                   Cấp API key hoặc dán 1 thẻ iframe — khung chat của bạn xuất hiện ngay trên website
-                  công ty, dùng chung kho tài liệu đã upload.
+                  công ty, dùng chung kho tài liệu đã tải lên.
                 </p>
               </div>
               <div className="border-t border-slate-100 bg-slate-50/60 p-4 sm:border-l sm:border-t-0">
@@ -368,7 +368,7 @@ export default function HomePage() {
               Không chỉ là chatbot — là cả một pipeline dữ liệu có thể audit
             </h2>
             <p className="mx-auto mt-3 max-w-xl text-[13px] leading-relaxed text-white/50">
-              Mỗi tài liệu upload đi qua kiến trúc Medallion đầy đủ, kiểm định chất lượng và được
+              Mỗi tài liệu tải lên đi qua kiến trúc Medallion đầy đủ, kiểm định chất lượng và được
               điều phối tự động. Khác với hộp đen của các công cụ chat-với-tài-liệu thông thường,
               mọi câu trả lời đều truy ngược được về trạng thái kiểm định thật của nguồn.
             </p>

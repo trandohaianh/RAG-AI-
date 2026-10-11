@@ -77,12 +77,12 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
   }
 
   const nav = [
-    { href: "/field", label: "Field Operations", icon: ClipboardList },
+    { href: "/field", label: "Ca hiện trường", icon: ClipboardList },
     { href: "/docs", label: "Tài liệu", icon: FileText },
     { href: "/analytics", label: "Thống kê", icon: BarChart3 },
     { href: "/settings", label: "Cài đặt", icon: Settings },
     ...(user?.role === "admin"
-      ? [{ href: "/admin", label: "Admin", icon: Shield }]
+      ? [{ href: "/admin", label: "Quản trị", icon: Shield }]
       : []),
   ];
 

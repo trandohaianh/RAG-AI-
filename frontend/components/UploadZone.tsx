@@ -86,7 +86,7 @@ export default function UploadZone({
               onRefresh();
               resolve();
             } else {
-              let msg = "Upload thất bại";
+              let msg = "Tải lên thất bại";
               try {
                 const err = JSON.parse(xhr.responseText);
                 if (typeof err.detail === "string") msg = err.detail;
@@ -173,7 +173,7 @@ export default function UploadZone({
       >
         <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
         <p className="text-sm text-muted-foreground mb-1">
-          PDF, DOCX, TXT — hoặc ảnh (PNG/JPG) để OCR bằng Gemini
+          PDF, DOCX, TXT — hoặc ảnh (PNG/JPG), chữ trong ảnh được đọc tự động
         </p>
         <input
           type="file"
@@ -194,13 +194,15 @@ export default function UploadZone({
               <div className="flex items-center gap-2 text-sm">
                 <FileText className="h-4 w-4 shrink-0" />
                 <span className="flex-1 truncate">{r.name}</span>
-                <span className="text-xs text-muted-foreground">{r.status}</span>
+                <span className="text-xs text-muted-foreground">
+                  {r.status === "uploading" ? "Đang tải lên" : r.status === "done" ? "Xong" : "Lỗi"}
+                </span>
               </div>
               {r.status === "uploading" && <Progress value={r.progress} />}
               {r.status === "done" && r.chunks != null && (
                 <p className="text-xs text-green-600">
-                  {r.chunks} chunks đã lập chỉ mục
-                  {/\.(png|jpe?g|gif|webp)$/i.test(r.name) ? " · đã OCR ảnh" : ""}
+                  {r.chunks} đoạn đã lập chỉ mục
+                  {/\.(png|jpe?g|gif|webp)$/i.test(r.name) ? " · đã đọc chữ trong ảnh" : ""}
                 </p>
               )}
               {r.error && <p className="text-xs text-destructive">{r.error}</p>}
@@ -216,9 +218,9 @@ export default function UploadZone({
             <thead className="bg-slate-50">
               <tr>
                 <th className="text-left p-3">Tên</th>
-                <th className="text-left p-3">Chunks</th>
-                <th className="text-left p-3">Ngày upload</th>
-                <th className="text-left p-3">Pipeline (audit trail)</th>
+                <th className="text-left p-3">Số đoạn</th>
+                <th className="text-left p-3">Ngày tải lên</th>
+                <th className="text-left p-3">Trạng thái xử lý</th>
                 <th className="p-3" />
               </tr>
             </thead>
@@ -226,7 +228,7 @@ export default function UploadZone({
               {docs.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="p-4 text-center text-muted-foreground">
-                    Chưa có tài liệu — upload file ở trên
+                    Chưa có tài liệu — tải file lên ở trên
                   </td>
                 </tr>
               ) : (

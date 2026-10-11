@@ -91,7 +91,7 @@ export default function SettingsPage() {
   }
 
   async function createEmbed() {
-    const origins = prompt("Allowed origins (cách nhau bởi dấu phẩy, để trống = mọi origin):");
+    const origins = prompt("Website được phép nhúng (cách nhau bởi dấu phẩy, để trống = mọi website):");
     try {
       const res = await api.post<{ token: string; snippet: string }>("/embed/tokens", {
         label: "Website",
@@ -107,9 +107,9 @@ export default function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto p-4 md:p-6 space-y-10 max-w-3xl">
       <div>
-        <h1 className="text-xl font-semibold">Cài đặt SaaS</h1>
+        <h1 className="text-xl font-semibold">Cài đặt</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Billing, Public API, Embed widget (tuần 5–8)
+          Gói sử dụng, khóa API cho hệ thống khác và khung chat nhúng vào website
         </p>
       </div>
 
@@ -123,7 +123,7 @@ export default function SettingsPage() {
       )}
 
       <section className="space-y-3">
-        <h2 className="font-medium">Gói & Billing (Stripe)</h2>
+        <h2 className="font-medium">Gói sử dụng & thanh toán</h2>
         {billing && (
           <div className="rounded-lg border p-4 space-y-3">
             <div className="flex items-center gap-2">
@@ -139,12 +139,12 @@ export default function SettingsPage() {
                   <Button onClick={checkout}>Nâng cấp Pro</Button>
                 )}
                 <Button variant="secondary" onClick={portal}>
-                  Quản lý subscription
+                  Quản lý gói đăng ký
                 </Button>
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Cấu hình STRIPE_SECRET_KEY và STRIPE_PRICE_PRO trong .env để bật thanh toán.
+                Thanh toán trực tuyến chưa được bật (cần cấu hình Stripe trên máy chủ).
               </p>
             )}
           </div>
@@ -152,16 +152,16 @@ export default function SettingsPage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="font-medium">Public API keys</h2>
+        <h2 className="font-medium">Khóa API</h2>
         <p className="text-xs text-muted-foreground">
-          Gọi POST /v1/ask với header X-API-Key
+          Cho phép hệ thống khác hỏi trợ lý qua API: POST /v1/ask, header X-API-Key
         </p>
         <Button size="sm" onClick={createKey}>
-          Tạo API key
+          Tạo khóa API
         </Button>
         {newKey && (
           <div className="rounded-md bg-muted p-3 text-xs break-all">
-            <p className="font-medium text-destructive mb-1">Lưu key ngay — chỉ hiện một lần:</p>
+            <p className="font-medium text-destructive mb-1">Lưu khóa ngay — chỉ hiện một lần:</p>
             {newKey}
           </div>
         )}
@@ -187,13 +187,13 @@ export default function SettingsPage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="font-medium">Embed widget</h2>
+        <h2 className="font-medium">Nhúng khung chat vào website</h2>
         <Button size="sm" onClick={createEmbed}>
-          Tạo embed token
+          Tạo mã nhúng
         </Button>
         {newEmbed && (
           <div className="rounded-md bg-muted p-3 text-xs space-y-2">
-            <p className="font-medium">Snippet nhúng vào website:</p>
+            <p className="font-medium">Đoạn mã dán vào website:</p>
             <pre className="whitespace-pre-wrap break-all">{newEmbed.snippet}</pre>
           </div>
         )}
