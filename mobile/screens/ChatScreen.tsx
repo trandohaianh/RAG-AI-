@@ -14,6 +14,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as api from "../lib/api";
+import { markdownToPlain } from "../lib/text";
 import { colors, radius } from "../lib/theme";
 
 type ChatMsg = {
@@ -184,7 +185,7 @@ export default function ChatScreen({ route, navigation }: any) {
             {item.streaming && !item.content ? (
               <ActivityIndicator size="small" color={colors.textMuted} />
             ) : (
-              <Text style={styles.bubbleTextAssistant}>{item.content}</Text>
+              <Text style={styles.bubbleTextAssistant}>{markdownToPlain(item.content)}</Text>
             )}
 
             {(item.eval_faithfulness != null || item.eval_relevancy != null) && !item.streaming && (

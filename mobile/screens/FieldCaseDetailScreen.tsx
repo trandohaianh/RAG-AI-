@@ -30,6 +30,7 @@ import {
   type PendingFieldAction,
   type RejectedFieldAction,
 } from "../lib/fieldOffline";
+import { markdownToPlain } from "../lib/text";
 import { colors, radius } from "../lib/theme";
 import GradientButton from "../components/GradientButton";
 
@@ -479,7 +480,7 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
                 <GradientButton title="Tìm trong tri thức" onPress={askAssistant} loading={busy} />
                 {answer ? (
                   <ScrollView style={styles.answerCard}>
-                    <Text style={styles.answerText}>{answer.answer}</Text>
+                    <Text style={styles.answerText}>{markdownToPlain(answer.answer)}</Text>
                     {answer.sources.length > 0 ? <Text style={styles.source}>Nguồn: {answer.sources.join(", ")}</Text> : null}
                   </ScrollView>
                 ) : null}

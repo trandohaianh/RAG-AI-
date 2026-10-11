@@ -24,10 +24,10 @@ def _iter_tokens(prompt: str):
 
 
 _NO_DOC_MSG = (
-    "Tôi chỉ trả lời dựa trên **tài liệu bạn đã upload** (PDF, DOCX, TXT, ảnh OCR), "
-    "không phải câu hỏi kiến thức chung.\n\n"
-    "• Chưa có tài liệu hoặc chưa lập chỉ mục → vào **Tài liệu**, upload file rồi hỏi lại.\n"
-    "• Đã có tài liệu → hỏi đúng nội dung file (kể cả ảnh đã OCR)."
+    "Tôi chỉ trả lời dựa trên tài liệu đã upload (PDF, DOCX, TXT, ảnh OCR), "
+    "không trả lời câu hỏi kiến thức chung.\n\n"
+    "- Chưa có tài liệu hoặc chưa lập chỉ mục: vào mục Tài liệu, upload file rồi hỏi lại.\n"
+    "- Đã có tài liệu: hỏi đúng nội dung trong file (kể cả ảnh đã OCR)."
 )
 
 

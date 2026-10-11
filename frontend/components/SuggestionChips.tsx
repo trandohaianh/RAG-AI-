@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
-import api, { getApiErrorMessage } from "@/lib/api";
+import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
 const STATIC = [
@@ -18,25 +18,22 @@ type Props = {
 
 export default function SuggestionChips({ onPick, disabled }: Props) {
   const [fromDoc, setFromDoc] = useState<string[]>([]);
-  const [apiError, setApiError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    setApiError(null);
     api
-      .get<{ questions: string[] }>("/documents/suggested-questions?limit=6")
+      // Gợi ý sinh bằng LLM; với Ollama chạy CPU có thể mất hơn 15s mặc định.
+      .get<{ questions: string[] }>("/documents/suggested-questions?limit=6", { timeout: 120000 })
       .then((res) => {
         if (!cancelled) {
           setFromDoc(Array.isArray(res.data?.questions) ? res.data.questions : []);
         }
       })
-      .catch((e) => {
-        if (!cancelled) {
-          setFromDoc([]);
-          setApiError(getApiErrorMessage(e));
-        }
+      .catch(() => {
+        // Gợi ý chỉ là phần phụ: lỗi thì giữ các câu gợi ý mặc định, không báo đỏ.
+        if (!cancelled) setFromDoc([]);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -55,12 +52,7 @@ export default function SuggestionChips({ onPick, disabled }: Props) {
         Gợi ý câu hỏi
         {loading && <span className="font-normal">— đang tải từ tài liệu…</span>}
       </div>
-      {apiError && (
-        <p className="text-xs text-destructive">
-          {apiError} — kiểm tra backend: http://127.0.0.1:8000
-        </p>
-      )}
-      {!apiError && fromDoc.length > 0 && (
+      {fromDoc.length > 0 && (
         <p className="text-xs text-primary">Có {fromDoc.length} gợi ý từ file đã upload</p>
       )}
       <div className="flex flex-wrap gap-2">

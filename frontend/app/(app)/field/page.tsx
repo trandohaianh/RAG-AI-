@@ -20,6 +20,7 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
+import MarkdownContent from "@/components/MarkdownContent";
 import api, {
   getApiErrorMessage,
   type DocItem,
@@ -195,7 +196,9 @@ export default function FieldOperationsPage() {
     try {
       const response = await api.post<{ answer: string; sources: string[] }>(
         `/field/cases/${selectedCase.id}/assist`,
-        { question: question.trim() }
+        { question: question.trim() },
+        // Ollama chạy CPU có thể mất cả phút; mặc định 15s của axios là quá ngắn.
+        { timeout: 180000 }
       );
       setAnswer(
         `${response.data.answer}${
@@ -468,7 +471,11 @@ export default function FieldOperationsPage() {
                         <input value={question} onChange={(event) => setQuestion(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-indigo-100 bg-white px-3 py-2 text-xs outline-none focus:border-indigo-400" placeholder="Hỏi về bước kiểm tra tiếp theo..." />
                         <button disabled={busy} className="rounded-lg bg-indigo-600 px-3 text-white disabled:opacity-50" aria-label="Hỏi trợ lý"><Send className="h-4 w-4" /></button>
                       </form>
-                      {answer && <p className="mt-3 whitespace-pre-wrap rounded-lg bg-white p-3 text-xs leading-5 text-slate-700">{answer}</p>}
+                      {answer && (
+                        <div className="mt-3 rounded-lg bg-white p-3 text-[13px] leading-6 text-slate-700">
+                          <MarkdownContent content={answer} />
+                        </div>
+                      )}
                       <p className="mt-2 flex items-center gap-1 text-[10px] text-indigo-900/60"><ShieldAlert className="h-3 w-3" /> Không tự động thao tác thiết bị; kỹ thuật viên xác nhận trước khi thực hiện.</p>
                     </div>
 
