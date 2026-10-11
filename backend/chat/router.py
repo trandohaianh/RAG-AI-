@@ -18,7 +18,7 @@ from chat import service as chat_service
 
 from chat.schemas import ChatRequest, ConversationCreate, ConversationOut, FeedbackRequest, MessageOut
 
-from config import GEMINI_API_KEY
+from config import GEMINI_API_KEY, JUDGE_SAMPLE_RATE
 
 from database import get_db
 
@@ -33,6 +33,10 @@ _background_tasks: set = set()
 def _schedule_eval(message_id: int, question: str, context: str, answer: str) -> None:
     """Chấm điểm faithfulness/relevancy chạy nền, không chặn response."""
     import asyncio
+    import random
+
+    if random.random() >= JUDGE_SAMPLE_RATE:
+        return
 
     async def _run() -> None:
         result = await judge_answer(question, context, answer)

@@ -15,6 +15,8 @@ load_dotenv(ROOT_DIR / ".env", override=True)
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-001")
 LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-2.5-flash")
+# Tỉ lệ câu trả lời được LLM-as-judge chấm điểm (0–1). Mỗi lần chấm tốn thêm 1 lượt gọi Gemini.
+JUDGE_SAMPLE_RATE: float = min(1.0, max(0.0, float(os.getenv("JUDGE_SAMPLE_RATE", "0.1"))))
 
 # JWT
 SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-change-in-production-32ch")
