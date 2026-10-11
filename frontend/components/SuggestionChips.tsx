@@ -49,10 +49,10 @@ export default function SuggestionChips({ onPick, disabled }: Props) {
   const chips = [...STATIC, ...fromDoc].filter((v, i, a) => a.indexOf(v) === i);
 
   return (
-    <div className="border-t border-border bg-muted/30 px-4 py-3 space-y-2 shrink-0">
+    <div className="px-1 pb-2.5 space-y-1.5 shrink-0">
       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <Sparkles className="h-3.5 w-3.5 text-primary" />
-        Gợi ý câu hỏi (tuần 3–4)
+        Gợi ý câu hỏi
         {loading && <span className="font-normal">— đang tải từ tài liệu…</span>}
       </div>
       {apiError && (

@@ -57,7 +57,9 @@ export default function ChatIndexPage() {
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-6 p-6 text-center max-w-md mx-auto">
-      <MessageSquarePlus className="h-12 w-12 text-primary" />
+      <div className="brand-gradient flex h-16 w-16 items-center justify-center rounded-2xl shadow-lg shadow-black/10">
+        <MessageSquarePlus className="h-8 w-8 text-white" />
+      </div>
       <div>
         <h2 className="text-lg font-semibold mb-2">Bắt đầu hỏi đáp</h2>
         <p className="text-sm text-muted-foreground">

@@ -7,7 +7,12 @@ from sqlalchemy.orm import Session
 
 from auth.models import User
 from auth.schemas import UserCreate
-from config import ACCESS_TOKEN_EXPIRE_DAYS, ALGORITHM, SECRET_KEY
+from config import (
+    ACCESS_TOKEN_EXPIRE_DAYS,
+    ALGORITHM,
+    RESET_TOKEN_EXPIRE_MINUTES,
+    SECRET_KEY,
+)
 
 
 def hash_password(password: str) -> str:
@@ -30,6 +35,26 @@ def decode_token(token: str) -> dict | None:
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:
         return None
+
+
+def create_reset_token(email: str) -> str:
+    """Token ngắn hạn (30 phút), có claim purpose='reset' để phân biệt với access token."""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
+    payload = {"sub": email, "exp": expire, "purpose": "reset"}
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def decode_reset_token(token: str) -> str | None:
+    """Trả về email nếu token hợp lệ và đúng mục đích reset, ngược lại None."""
+    payload = decode_token(token)
+    if not payload or payload.get("purpose") != "reset" or "sub" not in payload:
+        return None
+    return payload["sub"]
+
+
+def set_password(db: Session, user: User, new_password: str) -> None:
+    user.hashed_password = hash_password(new_password)
+    db.commit()
 
 
 def register_user(db: Session, data: UserCreate) -> User:

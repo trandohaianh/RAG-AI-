@@ -143,6 +143,12 @@ def message_to_out(msg: Message) -> dict:
 
         "sources": sources,
 
+        "rating": msg.rating,
+
+        "eval_faithfulness": msg.eval_faithfulness,
+
+        "eval_relevancy": msg.eval_relevancy,
+
         "created_at": msg.created_at,
 
     }
@@ -187,6 +193,40 @@ def add_message(
 
 
 
+
+
+def set_message_feedback(
+    db: Session, user_id: int, conv_id: int, message_id: int, rating: int
+) -> Message | None:
+    """Lưu đánh giá 👍/👎 cho một câu trả lời của assistant."""
+    conv = get_conversation(db, user_id, conv_id)
+    if not conv:
+        return None
+    msg = (
+        db.query(Message)
+        .filter(
+            Message.id == message_id,
+            Message.conversation_id == conv_id,
+            Message.role == "assistant",
+        )
+        .first()
+    )
+    if not msg:
+        return None
+    msg.rating = rating if rating != 0 else None
+    db.commit()
+    db.refresh(msg)
+    return msg
+
+
+def set_message_eval(db: Session, message_id: int, faithfulness: float, relevancy: float) -> None:
+    """Lưu điểm tự động chấm (LLM-as-judge) cho một câu trả lời assistant."""
+    msg = db.query(Message).filter(Message.id == message_id).first()
+    if not msg:
+        return
+    msg.eval_faithfulness = faithfulness
+    msg.eval_relevancy = relevancy
+    db.commit()
 
 
 def get_history_for_rag(db: Session, conv_id: int, exclude_last: bool = True) -> list[dict]:

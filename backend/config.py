@@ -13,13 +13,18 @@ load_dotenv(ROOT_DIR / ".env", override=True)
 
 # Gemini
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
+EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-001")
 LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-2.5-flash")
 
 # JWT
 SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-change-in-production-32ch")
 ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_DAYS: int = 7
+RESET_TOKEN_EXPIRE_MINUTES: int = 30
+
+# Resend — gửi email quên mật khẩu
+RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
+RESEND_FROM_EMAIL: str = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
 
 # Chunking RAG (chunk lớn hơn → ít lần gọi embedding)
 CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "1000"))

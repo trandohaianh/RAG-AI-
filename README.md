@@ -1,9 +1,9 @@
-# RAG Chatbot — Production + Data Engineering
+# FieldOps — Field Service Intelligence Platform
 
 [![CI](https://github.com/YOUR_USERNAME/rag-chatbot/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/rag-chatbot/actions/workflows/ci.yml)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
 
-> Chatbot hỏi đáp tài liệu (RAG) với **Google Gemini**, JWT multi-user, **Medallion warehouse**, **Airflow**, **Great Expectations**, **Prometheus/Grafana**.
+> Nền tảng vận hành dịch vụ hiện trường: workspace đội kỹ thuật, ca sửa, checklist, tri thức dùng chung và trợ lý RAG có dẫn nguồn. Mobile-first cho kỹ thuật viên; web console cho điều phối.
 
 ---
 
@@ -18,12 +18,16 @@
 
 > **Free tier:** service sleep sau ~15 phút không dùng — lần mở đầu có thể chờ 30–60s.
 
-### Demo nhanh cho recruiter
+### Luồng demo sản phẩm
 
-1. Mở link App → **Đăng ký** tài khoản  
-2. **Tài liệu** → upload file PDF/DOCX/TXT mẫu  
-3. **Hỏi về tài liệu** → đặt câu hỏi theo nội dung file  
-4. *(Admin)* user đăng ký **đầu tiên** = role `admin` → tab **Admin**
+1. Đăng ký hai tài khoản thử nghiệm và tạo workspace đội kỹ thuật.
+2. Thêm tài khoản kỹ thuật viên vào workspace.
+3. Nạp SOP/manual mẫu vào **Tri thức đội** để các thành viên cùng truy xuất.
+4. Tạo ca sửa: triệu chứng, model thiết bị, địa chỉ và thông tin bàn giao từ tổng đài.
+5. Mở ca trên mobile: hỏi trợ lý theo tài liệu đội, thêm checklist/ghi nhận, chuyển trạng thái và lưu nhật ký.
+6. Dùng web console để theo dõi danh mục ca và workspace.
+
+> Chỉ dùng dữ liệu giả lập/công khai trong demo. Trợ lý hỗ trợ tra cứu và gợi ý; kỹ thuật viên chịu trách nhiệm xác nhận thao tác. Không tự chạy lệnh lên thiết bị.
 
 <!-- Thêm GIF sau khi quay màn hình (15–30s): -->
 <!-- ![Demo](docs/assets/demo.gif) -->
@@ -31,6 +35,25 @@
 ---
 
 ## Architecture
+
+### Hệ sinh thái FieldOps
+
+```mermaid
+flowchart LR
+    Desk[Web console<br/>workspace & triage] --> API[FastAPI]
+    Mobile[Mobile app<br/>ca sửa hiện trường] --> API
+    API --> Workspace[(Workspace & membership)]
+    API --> Cases[(Ca sửa, checklist<br/>audit timeline)]
+    API --> Docs[Tri thức đội]
+    Docs --> RAG[Ingest + retrieval + rerank]
+    RAG --> LLM[Gemini<br/>grounded suggestions]
+    Cases --> Feedback[Phản hồi kết quả xử lý]
+    Feedback --> Knowledge[Tri thức vận hành<br/>curated by humans]
+```
+
+**Các lớp sản phẩm:** tổ chức/workspace → danh mục ca sửa → thông tin thiết bị và bàn giao → checklist tại hiện trường → tri thức SOP/manual dùng chung → nhật ký kết quả và cải thiện tri thức. RAG là một lớp hỗ trợ trong vòng vận hành, không phải toàn bộ sản phẩm.
+
+**Phạm vi hiện tại:** workspace, phân quyền thành viên cơ bản, tạo/cập nhật ca, checklist, sự kiện xử lý, thư viện tài liệu workspace và trợ lý theo tài liệu workspace. Ứng dụng iOS/Android lưu bản ca gần đây và hàng đợi checklist/ghi nhận/trạng thái bằng SecureStore (Keychain/Android Keystore); thao tác tự đồng bộ khi ứng dụng mở lại trang ca/danh sách/tổng quan có mạng. Tạo ca mới, thêm bước checklist và hỏi RAG vẫn cần mạng. Offline cache chưa bật trên web. Chưa có đồng bộ tổng đài/CRM/NMS, điều phối lịch tuyến, lưu ảnh hiện trường hoặc tích hợp hệ thống nội bộ; đây là các bước cần discovery/pilot riêng.
 
 ```mermaid
 flowchart TB

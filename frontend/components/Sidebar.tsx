@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
-  Brain,
   FileText,
   LogOut,
   MessageSquarePlus,
@@ -13,6 +12,7 @@ import {
   Menu,
   Trash2,
   X,
+  ClipboardList,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import api, { type Conversation, type DocItem } from "@/lib/api";
@@ -20,6 +20,7 @@ import { useAuth, type User } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import Logo from "@/components/Logo";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -76,6 +77,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
   }
 
   const nav = [
+    { href: "/field", label: "Field Operations", icon: ClipboardList },
     { href: "/docs", label: "Tài liệu", icon: FileText },
     { href: "/analytics", label: "Thống kê", icon: BarChart3 },
     { href: "/settings", label: "Cài đặt", icon: Settings },
@@ -85,29 +87,31 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
   ];
 
   const sidebar = (
-    <aside className="flex flex-col h-full bg-sidebar border-r border-border w-[220px]">
-      <div className="p-4 border-b border-border flex items-center justify-between">
-        <Link href="/chat" className="flex items-center gap-2 font-semibold text-primary">
-          <Brain className="h-5 w-5" />
-          RAG Chat
+    <aside className="flex flex-col h-full bg-slate-50 md:bg-transparent w-[240px] shrink-0">
+      <div className="flex items-center justify-between px-4 py-5">
+        <Link href="/chat">
+          <Logo size={30} textClassName="text-sm" />
         </Link>
         <button type="button" className="md:hidden" onClick={onMobileClose}>
           <X className="h-5 w-5" />
         </button>
       </div>
 
-      <div className="p-3">
-        <Button className="w-full justify-start gap-2" onClick={newChat}>
+      <div className="px-3">
+        <Button
+          className="w-full justify-start gap-2 brand-gradient border-0 text-white shadow-md shadow-black/10 hover:opacity-90 hover:shadow-lg hover:shadow-black/20 transition-all rounded-full h-10"
+          onClick={newChat}
+        >
           <MessageSquarePlus className="h-4 w-4" />
           Chat mới
         </Button>
       </div>
 
-      <ScrollArea className="flex-1 px-2">
-        <p className="text-xs font-medium text-muted-foreground px-2 py-1">Hội thoại</p>
-        <ul className="space-y-0.5 pb-3">
+      <ScrollArea className="flex-1 px-3 mt-5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 px-2 py-1">Hội thoại</p>
+        <ul className="space-y-0.5 pb-4">
           {conversations.length === 0 && (
-            <li className="px-2 py-1 text-xs text-muted-foreground">Chưa có hội thoại</li>
+            <li className="px-2 py-1.5 text-xs text-slate-400">Chưa có hội thoại</li>
           )}
           {conversations.map((c) => (
             <li key={c.id} className="group flex items-center gap-0.5">
@@ -115,8 +119,9 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
                 href={`/chat/${c.id}`}
                 onClick={onMobileClose}
                 className={cn(
-                  "flex-1 min-w-0 rounded-md px-2 py-1.5 text-sm truncate hover:bg-accent",
-                  pathname === `/chat/${c.id}` && "bg-accent font-medium"
+                  "flex-1 min-w-0 rounded-lg px-2.5 py-1.5 text-sm truncate text-slate-600 hover:bg-white hover:shadow-sm transition-all",
+                  pathname === `/chat/${c.id}` &&
+                    "bg-white shadow-sm font-medium text-slate-900"
                 )}
               >
                 {c.title}
@@ -133,12 +138,12 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
           ))}
         </ul>
 
-        <p className="text-xs font-medium text-muted-foreground px-2 py-1">Tài liệu</p>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 px-2 py-1">Tài liệu</p>
         <ul className="space-y-0.5 pb-3">
           {docs.slice(0, 8).map((d) => (
-            <li key={d.name} className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground">
+            <li key={d.name} className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-slate-500">
               <span className="truncate flex-1">{d.name}</span>
-              <Badge variant="outline" className="text-[10px] px-1">
+              <Badge variant="outline" className="text-[10px] px-1.5 rounded-full border-slate-200">
                 {d.chunks}
               </Badge>
             </li>
@@ -146,22 +151,24 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
         </ul>
       </ScrollArea>
 
-      <div className="p-3 border-t border-border space-y-2">
+      <div className="p-3 space-y-0.5">
         {nav.map((n) => (
           <Link
             key={n.href}
             href={n.href}
             onClick={onMobileClose}
             className={cn(
-              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent",
-              pathname.startsWith(n.href) && "bg-accent"
+              "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-slate-600 hover:bg-white hover:shadow-sm transition-all",
+              pathname.startsWith(n.href) && "bg-white shadow-sm font-medium text-slate-900"
             )}
           >
-            <n.icon className="h-4 w-4" />
+            <n.icon className={cn("h-4 w-4", pathname.startsWith(n.href) && "text-primary")} />
             {n.label}
           </Link>
         ))}
-        <UserFooter user={user} onLogout={logout} />
+        <div className="pt-2 mt-2 border-t border-slate-200">
+          <UserFooter user={user} onLogout={logout} />
+        </div>
       </div>
     </aside>
   );
@@ -191,7 +198,7 @@ function UserFooter({ user, onLogout }: { user: User | null; onLogout: () => voi
   if (!user) return null;
   return (
     <div className="flex items-center gap-2 pt-2">
-      <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold text-primary">
+      <div className="brand-gradient h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm shadow-black/20">
         {user.email[0].toUpperCase()}
       </div>
       <div className="flex-1 min-w-0">

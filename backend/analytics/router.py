@@ -15,6 +15,10 @@ class OverviewOut(BaseModel):
     conversations: int
     messages: int
     assistant_replies: int
+    feedback_up: int
+    feedback_down: int
+    avg_faithfulness: float | None = None
+    avg_relevancy: float | None = None
     queries_today: int
     daily_limit: int
     subscription_plan: str

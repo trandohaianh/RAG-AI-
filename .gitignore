@@ -13,3 +13,15 @@ node_modules/
 frontend/.next/
 frontend/out/
 .DS_Store
+
+# Local runtime output and personal files (backed up separately, not for the public repo)
+*.log
+data/app.db
+backend/.pytest*_tmp/
+mobile/.expo/
+_tmp_*.json
+eval_results*.json
+/portfolio/
+/*.docx
+/*.html
+~$*

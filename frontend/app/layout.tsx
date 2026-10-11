@@ -6,8 +6,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin", "vietnamese"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "RAG Chat",
-  description: "Chatbot RAG với Google Gemini",
+  title: "FieldOps",
+  description: "Field service operations, shared technical knowledge, and grounded AI assistance.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

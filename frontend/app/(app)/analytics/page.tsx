@@ -8,6 +8,10 @@ type Overview = {
   conversations: number;
   messages: number;
   assistant_replies: number;
+  feedback_up: number;
+  feedback_down: number;
+  avg_faithfulness: number | null;
+  avg_relevancy: number | null;
   queries_today: number;
   daily_limit: number;
   subscription_plan: string;
@@ -70,26 +74,69 @@ export default function AnalyticsPage() {
 
       {overview && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="rounded-lg border p-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
             <p className="text-sm text-muted-foreground">Gói</p>
             <p className="text-lg font-semibold capitalize">{overview.subscription_plan}</p>
           </div>
-          <div className="rounded-lg border p-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
             <p className="text-sm text-muted-foreground">Hạn mức hôm nay</p>
             <p className="text-lg font-semibold">
               {overview.queries_today} / {overview.daily_limit}
             </p>
           </div>
-          <div className="rounded-lg border p-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
             <p className="text-sm text-muted-foreground">Tổng chunks</p>
             <p className="text-lg font-semibold">{overview.total_chunks}</p>
           </div>
         </div>
       )}
 
+      {overview && (overview.feedback_up > 0 || overview.feedback_down > 0) && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+          <p className="text-sm text-muted-foreground mb-1">Mức độ hài lòng câu trả lời (người dùng đánh giá)</p>
+          <div className="flex items-center gap-4">
+            <span className="text-lg font-semibold text-primary">
+              👍 {overview.feedback_up}
+            </span>
+            <span className="text-lg font-semibold text-destructive">
+              👎 {overview.feedback_down}
+            </span>
+            <span className="text-sm text-muted-foreground">
+              (
+              {Math.round(
+                (overview.feedback_up /
+                  Math.max(1, overview.feedback_up + overview.feedback_down)) *
+                  100
+              )}
+              % hài lòng)
+            </span>
+          </div>
+        </div>
+      )}
+
+      {overview && (overview.avg_faithfulness != null || overview.avg_relevancy != null) && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+          <p className="text-sm text-muted-foreground mb-1">
+            Chất lượng RAG trung bình (AI tự chấm mỗi câu trả lời)
+          </p>
+          <div className="flex flex-wrap items-center gap-4">
+            {overview.avg_faithfulness != null && (
+              <span className="text-lg font-semibold text-success">
+                Bám sát nguồn {Math.round(overview.avg_faithfulness * 100)}%
+              </span>
+            )}
+            {overview.avg_relevancy != null && (
+              <span className="text-lg font-semibold text-success">
+                Đúng trọng tâm {Math.round(overview.avg_relevancy * 100)}%
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div>
         <h2 className="font-medium mb-3">Truy vấn 14 ngày gần nhất</h2>
-        <div className="rounded-lg border p-4 space-y-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-2">
           {daily.length === 0 && (
             <p className="text-sm text-muted-foreground">Chưa có dữ liệu truy vấn.</p>
           )}

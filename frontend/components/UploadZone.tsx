@@ -3,9 +3,10 @@
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Upload, Trash2, FileText, MessageSquare } from "lucide-react";
-import api, { getApiErrorMessage, type Conversation, type DocItem } from "@/lib/api";
+import api, { getApiErrorMessage, type Conversation, type DocItem, type LineageMap } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import LineageBadge from "@/components/LineageBadge";
 import { cn } from "@/lib/utils";
 
 const ALLOWED_EXT = ["pdf", "docx", "doc", "txt", "png", "jpg", "jpeg", "gif", "webp"];
@@ -21,9 +22,11 @@ type FileRow = {
 export default function UploadZone({
   docs,
   onRefresh,
+  lineage = {},
 }: {
   docs: DocItem[];
   onRefresh: () => void;
+  lineage?: LineageMap;
 }) {
   const router = useRouter();
   const [dragging, setDragging] = useState(false);
@@ -141,7 +144,7 @@ export default function UploadZone({
       )}
 
       {docs.length > 0 && !toast && (
-        <div className="rounded-lg border bg-muted/30 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
             Bạn có {docs.length} tài liệu đã lập chỉ mục. Sang Chat để hỏi về nội dung.
           </p>
@@ -164,8 +167,8 @@ export default function UploadZone({
           Array.from(e.dataTransfer.files).forEach(uploadOne);
         }}
         className={cn(
-          "relative border-2 border-dashed rounded-xl p-12 text-center transition-colors",
-          dragging ? "border-primary bg-primary/5" : "border-border"
+          "relative border-2 border-dashed rounded-xl p-10 text-center transition-colors",
+          dragging ? "border-primary bg-primary/5" : "border-slate-200 bg-slate-50/50"
         )}
       >
         <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
@@ -187,7 +190,7 @@ export default function UploadZone({
       {rows.length > 0 && (
         <ul className="space-y-3">
           {rows.map((r) => (
-            <li key={r.name} className="border rounded-lg p-3 space-y-2">
+            <li key={r.name} className="rounded-xl border border-slate-200 bg-white p-4 space-y-2 shadow-sm">
               <div className="flex items-center gap-2 text-sm">
                 <FileText className="h-4 w-4 shrink-0" />
                 <span className="flex-1 truncate">{r.name}</span>
@@ -208,20 +211,21 @@ export default function UploadZone({
 
       <div>
         <h3 className="font-medium mb-3">Tài liệu của bạn</h3>
-        <div className="border rounded-lg overflow-hidden">
+        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
           <table className="w-full text-sm">
-            <thead className="bg-muted/50">
+            <thead className="bg-slate-50">
               <tr>
                 <th className="text-left p-3">Tên</th>
                 <th className="text-left p-3">Chunks</th>
                 <th className="text-left p-3">Ngày upload</th>
+                <th className="text-left p-3">Pipeline (audit trail)</th>
                 <th className="p-3" />
               </tr>
             </thead>
             <tbody>
               {docs.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="p-4 text-center text-muted-foreground">
+                  <td colSpan={5} className="p-4 text-center text-muted-foreground">
                     Chưa có tài liệu — upload file ở trên
                   </td>
                 </tr>
@@ -232,6 +236,9 @@ export default function UploadZone({
                     <td className="p-3">{d.chunks}</td>
                     <td className="p-3 text-muted-foreground">
                       {d.uploaded_at ? d.uploaded_at.slice(0, 10) : "—"}
+                    </td>
+                    <td className="p-3">
+                      <LineageBadge lineage={lineage} filename={d.name} />
                     </td>
                     <td className="p-3 text-right">
                       <Button variant="ghost" size="icon" onClick={() => deleteDoc(d.name)}>

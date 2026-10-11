@@ -34,4 +34,5 @@ if ($inUse) {
 
 Write-Host "Backend: http://127.0.0.1:$Port (health: /health)" -ForegroundColor Green
 Write-Host "Swagger: http://127.0.0.1:$Port/docs" -ForegroundColor Green
-.\.venv\Scripts\uvicorn.exe main:app --host 127.0.0.1 --port $Port --reload
+Write-Host "LAN/Tailscale: dung 'ipconfig' hoac 'tailscale ip' de lay dia chi, vi du http://100.x.x.x:$Port" -ForegroundColor Green
+.\.venv\Scripts\uvicorn.exe main:app --host 0.0.0.0 --port $Port --reload

@@ -43,8 +43,9 @@ async def stream_rag_answer(
     user_id: int,
     question: str,
     history: list[dict[str, Any]] | None = None,
+    source: str | None = None,
 ) -> AsyncIterator[tuple[str, str | list[str] | None]]:
-    chunks = await retrieve(user_id, question)
+    chunks = await retrieve(user_id, question, source=source)
 
     try:
         from metrics import CHUNKS_RETRIEVED
@@ -61,6 +62,8 @@ async def stream_rag_answer(
     context = format_context(chunks)
     sources = _unique_sources(chunks)
     prompt = build_gemini_prompt(context, question, history)
+
+    yield ("context", context)
 
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[tuple[str, str | list[str] | None] | None] = asyncio.Queue()
@@ -94,9 +97,10 @@ async def answer_rag_once(
     user_id: int,
     question: str,
     history: list[dict[str, Any]] | None = None,
+    workspace_id: int | None = None,
 ) -> tuple[str, list[str]]:
     """Trả lời RAG một lần (không stream) — cho Public API."""
-    chunks = await retrieve(user_id, question)
+    chunks = await retrieve(user_id, question, workspace_id=workspace_id)
     if not chunks:
         return _NO_DOC_MSG, []
 

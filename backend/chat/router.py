@@ -16,7 +16,7 @@ from auth.schemas import CurrentUser
 
 from chat import service as chat_service
 
-from chat.schemas import ChatRequest, ConversationCreate, ConversationOut, MessageOut
+from chat.schemas import ChatRequest, ConversationCreate, ConversationOut, FeedbackRequest, MessageOut
 
 from config import GEMINI_API_KEY
 
@@ -25,6 +25,32 @@ from database import get_db
 from dependencies import get_current_user
 
 from rag.chain import stream_rag_answer
+from rag.judge import judge_answer
+
+_background_tasks: set = set()
+
+
+def _schedule_eval(message_id: int, question: str, context: str, answer: str) -> None:
+    """Chấm điểm faithfulness/relevancy chạy nền, không chặn response."""
+    import asyncio
+
+    async def _run() -> None:
+        result = await judge_answer(question, context, answer)
+        if not result:
+            return
+        from database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            chat_service.set_message_eval(
+                db, message_id, result["faithfulness"], result["relevancy"]
+            )
+        finally:
+            db.close()
+
+    task = asyncio.create_task(_run())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 
@@ -113,6 +139,20 @@ def delete_conversation(
     return {"message": "Đã xóa hội thoại"}
 
 
+@router.post("/conversations/{conv_id}/messages/{message_id}/feedback", response_model=MessageOut)
+def submit_feedback(
+    conv_id: int,
+    message_id: int,
+    body: FeedbackRequest,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    msg = chat_service.set_message_feedback(db, user.id, conv_id, message_id, body.rating)
+    if not msg:
+        raise HTTPException(status_code=404, detail="Không tìm thấy câu trả lời")
+    return MessageOut(**chat_service.message_to_out(msg))
+
+
 
 
 
@@ -160,6 +200,8 @@ async def chat_stream(
 
     question = body.question
 
+    source = body.source
+
     history_snapshot = list(history)
 
 
@@ -167,6 +209,8 @@ async def chat_stream(
     full_answer: list[str] = []
 
     sources: list[str] = []
+
+    retrieved_context: list[str] = [""]
 
 
 
@@ -178,11 +222,15 @@ async def chat_stream(
 
             async for kind, payload in stream_rag_answer(
 
-                user_id, question, history_snapshot
+                user_id, question, history_snapshot, source
 
             ):
 
-                if kind == "token":
+                if kind == "context":
+
+                    retrieved_context[0] = payload  # type: ignore[assignment]
+
+                elif kind == "token":
 
                     full_answer.append(payload)  # type: ignore[arg-type]
 
@@ -192,31 +240,35 @@ async def chat_stream(
 
                     sources = payload  # type: ignore[assignment]
 
-                    yield f"data: {json.dumps({'done': True, 'sources': sources}, ensure_ascii=False)}\n\n"
+                    answer_text = "".join(full_answer)
+
+                    from database import SessionLocal
+
+                    db_save = SessionLocal()
+
+                    try:
+
+                        saved = chat_service.add_message(db_save, conv_id, "assistant", answer_text, sources)
+
+                        saved_id = saved.id
+
+                    finally:
+
+                        db_save.close()
+
+                    if answer_text.strip():
+
+                        _schedule_eval(saved_id, question, retrieved_context[0], answer_text)
+
+                    yield f"data: {json.dumps({'done': True, 'sources': sources, 'message_id': saved_id}, ensure_ascii=False)}\n\n"
+
+                    return
 
         except Exception as exc:
 
             yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
 
             return
-
-
-
-        answer_text = "".join(full_answer)
-
-        from database import SessionLocal
-
-
-
-        db_save = SessionLocal()
-
-        try:
-
-            chat_service.add_message(db_save, conv_id, "assistant", answer_text, sources)
-
-        finally:
-
-            db_save.close()
 
 
 

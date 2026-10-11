@@ -14,6 +14,15 @@ class UserLogin(BaseModel):
     password: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str = Field(..., min_length=6)
+
+
 class CurrentUser(BaseModel):
     """User đã xác thực — không gắn SQLAlchemy session."""
 

@@ -36,26 +36,37 @@ def _migrate_sqlite_columns() -> None:
     if not DATABASE_URL.startswith("sqlite"):
         return
     insp = inspect(engine)
-    if "users" not in insp.get_table_names():
-        return
-    cols = {c["name"] for c in insp.get_columns("users")}
-    with engine.begin() as conn:
-        if "subscription_plan" not in cols:
-            conn.execute(
-                text(
-                    "ALTER TABLE users ADD COLUMN subscription_plan VARCHAR(20) DEFAULT 'free'"
+    table_names = insp.get_table_names()
+    if "users" in table_names:
+        cols = {c["name"] for c in insp.get_columns("users")}
+        with engine.begin() as conn:
+            if "subscription_plan" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE users ADD COLUMN subscription_plan VARCHAR(20) DEFAULT 'free'"
+                    )
                 )
-            )
-        if "stripe_customer_id" not in cols:
-            conn.execute(
-                text("ALTER TABLE users ADD COLUMN stripe_customer_id VARCHAR(255)")
-            )
+            if "stripe_customer_id" not in cols:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN stripe_customer_id VARCHAR(255)")
+                )
+
+    if "messages" in table_names:
+        msg_cols = {c["name"] for c in insp.get_columns("messages")}
+        with engine.begin() as conn:
+            if "rating" not in msg_cols:
+                conn.execute(text("ALTER TABLE messages ADD COLUMN rating INTEGER"))
+            if "eval_faithfulness" not in msg_cols:
+                conn.execute(text("ALTER TABLE messages ADD COLUMN eval_faithfulness FLOAT"))
+            if "eval_relevancy" not in msg_cols:
+                conn.execute(text("ALTER TABLE messages ADD COLUMN eval_relevancy FLOAT"))
 
 
 def init_db() -> None:
     """Tạo tất cả bảng SQLite."""
     from auth import models as auth_models  # noqa: F401
     from chat import models as chat_models  # noqa: F401
+    from field import models as field_models  # noqa: F401
     from saas import models as saas_models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)

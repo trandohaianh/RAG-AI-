@@ -2,19 +2,37 @@
 
 import { useState } from "react";
 import MarkdownContent from "@/components/MarkdownContent";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, ThumbsDown, ThumbsUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import LineageBadge from "@/components/LineageBadge";
+import type { LineageMap } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export type ChatMessage = {
+  id?: number;
   role: "user" | "assistant";
   content: string;
   sources?: string[];
   streaming?: boolean;
+  rating?: number | null;
+  eval_faithfulness?: number | null;
+  eval_relevancy?: number | null;
 };
 
-export default function MessageBubble({ message }: { message: ChatMessage }) {
+function scoreColor(score: number) {
+  if (score >= 0.75) return "text-success border-success/30 bg-success/10";
+  if (score >= 0.4) return "text-amber-600 border-amber-500/30 bg-amber-500/10";
+  return "text-destructive border-destructive/30 bg-destructive/10";
+}
+
+type Props = {
+  message: ChatMessage;
+  onRate?: (messageId: number, rating: -1 | 0 | 1) => void;
+  lineage?: LineageMap;
+};
+
+export default function MessageBubble({ message, onRate, lineage = {} }: Props) {
   const isUser = message.role === "user";
   const [open, setOpen] = useState(false);
 
@@ -22,10 +40,10 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
     <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm",
+          "max-w-[85%] rounded-xl px-4 py-3 text-[13px] leading-relaxed",
           isUser
-            ? "bg-primary text-primary-foreground"
-            : "bg-secondary text-secondary-foreground"
+            ? "brand-gradient rounded-br-sm text-white shadow-md shadow-black/10"
+            : "rounded-bl-sm border border-slate-200 bg-white text-card-foreground shadow-sm"
         )}
       >
         {!isUser && message.streaming && !message.content && (
@@ -57,14 +75,73 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
               {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
               Nguồn tài liệu
             </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2 flex flex-wrap gap-1.5">
+            <CollapsibleContent className="mt-2 flex flex-wrap items-center gap-1.5">
               {message.sources.map((s) => (
-                <Badge key={s} variant="outline" className="cursor-default text-xs">
-                  {s}
-                </Badge>
+                <span key={s} className="inline-flex items-center gap-1">
+                  <Badge variant="outline" className="cursor-default text-xs">
+                    {s}
+                  </Badge>
+                  <LineageBadge lineage={lineage} filename={s} />
+                </span>
               ))}
             </CollapsibleContent>
           </Collapsible>
+        )}
+
+        {!isUser &&
+          !message.streaming &&
+          (message.eval_faithfulness != null || message.eval_relevancy != null) && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {message.eval_faithfulness != null && (
+                <span
+                  title="Faithfulness — mức độ câu trả lời bám sát tài liệu nguồn (chấm tự động bởi AI)"
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                    scoreColor(message.eval_faithfulness)
+                  )}
+                >
+                  Bám sát nguồn {Math.round(message.eval_faithfulness * 100)}%
+                </span>
+              )}
+              {message.eval_relevancy != null && (
+                <span
+                  title="Relevancy — mức độ câu trả lời đúng trọng tâm câu hỏi (chấm tự động bởi AI)"
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                    scoreColor(message.eval_relevancy)
+                  )}
+                >
+                  Đúng trọng tâm {Math.round(message.eval_relevancy * 100)}%
+                </span>
+              )}
+            </div>
+          )}
+
+        {!isUser && message.id && !message.streaming && onRate && (
+          <div className="mt-2 flex items-center gap-1">
+            <button
+              type="button"
+              aria-label="Câu trả lời hữu ích"
+              onClick={() => onRate(message.id!, message.rating === 1 ? 0 : 1)}
+              className={cn(
+                "rounded p-1 hover:bg-success/10 transition-colors",
+                message.rating === 1 && "text-success bg-success/10"
+              )}
+            >
+              <ThumbsUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              aria-label="Câu trả lời chưa tốt"
+              onClick={() => onRate(message.id!, message.rating === -1 ? 0 : -1)}
+              className={cn(
+                "rounded p-1 hover:bg-destructive/10 transition-colors",
+                message.rating === -1 && "text-destructive bg-destructive/10"
+              )}
+            >
+              <ThumbsDown className="h-3.5 w-3.5" />
+            </button>
+          </div>
         )}
       </div>
     </div>

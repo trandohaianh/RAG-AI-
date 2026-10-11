@@ -5,9 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import api, { getApiErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import AuthBackdrop, { darkInputClass } from "@/components/AuthBackdrop";
+import { LogoMark } from "@/components/Logo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -37,58 +36,68 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-muted/30 gap-4">
-      <div className="w-full max-w-md rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
-        <strong>RAG Chat</strong> ≠ Grafana. Nếu thấy logo Grafana → mở nhầm cổng Docker.
-        Chạy <code className="text-xs">cd frontend && npm run dev</code> rồi mở URL Next.js (thường{" "}
-        <code className="text-xs">localhost:3001</code> — hiện cổng 3000 đang là Grafana/Docker).
+    <AuthBackdrop>
+      <div className="w-full max-w-md text-center">
+        <LogoMark size={56} className="mx-auto shadow-lg shadow-black/40" />
+
+        <h1 className="mt-6 text-3xl font-semibold tracking-tight">Đăng nhập FieldOps</h1>
+        <p className="mt-2 text-sm text-white/50">
+          Chưa có tài khoản?{" "}
+          <Link href="/register" className="font-medium text-white hover:underline">
+            Đăng ký
+          </Link>
+          .
+        </p>
+
+        <form onSubmit={onSubmit} className="mt-8 space-y-3 text-left">
+          {error && (
+            <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+              {error}
+            </p>
+          )}
+
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-white/60">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              placeholder="ban@example.com"
+              className={darkInputClass()}
+            />
+          </div>
+
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <label className="text-xs font-medium text-white/60">Mật khẩu</label>
+              <Link href="/forgot-password" className="text-xs font-medium text-white/50 hover:text-white">
+                Quên mật khẩu?
+              </Link>
+            </div>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              placeholder="••••••••"
+              className={darkInputClass()}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="brand-gradient mt-2 w-full rounded-full py-3 text-sm font-semibold text-white shadow-lg shadow-black/40 transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {submitting ? "Đang đăng nhập..." : "Đăng nhập"}
+          </button>
+        </form>
+
+        <p className="mt-8 text-xs text-white/30">
+          Bằng việc đăng nhập, bạn đồng ý với các điều khoản sử dụng của hệ thống.
+        </p>
       </div>
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Đăng nhập RAG Chat</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Chưa có tài khoản?{" "}
-            <Link href="/register" className="text-primary font-medium hover:underline">
-              Đăng ký ngay
-            </Link>
-            {" · "}
-            <Link href="/" className="hover:underline">
-              Trang chủ
-            </Link>
-          </p>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={onSubmit} className="space-y-4">
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            <div>
-              <label className="text-sm font-medium">Email</label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Mật khẩu</label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="mt-1"
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? "Đang đăng nhập..." : "Đăng nhập"}
-            </Button>
-          </form>
-          <Button type="button" variant="outline" className="w-full mt-4" asChild>
-            <Link href="/register">Tạo tài khoản mới</Link>
-          </Button>
-        </CardContent>
-      </Card>
-    </div>
+    </AuthBackdrop>
   );
 }

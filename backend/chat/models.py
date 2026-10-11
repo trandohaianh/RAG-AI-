@@ -29,6 +29,9 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(20))  # user | assistant
     content: Mapped[str] = mapped_column(Text, default="")
     sources_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list filenames
+    rating: Mapped[int | None] = mapped_column(nullable=True)  # 1 = up, -1 = down
+    eval_faithfulness: Mapped[float | None] = mapped_column(nullable=True)  # LLM-judge 0-1
+    eval_relevancy: Mapped[float | None] = mapped_column(nullable=True)  # LLM-judge 0-1
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

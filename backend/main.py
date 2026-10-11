@@ -18,6 +18,7 @@ import os
 from config import CHROMA_DIR, UPLOAD_DIR
 from database import init_db
 from docs.router import router as docs_router
+from field.router import router as field_router
 from metrics import metrics_response
 from middleware_metrics import PrometheusMiddleware
 from pipeline.db import init_medallion_schema
@@ -36,9 +37,9 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(
-    title="RAG Chatbot API",
-    description="Production RAG với Gemini, JWT, per-user ChromaDB",
-    version="4.0.0",
+    title="Field Service Intelligence API",
+    description="Field-service workspaces, case workflows, and grounded RAG assistance.",
+    version="5.0.0",
     lifespan=lifespan,
 )
 
@@ -65,6 +66,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(docs_router)
+app.include_router(field_router)
 app.include_router(admin_router)
 app.include_router(analytics_router)
 app.include_router(embed_router)

@@ -80,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     }
     try {
-      const res = await api.get<User>("/auth/me", { timeout: 3000 });
+      const res = await api.get<User>("/auth/me", { timeout: 8000 });
       setUser(res.data);
       localStorage.setItem(USER_KEY, JSON.stringify(res.data));
     } catch {

@@ -41,6 +41,26 @@ if (typeof window !== "undefined") {
   if (t) setAuthToken(t);
 }
 
+// Token hết hạn/không hợp lệ (401) trên API cần đăng nhập → tự đăng xuất thay vì
+// hiện lỗi "token không hợp lệ" mãi trong khi UI vẫn tưởng đang đăng nhập.
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    const status = err.response?.status;
+    const url: string = err.config?.url ?? "";
+    const isAuthEndpoint = url.includes("/auth/login") || url.includes("/auth/register");
+    if (status === 401 && !isAuthEndpoint && typeof window !== "undefined") {
+      localStorage.removeItem("rag_token");
+      localStorage.removeItem("rag_user");
+      setAuthToken(null);
+      if (!window.location.pathname.startsWith("/login")) {
+        window.location.href = "/login";
+      }
+    }
+    return Promise.reject(err);
+  }
+);
+
 export default api;
 
 export type Conversation = { id: number; title: string; created_at: string };
@@ -49,19 +69,93 @@ export type Message = {
   role: string;
   content: string;
   sources: string[];
+  rating: number | null;
+  eval_faithfulness: number | null;
+  eval_relevancy: number | null;
   created_at: string;
 };
 export type DocItem = { name: string; chunks: number; uploaded_at: string | null };
 export type SuggestedQuestionsResponse = { questions: string[] };
+
+export type FieldWorkspace = {
+  id: number;
+  name: string;
+  role: string;
+  member_count: number;
+};
+
+export type FieldMember = { user_id: number; email: string; role: string };
+export type FieldStatus = "open" | "in_progress" | "waiting" | "escalated" | "resolved";
+export type FieldStepStatus = "todo" | "done" | "blocked";
+export type FieldEvent = {
+  id: number;
+  actor_id: number;
+  event_type: string;
+  detail: string;
+  created_at: string;
+};
+export type FieldStep = {
+  id: number;
+  title: string;
+  instruction: string;
+  source: string | null;
+  status: FieldStepStatus;
+  result_note: string | null;
+  position: number;
+  completed_by: number | null;
+  completed_at: string | null;
+};
+export type FieldCase = {
+  id: number;
+  workspace_id: number;
+  created_by: number;
+  assigned_to: number | null;
+  title: string;
+  customer_label: string | null;
+  address: string | null;
+  device_model: string | null;
+  serial_number: string | null;
+  symptom: string;
+  status: FieldStatus;
+  created_at: string;
+  updated_at: string;
+  steps: FieldStep[];
+  events: FieldEvent[];
+};
+
+export type DocLineage = {
+  bronze_ingested_at: string | null;
+  silver_chunk_count: number;
+  validation_passed: boolean | null;
+  gold_ready: boolean;
+  gold_chunk_count: number | null;
+};
+export type LineageStatus = { medallion_enabled: boolean; reachable?: boolean };
+/** Key "__status__" = trạng thái pipeline chung; các key khác = tên file -> lineage. */
+export type LineageMap = Record<string, DocLineage | LineageStatus>;
+
+export async function getDocLineage(): Promise<LineageMap> {
+  const res = await api.get<LineageMap>("/documents/lineage");
+  return res.data;
+}
+
+export async function sendFeedback(convId: number, messageId: number, rating: -1 | 0 | 1) {
+  const res = await api.post<Message>(
+    `/conversations/${convId}/messages/${messageId}/feedback`,
+    { rating }
+  );
+  return res.data;
+}
 
 export async function streamChat(
   convId: number,
   question: string,
   callbacks: {
     onToken: (t: string) => void;
-    onDone: (sources: string[]) => void;
+    onDone: (sources: string[], messageId: number | null) => void;
     onError: (e: string) => void;
-  }
+  },
+  source?: string | null
 ) {
   const token = localStorage.getItem("rag_token");
   const res = await fetch(`${API_URL}/chat/${convId}`, {
@@ -70,7 +164,7 @@ export async function streamChat(
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, source: source || null }),
   });
 
   if (!res.ok || !res.body) {
@@ -98,7 +192,7 @@ export async function streamChat(
           return;
         }
         if (data.token) callbacks.onToken(data.token);
-        if (data.done) callbacks.onDone(data.sources ?? []);
+        if (data.done) callbacks.onDone(data.sources ?? [], data.message_id ?? null);
       } catch {
         /* skip */
       }

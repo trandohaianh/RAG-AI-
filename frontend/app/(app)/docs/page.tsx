@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import UploadZone from "@/components/UploadZone";
-import api, { type DocItem } from "@/lib/api";
+import api, { getDocLineage, type DocItem, type LineageMap } from "@/lib/api";
 
 export default function DocsPage() {
   const [docs, setDocs] = useState<DocItem[]>([]);
+  const [lineage, setLineage] = useState<LineageMap>({});
 
   const load = useCallback(async () => {
     try {
@@ -13,6 +14,11 @@ export default function DocsPage() {
       setDocs(Array.isArray(res.data) ? res.data : []);
     } catch {
       setDocs([]);
+    }
+    try {
+      setLineage(await getDocLineage());
+    } catch {
+      setLineage({});
     }
   }, []);
 
@@ -38,7 +44,7 @@ export default function DocsPage() {
         </p>
       </div>
 
-      <UploadZone docs={docs} onRefresh={load} />
+      <UploadZone docs={docs} onRefresh={load} lineage={lineage} />
     </div>
   );
 }

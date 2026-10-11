@@ -29,17 +29,32 @@ def _redis():
     return _client
 
 
-def cache_key_retrieve(user_id: int, query: str, k: int) -> str:
-    h = hashlib.sha256(f"{user_id}:{k}:{query}".encode("utf-8")).hexdigest()[:48]
-    return f"rag:retrieve:{user_id}:{h}"
+def cache_key_retrieve(
+    user_id: int,
+    query: str,
+    k: int,
+    source: str | None = None,
+    workspace_id: int | None = None,
+) -> str:
+    scope = f"workspace:{workspace_id}" if workspace_id is not None else f"user:{user_id}"
+    h = hashlib.sha256(
+        f"{scope}:{k}:{source or ''}:{query}".encode("utf-8")
+    ).hexdigest()[:48]
+    return f"rag:retrieve:{scope}:{h}"
 
 
-def get_cached_chunks(user_id: int, query: str, k: int) -> list[tuple[str, str, int | None]] | None:
+def get_cached_chunks(
+    user_id: int,
+    query: str,
+    k: int,
+    source: str | None = None,
+    workspace_id: int | None = None,
+) -> list[tuple[str, str, int | None]] | None:
     r = _redis()
     if not r:
         return None
     try:
-        raw = r.get(cache_key_retrieve(user_id, query, k))
+        raw = r.get(cache_key_retrieve(user_id, query, k, source, workspace_id))
         if not raw:
             return None
         data = json.loads(raw)
@@ -53,7 +68,12 @@ def get_cached_chunks(user_id: int, query: str, k: int) -> list[tuple[str, str, 
 
 
 def set_cached_chunks(
-    user_id: int, query: str, k: int, chunks: list[tuple[str, str, int | None]]
+    user_id: int,
+    query: str,
+    k: int,
+    chunks: list[tuple[str, str, int | None]],
+    source: str | None = None,
+    workspace_id: int | None = None,
 ) -> None:
     r = _redis()
     if not r:
@@ -63,7 +83,7 @@ def set_cached_chunks(
             {"text": t, "source": s, "page": p} for t, s, p in chunks
         ]
         r.setex(
-            cache_key_retrieve(user_id, query, k),
+            cache_key_retrieve(user_id, query, k, source, workspace_id),
             REDIS_CACHE_TTL_SEC,
             json.dumps(payload, ensure_ascii=False),
         )
@@ -77,7 +97,21 @@ def invalidate_user_cache(user_id: int) -> None:
     if not r:
         return
     try:
-        for key in r.scan_iter(match=f"rag:retrieve:{user_id}:*", count=100):
+        for key in r.scan_iter(match=f"rag:retrieve:user:{user_id}:*", count=100):
+            r.delete(key)
+    except Exception:
+        pass
+
+
+def invalidate_workspace_cache(workspace_id: int) -> None:
+    """Xóa cache retrieval dùng chung của workspace sau upload/xóa tài liệu."""
+    r = _redis()
+    if not r:
+        return
+    try:
+        for key in r.scan_iter(
+            match=f"rag:retrieve:workspace:{workspace_id}:*", count=100
+        ):
             r.delete(key)
     except Exception:
         pass

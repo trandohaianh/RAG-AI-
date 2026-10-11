@@ -19,9 +19,13 @@ export default function ChatDetailPage() {
       .then((res) => {
         setInitial(
           res.data.map((m) => ({
+            id: m.id,
             role: m.role as "user" | "assistant",
             content: m.content,
             sources: m.sources,
+            rating: m.rating,
+            eval_faithfulness: m.eval_faithfulness,
+            eval_relevancy: m.eval_relevancy,
           }))
         );
       })

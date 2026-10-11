@@ -21,6 +21,9 @@ class MessageOut(BaseModel):
     role: str
     content: str
     sources: list[str] = []
+    rating: int | None = None
+    eval_faithfulness: float | None = None
+    eval_relevancy: float | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -28,3 +31,9 @@ class MessageOut(BaseModel):
 
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1)
+    source: str | None = None
+    """Tên file cụ thể để chỉ hỏi trong phạm vi 1 tài liệu — None = tìm trên toàn bộ kho."""
+
+
+class FeedbackRequest(BaseModel):
+    rating: int = Field(..., ge=-1, le=1)

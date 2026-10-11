@@ -25,11 +25,33 @@ def user_overview(db: Session, user_id: int, plan: str) -> dict:
         .filter(Conversation.user_id == user_id, Message.role == "assistant")
         .count()
     )
+    feedback_up = (
+        db.query(Message)
+        .join(Conversation)
+        .filter(Conversation.user_id == user_id, Message.rating == 1)
+        .count()
+    )
+    feedback_down = (
+        db.query(Message)
+        .join(Conversation)
+        .filter(Conversation.user_id == user_id, Message.rating == -1)
+        .count()
+    )
     queries_today = daily_query_count(db, user_id)
+    avg_faithfulness, avg_relevancy = (
+        db.query(func.avg(Message.eval_faithfulness), func.avg(Message.eval_relevancy))
+        .join(Conversation)
+        .filter(Conversation.user_id == user_id, Message.eval_faithfulness.isnot(None))
+        .one()
+    )
     return {
         "conversations": conv_count,
         "messages": msg_count,
         "assistant_replies": assistant_count,
+        "feedback_up": feedback_up,
+        "feedback_down": feedback_down,
+        "avg_faithfulness": round(avg_faithfulness, 3) if avg_faithfulness is not None else None,
+        "avg_relevancy": round(avg_relevancy, 3) if avg_relevancy is not None else None,
         "queries_today": queries_today,
         "daily_limit": plan_daily_limit(plan),
         "subscription_plan": plan,
@@ -40,7 +62,7 @@ async def user_overview_with_docs(db: Session, user_id: int, plan: str) -> dict:
     docs = await list_user_docs(user_id)
     base = user_overview(db, user_id, plan)
     base["documents"] = len(docs)
-    base["total_chunks"] = sum(d.chunks for d in docs)
+    base["total_chunks"] = sum(d["chunks"] for d in docs)
     return base
 
 
