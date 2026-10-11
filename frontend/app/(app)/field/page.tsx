@@ -251,6 +251,8 @@ export default function FieldOperationsPage() {
     try {
       await api.post(`/documents/upload?workspace_id=${workspaceId}`, body, {
         headers: { "Content-Type": "multipart/form-data" },
+        // Lập chỉ mục file lớn (embedding theo batch có giãn cách) mất vài phút.
+        timeout: 600000,
       });
       await load(workspaceId);
     } catch (err) {
