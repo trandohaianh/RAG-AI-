@@ -9,11 +9,9 @@ Chạy nền, không chặn luồng trả lời chính; lỗi bị nuốt (best-
 import json
 import re
 
-import google.generativeai as genai
+from google.genai import types
 
-from config import GEMINI_API_KEY, LLM_MODEL
-
-genai.configure(api_key=GEMINI_API_KEY)
+from rag.llm import generate_text
 
 _JUDGE_PROMPT = """Bạn là giám khảo chấm chất lượng câu trả lời của một chatbot RAG.
 Chấm 2 tiêu chí, mỗi tiêu chí điểm số từ 0.0 đến 1.0 (số thực):
@@ -51,16 +49,14 @@ async def judge_answer(question: str, context: str, answer: str) -> dict | None:
     prompt = _JUDGE_PROMPT.format(context=context[:6000], question=question, answer=answer[:3000])
 
     def _call() -> str:
-        model = genai.GenerativeModel(LLM_MODEL)
-        resp = model.generate_content(
+        return generate_text(
             prompt,
-            generation_config={
-                "temperature": 0.0,
-                "max_output_tokens": 1024,
-                "response_mime_type": "application/json",
-            },
+            types.GenerateContentConfig(
+                temperature=0.0,
+                max_output_tokens=1024,
+                response_mime_type="application/json",
+            ),
         )
-        return resp.text or ""
 
     try:
         loop = asyncio.get_running_loop()

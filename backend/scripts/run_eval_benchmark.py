@@ -20,16 +20,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import google.generativeai as genai
-
-from config import GEMINI_API_KEY, LLM_MODEL
+from config import LLM_MODEL
 from rag.chain import _unique_sources
 from rag.grounding import sentence_grounding_score
 from rag.judge import judge_answer
 from rag.prompt import build_gemini_prompt, format_context
 from rag.retriever import retrieve
 
-genai.configure(api_key=GEMINI_API_KEY)
+from rag.llm import generate_text
 
 # Test user thật đã có tài liệu "Dặc tả.txt" ingest sẵn (bộ dữ liệu khảo sát học sinh).
 TEST_USER_ID = 1
@@ -71,9 +69,7 @@ async def _generate(prompt: str, retries: int = 4) -> str:
     loop = asyncio.get_running_loop()
 
     def _call() -> str:
-        model = genai.GenerativeModel(LLM_MODEL)
-        resp = model.generate_content(prompt)
-        return resp.text or ""
+        return generate_text(prompt)
 
     for attempt in range(retries):
         try:

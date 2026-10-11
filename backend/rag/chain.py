@@ -4,13 +4,9 @@ import threading
 from collections.abc import AsyncIterator
 from typing import Any
 
-import google.generativeai as genai
-
-from config import GEMINI_API_KEY, LLM_MODEL
+from rag.llm import generate_text, stream_text
 from rag.prompt import build_gemini_prompt, format_context
 from rag.retriever import retrieve
-
-genai.configure(api_key=GEMINI_API_KEY)
 
 
 def _unique_sources(chunks: list[tuple[str, str, int | None]]) -> list[str]:
@@ -24,11 +20,7 @@ def _unique_sources(chunks: list[tuple[str, str, int | None]]) -> list[str]:
 
 
 def _iter_tokens(prompt: str):
-    model = genai.GenerativeModel(LLM_MODEL)
-    response = model.generate_content(prompt, stream=True)
-    for chunk in response:
-        if chunk.text:
-            yield chunk.text
+    yield from stream_text(prompt)
 
 
 _NO_DOC_MSG = (
@@ -110,10 +102,5 @@ async def answer_rag_once(
 
     loop = asyncio.get_running_loop()
 
-    def _generate() -> str:
-        model = genai.GenerativeModel(LLM_MODEL)
-        resp = model.generate_content(prompt)
-        return resp.text or ""
-
-    text = await loop.run_in_executor(None, _generate)
+    text = await loop.run_in_executor(None, generate_text, prompt)
     return text, sources

@@ -5,9 +5,8 @@ import asyncio
 import json
 import re
 
-import google.generativeai as genai
-
-from config import GEMINI_API_KEY, LLM_MODEL
+from config import GEMINI_API_KEY
+from rag.llm import generate_text
 from rag.ingest import get_vectorstore
 
 
@@ -36,15 +35,12 @@ async def suggest_questions_for_user(user_id: int, limit: int = 5) -> list[str]:
     if not context.strip():
         return []
 
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(LLM_MODEL)
     prompt = (
         f"Dưới đây là trích đoạn từ tài liệu của người dùng:\n\n{context}\n\n"
         f"Hãy đề xuất đúng {limit} câu hỏi ngắn (tiếng Việt) mà họ có thể hỏi chatbot RAG về nội dung này. "
         "Chỉ trả về một mảng JSON các chuỗi, ví dụ: [\"Câu 1?\", \"Câu 2?\"]. Không markdown."
     )
-    resp = await asyncio.to_thread(model.generate_content, prompt)
-    text = (resp.text or "").strip()
+    text = (await asyncio.to_thread(generate_text, prompt)).strip()
     # Thử parse JSON
     try:
         m = re.search(r"\[[\s\S]*\]", text)

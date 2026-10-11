@@ -289,10 +289,10 @@ export default function FieldOperationsPage() {
               <Wrench className="h-4 w-4" /> Field operations platform
             </div>
             <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 md:text-3xl">
-              Điều hành dịch vụ hiện trường
+              Hỗ trợ xử lý ca tại hiện trường
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Điều phối ca, tri thức kỹ thuật và vòng phản hồi giữa tổng đài với kỹ thuật viên.
+              Tiếp nhận ca tổng đài đã bàn giao, tra quy trình đúng model thiết bị và ghi nhận kết quả xử lý.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -544,7 +544,7 @@ export default function FieldOperationsPage() {
               )}
             </section>
             {busy && <p className="flex items-center gap-2 text-xs text-slate-500"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Đang lưu thay đổi...</p>}
-            <p className="flex items-center gap-1 text-[10px] text-slate-400"><MessageSquareText className="h-3 w-3" /> Tầng điều phối web + công cụ hiện trường mobile; tích hợp tổng đài cần API/ủy quyền riêng.</p>
+            <p className="flex items-center gap-1 text-[10px] text-slate-400"><MessageSquareText className="h-3 w-3" /> Bổ sung cho quy trình tổng đài hiện có, không thay thế; dữ liệu demo là giả lập.</p>
           </div>
         </div>
       </div>

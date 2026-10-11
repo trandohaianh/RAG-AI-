@@ -144,8 +144,8 @@ export default function HomePage() {
             <span className="brand-gradient-text">đến xử lý hiện trường có bằng chứng.</span>
           </h1>
           <p className="mx-auto mt-4 max-w-lg text-[15px] leading-relaxed text-slate-500">
-            Điều phối ca sửa trên web, đưa checklist và tri thức SOP đến điện thoại kỹ thuật viên,
-            rồi lưu kết quả xử lý vào cùng một workspace.
+            Nhận ca đã được tổng đài bàn giao, đưa đúng quy trình theo model thiết bị đến điện thoại
+            kỹ thuật viên, rồi lưu kết quả xử lý có trích dẫn nguồn vào cùng một workspace.
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
             <Button className="min-w-[180px] gap-2" asChild>
