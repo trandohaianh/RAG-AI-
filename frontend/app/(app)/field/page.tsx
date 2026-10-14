@@ -18,9 +18,11 @@ import {
   Send,
   ShieldAlert,
   Users,
+  WifiOff,
   Wrench,
 } from "lucide-react";
 import MarkdownContent from "@/components/MarkdownContent";
+import { flush, pending, send } from "@/lib/offlineQueue";
 import api, {
   getApiErrorMessage,
   type DocItem,
@@ -66,6 +68,10 @@ export default function FieldOperationsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
+  // Hàng đợi khi mất sóng: số thao tác đang chờ gửi, và dòng báo cho người dùng.
+  const [queued, setQueued] = useState<Awaited<ReturnType<typeof pending>>>([]);
+  const [notice, setNotice] = useState("");
+  const [online, setOnline] = useState(true);
   const [note, setNote] = useState("");
   const [stepTitle, setStepTitle] = useState("");
   const [question, setQuestion] = useState("");
@@ -118,6 +124,46 @@ export default function FieldOperationsPage() {
     void load();
   }, [load]);
 
+  // Khi mạng trở lại: gửi lại hàng đợi theo đúng thứ tự rồi nạp lại dữ liệu, để
+  // màn hình khớp với những gì máy chủ đã ghi.
+  useEffect(() => {
+    const sender = (m: "post" | "patch", u: string, b: Record<string, unknown>) =>
+      m === "post" ? api.post(u, b) : api.patch(u, b);
+
+    const sync = async () => {
+      const { sent, left } = await flush(sender);
+      setQueued(await pending());
+      if (sent > 0) {
+        setNotice(`Đã gửi ${sent} thao tác lưu khi mất sóng.`);
+        await load();
+      }
+      if (left === 0 && sent === 0 && !notice) setNotice("");
+    };
+
+    const goOnline = () => { setOnline(true); void sync(); };
+    const goOffline = () => setOnline(false);
+
+    setOnline(typeof navigator === "undefined" ? true : navigator.onLine);
+    void pending().then(setQueued);
+    void sync();
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    const timer = window.setInterval(() => { if (navigator.onLine) void sync(); }, 20000);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+      window.clearInterval(timer);
+    };
+  }, [load, notice]);
+
+  // Dòng thông báo tự tắt sau vài giây; nếu tắt ngay khi đồng bộ xong thì người
+  // dùng không kịp thấy là thao tác của mình đã lên.
+  useEffect(() => {
+    if (!notice) return;
+    const t = window.setTimeout(() => setNotice(""), 12000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
   async function createCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!workspaceId) return;
@@ -148,9 +194,44 @@ export default function FieldOperationsPage() {
 
   async function updateStatus(status: FieldStatus) {
     if (!selectedCase) return;
-    await mutateCase(() =>
-      api.patch(`/field/cases/${selectedCase.id}`, { status })
-    );
+    await queueCase("patch", `/field/cases/${selectedCase.id}`, { status },
+      `Đổi trạng thái ca #${selectedCase.id}`);
+  }
+
+  /**
+   * Mọi thay đổi của một ca sửa đi qua đây. Còn mạng thì gửi thẳng; mất sóng thì
+   * xếp vào hàng đợi trong máy và gửi lại khi có mạng, theo đúng thứ tự đã làm.
+   * Mỗi thao tác mang một mã riêng nên lần gửi lại không tạo thêm bản ghi.
+   */
+  async function queueCase(
+    method: "post" | "patch",
+    url: string,
+    body: Record<string, unknown>,
+    label: string
+  ) {
+    if (!workspaceId) return;
+    setBusy(true);
+    setError("");
+    try {
+      const { queued } = await send(
+        (m, u, b) => (m === "post" ? api.post(u, b) : api.patch(u, b)),
+        method,
+        url,
+        body,
+        label
+      );
+      if (queued) {
+        setQueued(await pending());
+        setNotice(`Mất mạng — "${label}" đã lưu trong máy, sẽ tự gửi khi có sóng lại.`);
+      } else {
+        setNotice("");
+        await load(workspaceId);
+      }
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function mutateCase(action: () => Promise<unknown>) {
@@ -171,9 +252,8 @@ export default function FieldOperationsPage() {
     event.preventDefault();
     if (!selectedCase || !note.trim()) return;
     const detail = note.trim();
-    await mutateCase(() =>
-      api.post(`/field/cases/${selectedCase.id}/events`, { detail })
-    );
+    await queueCase("post", `/field/cases/${selectedCase.id}/events`, { detail },
+      "Ghi nhận kết quả");
     setNote("");
   }
 
@@ -181,9 +261,8 @@ export default function FieldOperationsPage() {
     event.preventDefault();
     if (!selectedCase || !stepTitle.trim()) return;
     const title = stepTitle.trim();
-    await mutateCase(() =>
-      api.post(`/field/cases/${selectedCase.id}/steps`, { title })
-    );
+    await queueCase("post", `/field/cases/${selectedCase.id}/steps`, { title },
+      `Thêm bước: ${title}`);
     setStepTitle("");
   }
 
@@ -273,12 +352,10 @@ export default function FieldOperationsPage() {
 
   async function completeStep(stepId: number, done: boolean) {
     if (!selectedCase) return;
-    await mutateCase(() =>
-      api.patch(`/field/cases/${selectedCase.id}/steps/${stepId}`, {
-        status: done ? "todo" : "done",
-        result_note: done ? null : "Xác nhận hoàn tất trên web console",
-      })
-    );
+    await queueCase("patch", `/field/cases/${selectedCase.id}/steps/${stepId}`, {
+      status: done ? "todo" : "done",
+      result_note: done ? null : "Xác nhận hoàn tất tại hiện trường",
+    }, done ? "Bỏ đánh dấu một bước" : "Tick một bước checklist");
   }
 
   const activeCount = cases.filter((item) => item.status !== "resolved").length;
@@ -300,7 +377,7 @@ export default function FieldOperationsPage() {
               Tiếp nhận ca tổng đài đã bàn giao, tra quy trình đúng model thiết bị và ghi nhận kết quả xử lý.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={workspaceId ?? ""}
               onChange={(event) => {
@@ -308,7 +385,7 @@ export default function FieldOperationsPage() {
                 localStorage.setItem("field_workspace_id", String(id));
                 void load(id);
               }}
-              className="h-10 max-w-[220px] rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700"
+              className="h-10 w-full min-w-0 shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 sm:w-auto sm:max-w-[220px]"
             >
               {workspaces.map((item) => (
                 <option key={item.id} value={item.id}>{item.name}</option>
@@ -317,14 +394,14 @@ export default function FieldOperationsPage() {
             <button
               type="button"
               onClick={createWorkspace}
-              className="flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
               <Plus className="h-4 w-4" /> Tạo đội
             </button>
             <button
               type="button"
               onClick={() => setFormOpen(true)}
-              className="flex h-10 items-center gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
+              className="flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
             >
               <Plus className="h-4 w-4" /> Tạo ca sửa
             </button>
@@ -337,7 +414,31 @@ export default function FieldOperationsPage() {
           </div>
         )}
 
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {(!online || queued.length > 0 || notice) && (
+          <div
+            role="status"
+            className={`sticky top-0 z-20 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm shadow-sm backdrop-blur ${
+              !online || queued.length > 0
+                ? "border-amber-300 bg-amber-50/95 text-amber-900"
+                : "border-emerald-300 bg-emerald-50/95 text-emerald-900"
+            }`}
+          >
+            <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="flex-1">
+              <p className="font-semibold">
+                {!online ? "Đang mất kết nối" : queued.length > 0 ? "Còn thao tác chờ gửi" : "Đã đồng bộ"}
+              </p>
+              <p className="mt-0.5 text-[13px] leading-5">
+                {notice ||
+                  (queued.length > 0
+                    ? `${queued.length} thao tác đang chờ: ${queued.map((q) => q.label).join(" · ")}`
+                    : "Thao tác vẫn ghi được; máy sẽ tự gửi lên khi có sóng trở lại.")}
+              </p>
+            </div>
+          </div>
+        )}
+
+        <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <Metric icon={Radio} label="Ca đang hoạt động" value={activeCount} tone="indigo" />
           <Metric icon={Activity} label="Chờ khách hàng" value={waitingCount} tone="amber" />
           <Metric icon={ClipboardCheck} label="Đã hoàn tất" value={completedCount} tone="green" />
@@ -427,7 +528,13 @@ export default function FieldOperationsPage() {
                     </select>
                   </div>
                   <h2 className="mt-4 text-xl font-bold">{selectedCase.title}</h2>
+                  {/* Serial đã có trong dữ liệu ca nhưng trước đây không hiện ra màn hình.
+                      Kỹ thuật viên cần nó để xác nhận đang đứng trước đúng thiết bị —
+                      một nhà có thể có hai modem, và model thì trùng nhau. */}
                   <p className="mt-1 text-sm text-slate-300">{selectedCase.customer_label || "Khách hàng"} · {selectedCase.device_model || "Chưa rõ thiết bị"}</p>
+                  {selectedCase.serial_number && (
+                    <p className="mt-1 text-xs font-mono tracking-wide text-slate-400">S/N {selectedCase.serial_number}</p>
+                  )}
                   {selectedCase.address && <p className="mt-2 text-xs text-slate-300">{selectedCase.address}</p>}
                 </div>
                 <div className="grid gap-5 p-5 lg:grid-cols-2">

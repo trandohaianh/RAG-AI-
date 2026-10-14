@@ -4,8 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import Sidebar, { MobileMenuButton } from "@/components/Sidebar";
-import Link from "next/link";
-import { cn } from "@/lib/utils";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -36,35 +34,28 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const tabs = [
+  // Điều hướng chỉ còn một chỗ duy nhất: thanh bên. Trước đây thanh bên và
+  // thanh trên lặp lại y hệt nhau, nên người dùng phải tự đoán bấm cái nào —
+  // và trên màn hình hẹp thì hai hàng điều hướng chiếm mất chỗ của nội dung.
+  // Thanh trên giờ chỉ trả lời một câu: đang ở mục nào.
+  const SECTIONS: { href: string; label: string }[] = [
     { href: "/field", label: "Ca hiện trường" },
-    { href: "/chat", label: "Chat" },
-    { href: "/docs", label: "Tài liệu" },
+    { href: "/chat", label: "Trợ lý tài liệu" },
+    { href: "/docs", label: "Tài liệu của đội" },
     { href: "/analytics", label: "Thống kê" },
     { href: "/settings", label: "Cài đặt" },
-    ...(user.role === "admin" ? [{ href: "/admin", label: "Quản trị" }] : []),
+    { href: "/admin", label: "Quản trị" },
   ];
+  const section = SECTIONS.find((s) => pathname.startsWith(s.href))?.label ?? "";
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 p-0 md:p-3 md:gap-3">
       <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
       <div className="flex-1 flex flex-col min-w-0 bg-white md:rounded-xl md:border md:border-slate-200 md:shadow-sm overflow-hidden">
-        <header className="h-12 border-b border-border flex items-center gap-4 px-4 shrink-0">
+        <header className="h-12 border-b border-border flex items-center gap-3 px-4 shrink-0">
           <MobileMenuButton onOpen={() => setMobileOpen(true)} />
-          <nav className="flex gap-1 rounded-full bg-slate-100 p-1">
-            {tabs.map((t) => (
-              <Link
-                key={t.href}
-                href={t.href}
-                className={cn(
-                  "px-3 py-1 rounded-full text-[13px] font-medium text-slate-500 transition-colors hover:text-slate-900",
-                  pathname.startsWith(t.href) && "bg-white text-slate-900 shadow-sm"
-                )}
-              >
-                {t.label}
-              </Link>
-            ))}
-          </nav>
+          <span className="text-[13px] font-semibold tracking-tight text-slate-900">{section}</span>
+          <span className="text-[13px] text-slate-400">FieldOps</span>
         </header>
         <main className="flex-1 min-h-0 overflow-hidden">{children}</main>
       </div>

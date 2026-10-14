@@ -55,9 +55,24 @@ _cors_origins = [
     if o.strip()
 ]
 
+# Opening the app from a phone on the same Wi-Fi means the origin is the
+# laptop's LAN address, not localhost, so the explicit list above would reject
+# it. Allow the private ranges (RFC 1918 and link-local) as well — these are
+# never routable from the internet, so this does not widen public exposure.
+_LAN_ORIGIN = (
+    r"https?://("
+    r"10(\.\d{1,3}){3}"
+    r"|192\.168(\.\d{1,3}){2}"
+    r"|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}"
+    r"|169\.254(\.\d{1,3}){2}"
+    r"|\[[0-9a-fA-F:]+\]"
+    r")(:\d+)?"
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
+    allow_origin_regex=os.getenv("CORS_ORIGIN_REGEX", _LAN_ORIGIN),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
