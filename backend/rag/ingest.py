@@ -46,6 +46,16 @@ from rag.embed_utils import _is_quota_error, embed_texts_with_retry
 
 
 
+def _invalidate_bm25(collection_name: str) -> None:
+    """Báo cho chỉ mục BM25 biết collection đã đổi. Import cục bộ để tránh vòng import."""
+    try:
+        from rag.bm25 import invalidate
+
+        invalidate(collection_name)
+    except Exception:
+        pass
+
+
 def _collection_name(user_id: int, workspace_id: int | None = None) -> str:
     if workspace_id is not None:
         return f"workspace_{workspace_id}"
@@ -240,6 +250,9 @@ def _store_sync(
 
     )
 
+    # Kho đã đổi -> chỉ mục BM25 trong bộ nhớ thành cũ, đánh dấu để dựng lại ở truy vấn sau.
+    _invalidate_bm25(_collection_name(user_id, workspace_id))
+
     return len(chunks)
 
 
@@ -374,6 +387,10 @@ def _delete_doc_sync(
 
             collection.delete(where={"source": filename})
 
+            # Đoạn đã bị xoá khỏi kho -> chỉ mục BM25 phải dựng lại, nếu không nó
+            # vẫn trả về tài liệu người dùng vừa gỡ bỏ.
+            _invalidate_bm25(_collection_name(user_id, workspace_id))
+
         try:
 
             from rag.cache import invalidate_user_cache
@@ -406,6 +423,8 @@ def delete_user_collection(user_id: int) -> None:
         client = chromadb.PersistentClient(path=str(CHROMA_DIR))
 
         client.delete_collection(_collection_name(user_id))
+
+        _invalidate_bm25(_collection_name(user_id))
 
     except Exception:
 
