@@ -60,6 +60,8 @@ if [ -n "${DUCKDNS_TOKEN:-}" ] && [[ "$APP_DOMAIN" == *.duckdns.org ]]; then
 fi
 
 log "6/6 Build và chạy"
+sudo docker network inspect edge >/dev/null 2>&1 || sudo docker network create edge
+sudo mkdir -p /opt/edge/sites
 cd "$APP_DIR/deploy/cloud"
 sudo docker compose --env-file .env up -d --build
 bash "$APP_DIR/deploy/cloud/smoke.sh" "https://$APP_DOMAIN" || true

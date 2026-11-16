@@ -38,3 +38,6 @@
 		format console
 	}
 }
+
+# Các dự án khác trên cùng VM (Telecom, EduDSS...) — mỗi dự án một file .caddy.
+import /etc/caddy/sites/*.caddy

@@ -142,6 +142,13 @@ bash smoke.sh https://$APP_DOMAIN
   (và `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` cho bản web) khi build app. Phía server, thêm các client ID
   này vào `GOOGLE_CLIENT_ID`, phân tách bằng dấu phẩy.
 
+## Chạy thêm dự án khác trên cùng VM
+
+Caddy của FieldOps là "cổng" HTTPS chung. Nó nối vào mạng Docker `edge` (do `setup-vm.sh` tạo) và đọc
+thêm các file `/opt/edge/sites/*.caddy`. Mỗi dự án khác (Telecom, EduDSS…) tự thả một file site vào
+đó rồi chạy `docker exec fieldops-caddy-1 caddy reload --config /etc/caddy/Caddyfile`; script cài
+đặt của từng dự án đã làm sẵn bước này.
+
 ## Khi không lấy được VM Oracle
 
 Bộ compose chạy trên mọi VPS Linux có ≥2 GB RAM (Hetzner, DigitalOcean, Vultr…). Chỉ cần chạy

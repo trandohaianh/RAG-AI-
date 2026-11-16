@@ -96,11 +96,20 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Site của các dự án khác trên cùng VM (VD Telecom) được thả vào đây rồi `caddy reload`.
+      - /opt/edge/sites:/etc/caddy/sites:ro
       - caddy_data:/data
       - caddy_config:/config
+    networks: [default, edge]
     depends_on: [api, web]
 
 volumes:
   fieldops_data:
   caddy_data:
   caddy_config:
+
+networks:
+  # Mạng dùng chung với các dự án khác trên VM (setup-vm.sh tạo: docker network create edge).
+  edge:
+    external: true
+    name: edge
