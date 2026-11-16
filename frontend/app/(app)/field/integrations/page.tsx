@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Copy, KeyRound, Plug, Plus, RefreshCw, RotateCcw } from "lucide-react";
 import api, { getApiErrorMessage, type FieldIntegration, type FieldMember, type FieldWorkspace, type WebhookDelivery } from "@/lib/api";
+import { formatDateTime } from "@/lib/utils";
 
 const STATUS_STYLE: Record<string, string> = {
   pending: "bg-amber-50 text-amber-700", delivered: "bg-emerald-50 text-emerald-700", dead: "bg-rose-50 text-rose-700",
@@ -134,7 +135,7 @@ export default function IntegrationsPage() {
               <p className="font-semibold text-slate-900">{item.name} <span className="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase">{item.kind}</span>
                 {!item.is_active && <span className="ml-1 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] text-rose-700">đã tắt</span>}</p>
               <p className="mt-1 break-all text-xs text-slate-500">Nhận sự kiện: <code>{item.inbound_url}</code></p>
-              <p className="mt-0.5 text-xs text-slate-500">Lần nhận cuối: {item.last_inbound_at ? new Date(item.last_inbound_at).toLocaleString("vi-VN") : "chưa có"}
+              <p className="mt-0.5 text-xs text-slate-500">Lần nhận cuối: {item.last_inbound_at ? formatDateTime(item.last_inbound_at) : "chưa có"}
                 {" · "}Báo ngược: {Object.entries(item.deliveries).map(([k, v]) => `${k} ${v}`).join(", ") || "chưa có"}</p>
             </div>
             <div className="flex gap-2">
@@ -153,7 +154,7 @@ export default function IntegrationsPage() {
               <tbody>
                 {deliveries[item.id].map((d) => (
                   <tr key={d.id} className="border-t border-slate-100">
-                    <td className="py-1.5">{d.event_type}<span className="block text-[10px] text-slate-400">{new Date(d.created_at).toLocaleString("vi-VN")}</span></td>
+                    <td className="py-1.5">{d.event_type}<span className="block text-[10px] text-slate-400">{formatDateTime(d.created_at)}</span></td>
                     <td><span className={`rounded px-1.5 py-0.5 ${STATUS_STYLE[d.status]}`}>{d.status}</span></td>
                     <td>{d.attempts}</td>
                     <td className="max-w-xs truncate text-slate-500">{d.last_error ?? "—"}</td>

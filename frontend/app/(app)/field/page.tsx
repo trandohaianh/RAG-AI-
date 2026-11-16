@@ -29,6 +29,7 @@ import CaseDispatchEditor from "@/components/field/CaseDispatchEditor";
 import { createQueueScope, discardRejected, flush, legacyPendingCount, pending, rejected, retryRejected, send, type QueuedAction } from "@/lib/offlineQueue";
 import { useAuth } from "@/lib/auth";
 import { loadSnapshot, saveSnapshot } from "@/lib/caseCache";
+import { formatDateTime } from "@/lib/utils";
 import api, {
   getApiErrorMessage,
   type DocItem,
@@ -705,7 +706,7 @@ export default function FieldOperationsPage() {
                             <div>
                               <p className="text-xs text-slate-700">{event.detail}</p>
                               <EvidencePanel evidence={event.evidence} audit={event.citation_audit} checkVersion={async reference => (await api.get(`/field/cases/${selectedCase.id}/events/${event.id}/evidence/${encodeURIComponent(reference)}`)).data.document_status} />
-                              <p className="mt-1 text-[10px] text-slate-400">{new Date(event.created_at).toLocaleString("vi-VN")}</p>
+                              <p className="mt-1 text-[10px] text-slate-400">{formatDateTime(event.created_at)}</p>
                             </div>
                           </div>
                         ))}

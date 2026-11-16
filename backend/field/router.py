@@ -27,6 +27,10 @@ router = APIRouter(prefix="/field", tags=["field operations"])
 
 CASE_STATUSES = {"open", "in_progress", "waiting", "escalated", "resolved"}
 STEP_STATUSES = {"todo", "done", "blocked"}
+# Nhãn tiếng Việt cho nhật ký ca (mã trạng thái vẫn lưu ở event_type / trường status).
+CASE_STATUS_VI = {"open": "Mới tiếp nhận", "in_progress": "Đang xử lý", "waiting": "Chờ khách hàng",
+                  "escalated": "Chuyển cấp", "resolved": "Đã hoàn tất"}
+STEP_STATUS_VI = {"todo": "chưa làm", "done": "đã xong", "blocked": "bị vướng"}
 
 
 class WorkspaceOut(BaseModel):
@@ -462,7 +466,7 @@ def update_case(
             raise HTTPException(status_code=422, detail="Trạng thái ca sửa không hợp lệ")
         if case.status != body.status:
             case.status = body.status
-            _add_event(db, case.id, user.id, "status", f"Chuyển trạng thái: {body.status}")
+            _add_event(db, case.id, user.id, "status", f"Chuyển trạng thái: {CASE_STATUS_VI.get(body.status, body.status)}")
             notify.append("case.status_changed")
     if "assigned_to" in body.model_fields_set:
         if body.assigned_to is not None:
@@ -564,7 +568,7 @@ def update_step(
     step.result_note = body.result_note
     step.completed_by = user.id if body.status == "done" else None
     step.completed_at = datetime.now(timezone.utc) if body.status == "done" else None
-    _add_event(db, case.id, user.id, "step_updated", f"{step.title}: {body.status}")
+    _add_event(db, case.id, user.id, "step_updated", f"{step.title}: {STEP_STATUS_VI.get(body.status, body.status)}")
     db.commit()
     db.refresh(step)
     return step

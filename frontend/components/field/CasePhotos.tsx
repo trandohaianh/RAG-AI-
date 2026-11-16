@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, ImageOff, LoaderCircle, Trash2, X } from "lucide-react";
 import api, { getApiErrorMessage, type FieldPhoto } from "@/lib/api";
+import { formatDateTime } from "@/lib/utils";
 
 /** Ảnh hiện trường của một ca: chụp/chọn ảnh, chú thích, xem lớn, xoá (người chụp hoặc trưởng đội). */
 export default function CasePhotos({ caseId, currentUserId, isOwner }: { caseId: number; currentUserId?: number; isOwner: boolean }) {
@@ -33,7 +34,8 @@ export default function CasePhotos({ caseId, currentUserId, isOwner }: { caseId:
         form.append("file", file);
         form.append("caption", caption);
         form.append("client_action_id", `photo-${crypto.randomUUID()}`);
-        await api.post(`/field/cases/${caseId}/photos`, form);
+        // api mặc định gửi JSON; không ghi đè thì axios đổi FormData thành JSON và mất file (422 "Field required").
+        await api.post(`/field/cases/${caseId}/photos`, form, { headers: { "Content-Type": "multipart/form-data" } });
       }
       setCaption("");
       await load();
@@ -80,8 +82,8 @@ export default function CasePhotos({ caseId, currentUserId, isOwner }: { caseId:
       </div>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
         <input value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={300} placeholder="Chú thích (vd. Đầu ONT trước khi thay)"
-          className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-        <label className={`inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white ${busy ? "opacity-60" : ""}`}>
+          className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+        <label className={`inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white ${busy ? "opacity-60" : ""}`}>
           {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
           Chụp / chọn ảnh
           <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple hidden
@@ -94,7 +96,7 @@ export default function CasePhotos({ caseId, currentUserId, isOwner }: { caseId:
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={viewing.url} alt={viewing.caption} className="max-h-[80vh] rounded-lg object-contain" />
             <div className="mt-2 flex items-center justify-between gap-3 text-sm text-white">
-              <span>{viewing.caption || "Không có chú thích"} · {new Date(viewing.created_at).toLocaleString("vi-VN")}</span>
+              <span>{viewing.caption || "Không có chú thích"} · {formatDateTime(viewing.created_at)}</span>
               <span className="flex gap-2">
                 {(viewing.uploaded_by === currentUserId || isOwner) && (
                   <button type="button" onClick={() => void remove(viewing)} className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2.5 py-1.5"><Trash2 className="h-4 w-4" /> Xoá</button>
