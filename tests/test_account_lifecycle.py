@@ -1,5 +1,4 @@
 """Deletion preserves audit identities and cannot transfer stale access."""
-import asyncio
 
 import pytest
 from fastapi import FastAPI, HTTPException

@@ -40,9 +40,6 @@ backend/.pytest*_run/
 /deploy/production/tls/
 /deploy/production/.env
 
-/deploy/distributed/secrets/
-/deploy/distributed/tls/
-/deploy/distributed/.env
 
 # Cloud deploy (VM): secrets only on the server
 /deploy/cloud/.env

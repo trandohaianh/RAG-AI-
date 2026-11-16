@@ -1,5 +1,4 @@
 """Authentication regressions against real JWT verification and database state."""
-import asyncio
 import base64
 import hashlib
 import hmac
@@ -28,7 +27,6 @@ from auth.service import (
 from chat import models as chat_models  # noqa: F401
 from config import ALGORITHM, SECRET_KEY
 from database import Base, _enable_sqlite_foreign_keys, get_db
-from dependencies import get_current_user
 from field import models as field_models  # noqa: F401
 from saas import models as saas_models  # noqa: F401
 

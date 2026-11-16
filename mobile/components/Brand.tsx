@@ -1,7 +1,6 @@
-import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { colors, radius } from "../lib/theme";
+import { colors } from "../lib/theme";
 
 export default function Brand({ size = 40 }: { size?: number }) {
   return (

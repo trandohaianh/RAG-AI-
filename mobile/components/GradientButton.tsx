@@ -1,4 +1,3 @@
-import React from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, ViewStyle } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { colors, radius } from "../lib/theme";

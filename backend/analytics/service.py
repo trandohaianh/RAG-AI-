@@ -12,7 +12,6 @@ from rag.ingest import list_user_docs
 
 
 def user_overview(db: Session, user_id: int, plan: str) -> dict:
-    docs = None  # async below — caller passes doc_count
     conv_count = db.query(Conversation).filter(Conversation.user_id == user_id).count()
     msg_count = (
         db.query(Message)

@@ -12,7 +12,7 @@ import httpx
 import pytest
 from langchain_core.embeddings import Embeddings
 
-from rag.technical.adapters import CohereReranker, LocalBGEReranker, validate_scores
+from rag.technical.adapters import CohereReranker, LocalBGEReranker
 from rag.technical.chunking import chunk_bundle
 from rag.technical.layout import approve, table_layout
 from rag.technical.models import Approval, Block, LayoutBundle, REFUSAL, Scope, Selection, TechnicalRAGError, digest

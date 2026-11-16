@@ -1,7 +1,6 @@
 """RAG failures and cancellation must not become successful saved answers."""
 import asyncio
 import threading
-import json
 import socket
 import time
 

@@ -1,5 +1,4 @@
 """Evidence identity, version snapshots, persistence, citations and live access rights."""
-import asyncio
 import copy
 import json
 
