@@ -19,8 +19,9 @@ theo giá paid tier). Nếu muốn tên miền riêng thay DuckDNS: khoảng $10
 > - **Oracle**: từ 15/06/2026 gói Always Free cho ARM chỉ còn 2 OCPU / 12 GB (trước đây là 4/24).
 >   Cần thẻ Visa/Mastercard để xác minh. Một số region hay báo hết máy ARM.
 > - **Grafana Cloud free**: 10.000 active series, giữ dữ liệu 14 ngày.
-> - **Resend free**: 3.000 email/tháng, tối đa 100/ngày, 1 domain. Gửi email cho người khác thì
->   phải xác minh domain bằng DNS, nên dùng DuckDNS thì không làm được.
+> - **Email**: dùng Gmail SMTP với App Password (không cần domain riêng, Google giới hạn khoảng
+>   vài trăm email/ngày cho tài khoản thường). Resend free (3.000 email/tháng, 100/ngày) chỉ dùng được
+>   khi có domain riêng đã xác minh.
 > - **GitHub Actions**: repo private được 2.000 phút/tháng; repo public không giới hạn.
 
 ---
@@ -55,9 +56,12 @@ theo giá paid tier). Nếu muốn tên miền riêng thay DuckDNS: khoảng $10
    - Không cần Redirect URI vì app dùng popup Google Identity Services.
 3. Copy **Client ID** (dạng `....apps.googleusercontent.com`).
 
-## Bước 4 — Gemini API key
+## Bước 4 — Gemini API key và email
 
-Lấy key tại <https://aistudio.google.com/apikey>.
+1. Lấy Gemini key tại <https://aistudio.google.com/apikey>.
+2. Email (để xác thực tài khoản và quên mật khẩu): tạo một Gmail riêng cho hệ thống, bật xác minh
+   2 bước, rồi tạo **App Password** tại <https://myaccount.google.com/apppasswords>. Điền
+   `SMTP_USER` (địa chỉ Gmail) và `SMTP_PASSWORD` (16 ký tự) vào `.env`.
 
 ## Bước 5 — Cài lên VM (≈15 phút, phần lớn là thời gian build)
 
@@ -130,8 +134,13 @@ bash smoke.sh https://$APP_DOMAIN
   `docker cp fieldops-api-1:/app/data/backups ./` rồi `rclone` lên Google Drive.
 - **Chi phí**: trang *Chi phí* trong app (chỉ admin thấy). Đặt `LLM_DAILY_BUDGET_USD` để hệ thống
   tự từ chối yêu cầu khi đã dùng hết ngân sách ngày.
-- **Xác thực email**: chỉ bật `REQUIRE_EMAIL_VERIFICATION=true` khi có domain riêng đã xác minh
-  với Resend. Dùng DuckDNS thì giữ `false`; người dùng đăng nhập Google đã được Google xác minh email.
+- **Xác thực email**: khi SMTP đã gửi được (thử bằng "Quên mật khẩu"), đặt
+  `REQUIRE_EMAIL_VERIFICATION=true` rồi chạy lại `docker compose up -d`. Người đăng nhập Google
+  được coi là đã xác thực.
+- **App mobile (Expo)**: tạo thêm OAuth client loại iOS và/hoặc Android trong Google Cloud. Android
+  cần package name và SHA-1. Đặt `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` / `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID`
+  (và `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` cho bản web) khi build app. Phía server, thêm các client ID
+  này vào `GOOGLE_CLIENT_ID`, phân tách bằng dấu phẩy.
 
 ## Khi không lấy được VM Oracle
 

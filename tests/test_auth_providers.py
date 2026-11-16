@@ -214,3 +214,57 @@ def test_login_is_rate_limited_per_email_and_success_resets(client, db_factory):
         client.post("/auth/login", json={"email": "rl@example.com", "password": "bad"})
     locked = client.post("/auth/login", json={"email": "rl@example.com", "password": "Password-123"})
     assert locked.status_code == 429 and int(locked.headers["retry-after"]) > 0
+
+
+# ------------------------------------------------------------------ SMTP (Gmail) không cần domain riêng
+class _FakeSMTP:
+    sent: list = []
+
+    def __init__(self, host, port, timeout=None, **_):
+        self.host, self.port = host, port
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def starttls(self, context=None):
+        self.tls = True
+
+    def login(self, user, password):
+        assert password == "abcdefghijklmnop"  # dấu cách của App Password đã được bỏ
+
+    def send_message(self, msg):
+        _FakeSMTP.sent.append(msg)
+
+
+def test_smtp_channel_sends_verification_and_reset(client, db_factory, monkeypatch):
+    import asyncio
+
+    import auth.email_utils as eu
+    import auth.router as router
+
+    monkeypatch.setattr(eu, "SMTP_HOST", "smtp.gmail.com")
+    monkeypatch.setattr(eu, "SMTP_USER", "fieldops.bot@gmail.com")
+    monkeypatch.setattr(eu, "SMTP_PASSWORD", "abcd efgh ijkl mnop".replace(" ", ""))
+    monkeypatch.setattr(eu, "RESEND_API_KEY", "")
+    monkeypatch.setattr(eu.smtplib, "SMTP", _FakeSMTP)
+    _FakeSMTP.sent = []
+    assert eu.email_channel() == "smtp" and eu.is_email_configured()
+
+    res = client.post("/auth/register", json={"email": "smtp@example.com", "password": "Password-123"})
+    assert res.status_code == 200
+    for _ in range(50):  # email gửi nền
+        if _FakeSMTP.sent:
+            break
+        asyncio.run(asyncio.sleep(0.02))
+    assert _FakeSMTP.sent, "verification email not sent"
+    body = _FakeSMTP.sent[0].get_body(("html",)).get_content()
+    assert "/verify-email?token=" in body and _FakeSMTP.sent[0]["To"] == "smtp@example.com"
+    assert client.get("/auth/config").json()["password_reset_enabled"] is True
+
+    _FakeSMTP.sent = []
+    assert client.post("/auth/forgot-password", json={"email": "smtp@example.com"}).status_code == 200
+    assert "/reset-password?token=" in _FakeSMTP.sent[0].get_body(("html",)).get_content()
+    assert router is not None

@@ -74,6 +74,8 @@ export type User = {
   email: string;
   role: string;
   subscription_plan?: string;
+  auth_provider?: string;
+  email_verified?: boolean;
   created_at: string;
 };
 
@@ -209,6 +211,15 @@ export async function login(email: string, password: string) {
   return request<{ user: User; access_token: string }>("/auth/login", {
     method: "POST",
     body: { email, password },
+    auth: false,
+  });
+}
+
+/** Đổi Google ID token (lấy từ expo-auth-session) lấy JWT của FieldOps. */
+export async function loginWithGoogle(idToken: string) {
+  return request<{ user: User; access_token: string; is_new_user: boolean }>("/auth/google", {
+    method: "POST",
+    body: { credential: idToken },
     auth: false,
   });
 }

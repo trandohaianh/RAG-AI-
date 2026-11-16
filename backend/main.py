@@ -150,10 +150,33 @@ def readiness():
     except Exception as exc:
         checks["storage"] = f"error:{type(exc).__name__}"
     checks["llm"] = "ok" if (LLM_PROVIDER == "ollama" or GEMINI_API_KEY) else "missing_key"
+
+    # Tính năng tuỳ chọn: "disabled" là hợp lệ; chỉ lỗi khi ĐÃ cấu hình mà không dùng được.
+    from auth.email_utils import email_channel
+    from config import COHERE_API_KEY, GOOGLE_CLIENT_IDS, REDIS_URL
+    from pipeline.db import is_medallion_enabled
+
+    features = {
+        "google_login": "enabled" if GOOGLE_CLIENT_IDS else "disabled",
+        "email": email_channel() or "disabled",
+        "cohere_rerank": "enabled" if COHERE_API_KEY else "disabled",
+        "redis_cache": "enabled" if REDIS_URL else "disabled",
+        "warehouse": "disabled",
+    }
+    if is_medallion_enabled():
+        try:
+            from pipeline.db import get_engine
+
+            with get_engine().connect() as conn:
+                conn.execute(sql_text("SELECT 1"))
+            features["warehouse"] = "ok"
+        except Exception as exc:
+            features["warehouse"] = f"error:{type(exc).__name__}"
+            checks["warehouse"] = features["warehouse"]
     healthy = all(v == "ok" for v in checks.values())
     if not healthy:
-        raise HTTPException(status_code=503, detail={"status": "degraded", "checks": checks})
-    return {"status": "ok", "checks": checks}
+        raise HTTPException(status_code=503, detail={"status": "degraded", "checks": checks, "features": features})
+    return {"status": "ok", "checks": checks, "features": features}
 
 
 @app.get("/de/gold/stats")

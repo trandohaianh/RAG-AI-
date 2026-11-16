@@ -269,3 +269,24 @@ def test_http_metrics_use_route_templates_not_raw_ids():
         text = c.get("/metrics").text
     assert 'endpoint="/conversations/{conv_id}/messages"' in text
     assert "/conversations/123/messages" not in text
+
+
+def test_readiness_reports_optional_features_and_fails_on_broken_warehouse(monkeypatch):
+    import main
+    import pipeline.db as pdb
+
+    with TestClient(main.app) as c:
+        ok = c.get("/health/ready")
+        assert ok.status_code in (200, 503)
+        body = ok.json() if ok.status_code == 200 else ok.json()["detail"]
+        assert body["features"]["warehouse"] == "disabled"
+
+        monkeypatch.setattr(pdb, "is_medallion_enabled", lambda: True)
+
+        def broken():
+            raise ConnectionError("pg down")
+
+        monkeypatch.setattr(pdb, "get_engine", broken)
+        res = c.get("/health/ready")
+        assert res.status_code == 503
+        assert res.json()["detail"]["checks"]["warehouse"] == "error:ConnectionError"

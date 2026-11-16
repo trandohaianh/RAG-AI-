@@ -12,6 +12,7 @@ import {
 import { useAuth } from "../lib/auth";
 import { getErrorMessage } from "../lib/api";
 import GradientButton from "../components/GradientButton";
+import GoogleLoginButton from "../components/GoogleLoginButton";
 import Brand from "../components/Brand";
 import { colors, radius } from "../lib/theme";
 
@@ -56,6 +57,8 @@ export default function RegisterScreen({ navigation }: any) {
         <Text style={styles.heading}>Đăng ký</Text>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
+
+        <GoogleLoginButton onError={setError} />
 
         <Text style={styles.label}>Email</Text>
         <TextInput
