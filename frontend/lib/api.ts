@@ -94,7 +94,15 @@ export type FieldWorkspace = {
   member_count: number;
 };
 
-export type FieldMember = { user_id: number; email: string; role: string };
+export type FieldMember = {
+  user_id: number;
+  email: string;
+  role: string;
+  base_latitude?: number | null;
+  base_longitude?: number | null;
+  shift_start?: string;
+  shift_end?: string;
+};
 export type FieldStatus = "open" | "in_progress" | "waiting" | "escalated" | "resolved";
 export type FieldStepStatus = "todo" | "done" | "blocked";
 export type FieldEvent = EvidenceBundle & {
@@ -129,8 +137,82 @@ export type FieldCase = {
   status: FieldStatus;
   created_at: string;
   updated_at: string;
+  latitude: number | null;
+  longitude: number | null;
+  priority: FieldPriority;
+  window_start: string | null;
+  window_end: string | null;
+  est_minutes: number;
+  scheduled_start: string | null;
+  route_order: number | null;
+  external_source: string | null;
+  external_ref: string | null;
   steps: FieldStep[];
   events: FieldEvent[];
+};
+
+export type FieldPriority = "urgent" | "high" | "normal" | "low";
+
+export type FieldPhoto = {
+  id: number;
+  case_id: number;
+  uploaded_by: number;
+  caption: string;
+  width: number;
+  height: number;
+  size_bytes: number;
+  created_at: string;
+  url: string;
+  thumb_url: string;
+};
+
+export type PlanStop = {
+  case_id: number;
+  title: string;
+  address: string | null;
+  latitude: number;
+  longitude: number;
+  priority: FieldPriority;
+  arrive: string;
+  start: string;
+  end: string;
+  travel_minutes: number;
+  distance_km: number;
+};
+
+export type SchedulePlan = {
+  date: string;
+  routes: { technician_id: number; technician: string | null; travel_minutes: number; distance_km: number; stops: PlanStop[] }[];
+  unassigned: { case_id: number; title: string | null; reason: string }[];
+  travel_minutes: number;
+  distance_km: number;
+  estimate_note: string;
+  technicians_without_base: number[];
+};
+
+export type FieldIntegration = {
+  id: number;
+  name: string;
+  kind: "crm" | "nms";
+  inbound_url: string;
+  outbound_url: string | null;
+  default_assignee: number | null;
+  is_active: boolean;
+  deliveries: Record<string, number>;
+  last_inbound_at: string | null;
+  secret?: string;
+};
+
+export type WebhookDelivery = {
+  id: number;
+  event_type: string;
+  status: "pending" | "delivered" | "dead";
+  attempts: number;
+  next_attempt_at: string;
+  last_error: string | null;
+  response_code: number | null;
+  created_at: string;
+  delivered_at: string | null;
 };
 
 export type DocLineage = {

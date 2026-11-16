@@ -24,7 +24,15 @@
     "plugins": [
       "expo-secure-store",
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "FieldOps cần truy cập ảnh để đính kèm ảnh hiện trường vào ca sửa.",
+          "cameraPermission": "FieldOps cần camera để chụp ảnh hiện trường cho ca sửa.",
+          "microphonePermission": false
+        }
+      ]
     ],
     "scheme": "fieldops"
   }

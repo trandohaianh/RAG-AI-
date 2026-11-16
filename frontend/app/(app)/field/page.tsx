@@ -24,8 +24,11 @@ import {
   Wrench,
 } from "lucide-react";
 import MarkdownContent from "@/components/MarkdownContent";
+import CasePhotos from "@/components/field/CasePhotos";
+import CaseDispatchEditor from "@/components/field/CaseDispatchEditor";
 import { createQueueScope, discardRejected, flush, legacyPendingCount, pending, rejected, retryRejected, send, type QueuedAction } from "@/lib/offlineQueue";
 import { useAuth } from "@/lib/auth";
+import { loadSnapshot, saveSnapshot } from "@/lib/caseCache";
 import api, {
   getApiErrorMessage,
   type DocItem,
@@ -86,6 +89,7 @@ export default function FieldOperationsPage() {
   const [answer, setAnswer] = useState("");
   const [answerEvidence, setAnswerEvidence] = useState<EvidenceBundle>({});
   const [memberEmail, setMemberEmail] = useState("");
+  const [snapshotAt, setSnapshotAt] = useState<string | null>(null);
 
   const selectedCase = useMemo(
     () => cases.find((item) => item.id === selectedId) ?? null,
@@ -117,17 +121,35 @@ export default function FieldOperationsPage() {
       setCases(caseResponse.data);
       setMembers(memberResponse.data);
       setDocs(docResponse.data);
+      setSnapshotAt(null);
       setSelectedId((previous) =>
         caseResponse.data.some((item) => item.id === previous)
           ? previous
           : caseResponse.data[0]?.id ?? null
       );
+      if (user) {
+        void saveSnapshot(api.defaults.baseURL!, user.id, { workspaces: available, workspaceId: active.id,
+          cases: caseResponse.data, members: memberResponse.data, docs: docResponse.data });
+      }
     } catch (err) {
-      setError(getApiErrorMessage(err));
+      // Mất mạng (không có phản hồi): mở bản lưu gần nhất để kỹ thuật viên vẫn xem được ca.
+      const offline = !(err as { response?: unknown })?.response;
+      const snapshot = offline && user ? await loadSnapshot(api.defaults.baseURL!, user.id, id ?? null) : null;
+      if (snapshot) {
+        setWorkspaces(snapshot.workspaces);
+        setWorkspaceId(snapshot.workspaceId);
+        setCases(snapshot.cases);
+        setMembers(snapshot.members);
+        setDocs(snapshot.docs);
+        setSnapshotAt(snapshot.savedAt);
+        setSelectedId((previous) => snapshot.cases.some((item) => item.id === previous) ? previous : snapshot.cases[0]?.id ?? null);
+      } else {
+        setError(getApiErrorMessage(err));
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     void load();
@@ -459,6 +481,11 @@ export default function FieldOperationsPage() {
           </div>
         </header>
 
+        {snapshotAt && (
+          <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <WifiOff className="h-4 w-4" /> Đang xem bản lưu offline lúc {new Date(snapshotAt).toLocaleString("vi-VN")}. Thay đổi sẽ được xếp hàng và gửi khi có mạng.
+          </div>
+        )}
         {error && (
           <div role="alert" className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
@@ -644,6 +671,9 @@ export default function FieldOperationsPage() {
                         </form>
                       </div>
                     </div>
+                    <CasePhotos caseId={selectedCase.id} currentUserId={user?.id}
+                      isOwner={workspaces.find((w) => w.id === workspaceId)?.role === "owner"} />
+                    <CaseDispatchEditor item={selectedCase} onSaved={() => void load(workspaceId)} />
                   </div>
                   <div className="space-y-5">
                     <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4">

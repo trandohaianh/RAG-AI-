@@ -34,6 +34,8 @@ import {
 import { markdownToPlain } from "../lib/text";
 import { colors, radius } from "../lib/theme";
 import GradientButton from "../components/GradientButton";
+import CasePhotosSection from "../components/CasePhotosSection";
+import { Linking } from "react-native";
 
 const statusOptions: { value: api.CaseStatus; label: string }[] = [
   { value: "in_progress", label: "Đang xử lý" },
@@ -370,6 +372,15 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
           <Text style={styles.title}>{item.title}</Text>
           <Text style={styles.customer}>{item.customer_label || "Khách hàng"} · {item.device_model || "Chưa rõ thiết bị"}</Text>
           {item.address ? <View style={styles.infoRow}><Ionicons name="location-outline" size={15} color="#D3DDF0" /><Text style={styles.infoText}>{item.address}</Text></View> : null}
+          {item.scheduled_start ? (
+            <View style={styles.infoRow}><Ionicons name="time-outline" size={15} color="#D3DDF0" />
+              <Text style={styles.infoText}>Lịch: {new Date(item.scheduled_start).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" })}{item.route_order ? ` · điểm thứ ${item.route_order}` : ""}</Text></View>
+          ) : null}
+          {item.latitude != null && item.longitude != null ? (
+            <TouchableOpacity style={styles.infoRow} onPress={() => void Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${item.latitude},${item.longitude}`)}>
+              <Ionicons name="navigate-outline" size={15} color="#9FC3FF" /><Text style={[styles.infoText, { color: "#9FC3FF" }]}>Chỉ đường tới khách hàng</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <View style={styles.sectionCard}>
@@ -377,6 +388,8 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
           <Text style={styles.bodyText}>{item.symptom}</Text>
           {item.serial_number ? <Text style={styles.meta}>Serial: {item.serial_number}</Text> : null}
         </View>
+
+        <CasePhotosSection caseId={item.id} userId={userId} disabled={isResolved} />
 
         <View style={styles.actionRow}>
           <Action icon="sparkles-outline" label="Hỏi trợ lý" onPress={() => { setAnswer(null); setModal("assistant"); }} />

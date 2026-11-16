@@ -102,7 +102,7 @@ def sqlite_engine(tmp_path):
 
 def test_existing_backup_preserves_paid_user_and_repairs_deleted_identity(sqlite_engine):
     create_legacy_schema(sqlite_engine)
-    assert migrations.run_migrations(sqlite_engine, Base.metadata) == (1, 2, 3, 4)
+    assert migrations.run_migrations(sqlite_engine, Base.metadata) == (1, 2, 3, 4, 5)
     assert migrations.run_migrations(sqlite_engine, Base.metadata) == ()
     assert_upgraded_legacy(sqlite_engine)
 
@@ -136,10 +136,10 @@ def test_concurrent_startups_share_one_transactional_ledger(sqlite_engine, legac
 
     with ThreadPoolExecutor(max_workers=4) as workers:
         results = list(workers.map(startup, range(4)))
-    assert results.count((1, 2, 3, 4)) == 1
+    assert results.count((1, 2, 3, 4, 5)) == 1
     assert results.count(()) == 3
     with sqlite_engine.connect() as conn:
-        assert conn.execute(text("SELECT COUNT(*) FROM schema_migrations")).scalar_one() == 4
+        assert conn.execute(text("SELECT COUNT(*) FROM schema_migrations")).scalar_one() == 5
         if legacy:
             assert conn.execute(text("SELECT COUNT(*) FROM users WHERE id=99")).scalar_one() == 1
 
@@ -183,7 +183,7 @@ def test_init_db_uses_versioned_runner_before_quota_backfill(sqlite_engine, monk
     database.init_db()
     database.init_db()
     with sqlite_engine.connect() as conn:
-        assert conn.execute(text("SELECT COUNT(*) FROM schema_migrations")).scalar_one() == 4
+        assert conn.execute(text("SELECT COUNT(*) FROM schema_migrations")).scalar_one() == 5
         assert conn.execute(text("SELECT COUNT(*) FROM query_usage_migrations")).scalar_one() == 1
 
 
@@ -194,7 +194,7 @@ def test_version_two_database_upgrades_evidence_columns_without_rebuilding_histo
         old.setattr(migrations, '_MIGRATIONS', migrations._MIGRATIONS[:2])
         assert migrations.run_migrations(sqlite_engine) == (1, 2)
     assert 'evidence_json' not in {column['name'] for column in inspect(sqlite_engine).get_columns('messages')}
-    assert migrations.run_migrations(sqlite_engine, Base.metadata) == (3, 4)
+    assert migrations.run_migrations(sqlite_engine, Base.metadata) == (3, 4, 5)
     assert 'evidence_json' in {column['name'] for column in inspect(sqlite_engine).get_columns('messages')}
     with sqlite_engine.connect() as conn:
         assert conn.execute(text('SELECT COUNT(*) FROM messages WHERE evidence_json IS NOT NULL')).scalar_one() == 0

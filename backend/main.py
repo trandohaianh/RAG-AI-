@@ -28,6 +28,9 @@ from auth.schemas import CurrentUser
 from dependencies import require_admin
 from docs.router import router as docs_router
 from field.router import router as field_router
+from field.photos import router as field_photos_router
+from field.dispatch import router as field_dispatch_router
+from field.integrations import router as field_integrations_router, public_router as field_integrations_public_router
 from pipeline.jobs.router import router as pipeline_router
 from metrics import metrics_response
 from middleware_metrics import PrometheusMiddleware
@@ -80,6 +83,10 @@ app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(docs_router)
 app.include_router(field_router)
+app.include_router(field_photos_router)
+app.include_router(field_dispatch_router)
+app.include_router(field_integrations_router)
+app.include_router(field_integrations_public_router)
 app.include_router(admin_router)
 app.include_router(analytics_router)
 app.include_router(embed_router)

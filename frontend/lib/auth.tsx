@@ -116,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    void import("@/lib/caseCache").then((m) => m.clearSnapshots());
     clearAuth();
     setUser(null);
     router.push("/login");

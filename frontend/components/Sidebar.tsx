@@ -13,6 +13,8 @@ import {
   Trash2,
   X,
   ClipboardList,
+  Route,
+  Plug,
   Wallet,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -79,6 +81,8 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
 
   const nav = [
     { href: "/field", label: "Ca hiện trường", icon: ClipboardList },
+    { href: "/field/schedule", label: "Điều phối tuyến", icon: Route },
+    { href: "/field/integrations", label: "Kết nối CRM/NMS", icon: Plug },
     { href: "/docs", label: "Tài liệu", icon: FileText },
     { href: "/analytics", label: "Thống kê", icon: BarChart3 },
     { href: "/settings", label: "Cài đặt", icon: Settings },

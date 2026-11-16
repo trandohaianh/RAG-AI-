@@ -71,6 +71,13 @@ INFRA_COST_MONTH_USD = Gauge(
     "Tổng chi phí hạ tầng tháng hiện tại (USD, nhập tay)",
 )
 
+FIELD_WEBHOOKS = Counter(
+    "fieldops_field_webhooks_total",
+    "Webhook CRM/NMS: vào (accepted/duplicate/rejected) và ra (delivered/retry/dead)",
+    ["direction", "outcome"],
+)
+FIELD_PHOTOS = Counter("fieldops_field_photos_total", "Ảnh hiện trường", ["outcome"])
+
 AUTH_EVENTS = Counter(
     "fieldops_auth_events_total",
     "Sự kiện xác thực",

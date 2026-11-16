@@ -144,7 +144,13 @@ def retention(db: Session, *, keep_days: int | None = None, **_) -> tuple[int, d
     cutoff = datetime.now(timezone.utc) - timedelta(days=keep)
     deleted = db.query(LlmUsageEvent).filter(LlmUsageEvent.created_at < cutoff).delete(synchronize_session=False)
     db.commit()
-    return int(deleted), {"cutoff": cutoff.isoformat(), "keep_days": keep}, "ok"
+    from field.integrations import purge_old_records
+    from field.photos import purge_expired_photos
+
+    photos = purge_expired_photos(db)
+    integration = purge_old_records(db)
+    return int(deleted) + photos, {"cutoff": cutoff.isoformat(), "keep_days": keep, "usage_events_deleted": int(deleted),
+                                   "field_photos_deleted": photos, **integration}, "ok"
 
 
 # --------------------------------------------------------------------------- 4. backup
@@ -168,7 +174,14 @@ def backup(db: Session, *, keep: int | None = None, **_) -> tuple[int, dict, str
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(CHROMA_DIR, arcname="chroma_db")
         made.append(archive.name)
-    for prefix in ("app-", "chroma-"):
+    from config import FIELD_PHOTO_DIR
+
+    if FIELD_PHOTO_DIR.exists() and any(FIELD_PHOTO_DIR.iterdir()):
+        archive = target / f"photos-{stamp}.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(FIELD_PHOTO_DIR, arcname="field_photos")
+        made.append(archive.name)
+    for prefix in ("app-", "chroma-", "photos-"):
         olds = sorted(p for p in target.iterdir() if p.name.startswith(prefix))
         for stale in olds[:-keep]:
             stale.unlink(missing_ok=True) if stale.is_file() else shutil.rmtree(stale, ignore_errors=True)

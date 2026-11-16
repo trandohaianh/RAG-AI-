@@ -48,6 +48,10 @@ class MemberOut(BaseModel):
     user_id: int
     email: str
     role: str
+    base_latitude: float | None = None
+    base_longitude: float | None = None
+    shift_start: str = "08:00"
+    shift_end: str = "17:00"
 
 
 class CaseCreate(BaseModel):
@@ -128,6 +132,16 @@ class CaseOut(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+    latitude: float | None = None
+    longitude: float | None = None
+    priority: str = "normal"
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+    est_minutes: int = 60
+    scheduled_start: datetime | None = None
+    route_order: int | None = None
+    external_source: str | None = None
+    external_ref: str | None = None
     steps: list[StepOut] = []
     events: list[EventOut] = []
 
@@ -304,7 +318,9 @@ def list_members(
         .order_by(FieldWorkspaceMember.created_at)
     ).all()
     return [
-        MemberOut(user_id=member.user_id, email=account.email, role=member.role)
+        MemberOut(user_id=member.user_id, email=account.email, role=member.role,
+                  base_latitude=member.base_latitude, base_longitude=member.base_longitude,
+                  shift_start=member.shift_start or "08:00", shift_end=member.shift_end or "17:00")
         for member, account in rows
     ]
 
@@ -440,12 +456,14 @@ def update_case(
     )
     if already_applied:
         return case
+    notify: list[str] = []
     if body.status is not None:
         if body.status not in CASE_STATUSES:
             raise HTTPException(status_code=422, detail="Trạng thái ca sửa không hợp lệ")
         if case.status != body.status:
             case.status = body.status
             _add_event(db, case.id, user.id, "status", f"Chuyển trạng thái: {body.status}")
+            notify.append("case.status_changed")
     if "assigned_to" in body.model_fields_set:
         if body.assigned_to is not None:
             assignee = db.scalar(
@@ -460,7 +478,13 @@ def update_case(
                 )
         case.assigned_to = body.assigned_to
         _add_event(db, case.id, user.id, "assigned", "Cập nhật người phụ trách")
+        notify.append("case.assigned")
+    from field.integrations import enqueue_case_event, kick
+
+    queued = sum(enqueue_case_event(db, case, event_type) for event_type in notify)
     db.commit()
+    if queued:
+        kick()
     return _case_for_user(db, case.id, user.id)
 
 

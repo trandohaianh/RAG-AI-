@@ -67,7 +67,23 @@ flowchart LR
 
 **Các lớp sản phẩm:** tổ chức/workspace → danh mục ca sửa → thông tin thiết bị và bàn giao → checklist tại hiện trường → tri thức SOP/manual dùng chung → nhật ký kết quả và cải thiện tri thức. RAG là một lớp hỗ trợ trong vòng vận hành, không phải toàn bộ sản phẩm.
 
-**Phạm vi hiện tại:** workspace, phân quyền thành viên cơ bản, tạo/cập nhật ca, checklist, sự kiện xử lý, thư viện tài liệu workspace và trợ lý theo tài liệu workspace. Ứng dụng iOS/Android lưu bản ca gần đây và hàng đợi checklist/ghi nhận/trạng thái bằng SecureStore (Keychain/Android Keystore); thao tác tự đồng bộ khi ứng dụng mở lại trang ca/danh sách/tổng quan có mạng. Tạo ca mới, thêm bước checklist và hỏi RAG vẫn cần mạng. Web lưu hàng đợi thay đổi ca sửa trong IndexedDB, tách theo API/tài khoản/workspace; chưa có cache ca đầy đủ trên web. Chưa có đồng bộ tổng đài/CRM/NMS, điều phối lịch tuyến, lưu ảnh hiện trường hoặc tích hợp hệ thống nội bộ; đây là các bước cần discovery/pilot riêng.
+**Phạm vi hiện tại:** workspace, phân quyền thành viên cơ bản, tạo/cập nhật ca, checklist, sự kiện xử lý, thư viện tài liệu workspace và trợ lý theo tài liệu workspace. Ứng dụng iOS/Android lưu bản ca gần đây và hàng đợi checklist/ghi nhận/trạng thái bằng SecureStore (Keychain/Android Keystore); thao tác tự đồng bộ khi ứng dụng mở lại trang ca/danh sách/tổng quan có mạng. Tạo ca mới, thêm bước checklist và hỏi RAG vẫn cần mạng. Web lưu hàng đợi thay đổi ca sửa trong IndexedDB, tách theo API/tài khoản/workspace; chưa có cache ca đầy đủ trên web. Ảnh hiện trường, điều phối lịch tuyến và kết nối CRM/NMS đã có (16/11/2026), xem mục ngay dưới.
+
+**Ảnh hiện trường.**
+- Chụp hoặc chọn ảnh ngay trong ca, trên web và app. App giữ ảnh trên máy khi mất sóng rồi tự gửi lại, không tạo trùng.
+- Máy chủ mã hoá lại ảnh: xoay đúng chiều, xoá EXIF/GPS. Chỉ nhận JPEG/PNG/WebP thật và giới hạn dung lượng.
+- Ảnh tải qua URL ký có hạn 15 phút. Ảnh của ca đã đóng quá `FIELD_PHOTO_RETENTION_DAYS` bị pipeline xoá.
+
+**Điều phối tuyến (`/field/schedule`).**
+- Mỗi ca có toạ độ, ưu tiên, khung giờ hẹn khách và thời gian xử lý. Mỗi kỹ thuật viên có điểm xuất phát và ca làm.
+- Bộ lập lịch gán ca và xếp thứ tự đi (chèn rẻ nhất + 2-opt): ca khẩn được làm trước, không vi phạm khung giờ hay ca làm. Kết quả hiện trên bản đồ OpenStreetMap.
+- Trưởng đội có thể sửa rồi lưu; máy chủ kiểm tra lại tính khả thi trước khi ghi.
+- Thời gian đi là ước lượng theo đường chim bay × 1,35, chưa phải dẫn đường thật.
+
+**Kết nối CRM/NMS (`/field/integrations`).**
+- Ticket/cảnh báo gửi vào webhook có ký HMAC sẽ tự tạo, cập nhật hoặc đóng ca. Gửi lặp cùng `event_id` thì bỏ qua.
+- Khi ca đổi trạng thái, người phụ trách hoặc lịch, FieldOps gửi webhook báo ngược (outbox, tự thử lại; thất bại 8 lần thì vào dead-letter, gửi lại được từ giao diện).
+- Có thể thử bằng `backend/scripts/simulate_integration.py`. Chưa có adapter riêng cho một CRM/NMS cụ thể: hệ thống đó cần gửi đúng định dạng webhook chung (xem docstring `backend/field/integrations.py`).
 
 ```mermaid
 flowchart TB

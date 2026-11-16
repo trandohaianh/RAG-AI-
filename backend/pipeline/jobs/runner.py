@@ -99,6 +99,14 @@ def schedule_forever() -> None:
         if now >= next_daily:
             run_chain(trigger="schedule")
             next_daily = _next_run(datetime.now(timezone.utc), at)
+        try:   # webhook ra CRM/NMS: gửi lại các lượt đến hạn (backoff), quá số lần -> dead-letter
+            from database import SessionLocal
+            from field.integrations import dispatch_due
+
+            with SessionLocal() as db:
+                dispatch_due(db)
+        except Exception:
+            logger.exception("webhook dispatch failed")
         if time.monotonic() >= next_quality:
             # KPI hôm nay + kiểm tra chất lượng mỗi giờ để dashboard gần thời gian thực.
             run_chain(["daily_kpis", "data_quality"], trigger="hourly", backfill=1)

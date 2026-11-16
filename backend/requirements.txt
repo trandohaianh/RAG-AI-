@@ -26,5 +26,7 @@ prometheus-client==0.21.1
 pandas==2.2.3
 redis==5.2.1
 httpx==0.28.1
+# Ảnh hiện trường: kiểm tra, xoay theo EXIF, bỏ metadata/GPS, thumbnail (field/photos.py)
+pillow==13.0.0
 stripe==11.4.0
 pytest==9.1.1

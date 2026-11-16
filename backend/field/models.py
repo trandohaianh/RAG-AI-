@@ -1,7 +1,7 @@
 """Shared field-service workspace, cases, checklists, and audit events."""
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -37,6 +37,11 @@ class FieldWorkspaceMember(Base):
     )
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     role: Mapped[str] = mapped_column(String(20), default="technician")
+    # Điều phối tuyến: điểm xuất phát và ca làm của kỹ thuật viên (giờ địa phương "HH:MM").
+    base_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    base_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shift_start: Mapped[str] = mapped_column(String(5), default="08:00")
+    shift_end: Mapped[str] = mapped_column(String(5), default="17:00")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -46,6 +51,9 @@ class FieldWorkspaceMember(Base):
 
 class ServiceCase(Base):
     __tablename__ = "field_service_cases"
+    __table_args__ = (
+        Index("ix_field_case_external", "workspace_id", "external_source", "external_ref", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     workspace_id: Mapped[int] = mapped_column(
@@ -62,6 +70,18 @@ class ServiceCase(Base):
     serial_number: Mapped[str | None] = mapped_column(String(160), nullable=True)
     symptom: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(24), default="open", index=True)
+    # Điều phối: vị trí khách hàng, ưu tiên, khung giờ hẹn, thời gian xử lý ước tính, lịch đã xếp.
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    priority: Mapped[str] = mapped_column(String(10), default="normal")
+    window_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    window_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    est_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    scheduled_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    route_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Nguồn ngoài (CRM ticket / NMS alarm) — duy nhất theo workspace.
+    external_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    external_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -76,6 +96,81 @@ class ServiceCase(Base):
     events = relationship(
         "ServiceCaseEvent", back_populates="case", cascade="all, delete-orphan"
     )
+    photos = relationship(
+        "ServiceCasePhoto", back_populates="case", cascade="all, delete-orphan"
+    )
+
+
+class ServiceCasePhoto(Base):
+    """Ảnh hiện trường. Tệp đã được mã hoá lại (bỏ EXIF/GPS) và nằm ngoài thư mục web."""
+
+    __tablename__ = "field_case_photos"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    case_id: Mapped[int] = mapped_column(ForeignKey("field_service_cases.id"), index=True)
+    uploaded_by: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    storage_key: Mapped[str] = mapped_column(String(200), unique=True)
+    sha256: Mapped[str] = mapped_column(String(64))
+    content_type: Mapped[str] = mapped_column(String(40), default="image/jpeg")
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    caption: Mapped[str] = mapped_column(String(300), default="")
+    client_action_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    case = relationship("ServiceCase", back_populates="photos")
+
+
+class FieldIntegration(Base):
+    """Kết nối CRM/NMS của một đội: webhook vào (ký HMAC) và webhook ra khi ca đổi trạng thái."""
+
+    __tablename__ = "field_integrations"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("field_workspaces.id"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    kind: Mapped[str] = mapped_column(String(10), default="crm")          # crm | nms
+    public_id: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    secret: Mapped[str] = mapped_column(String(128))
+    outbound_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    default_assignee: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class FieldIntegrationEvent(Base):
+    """Sự kiện vào đã xử lý — chống lặp theo (integration, event_id)."""
+
+    __tablename__ = "field_integration_events"
+    __table_args__ = (UniqueConstraint("integration_id", "event_id", name="uq_integration_event"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    integration_id: Mapped[int] = mapped_column(ForeignKey("field_integrations.id"), index=True)
+    event_id: Mapped[str] = mapped_column(String(128))
+    event_type: Mapped[str] = mapped_column(String(40))
+    case_id: Mapped[int | None] = mapped_column(ForeignKey("field_service_cases.id"), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(20))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class FieldWebhookDelivery(Base):
+    """Hàng đợi webhook ra (outbox): gửi lại với backoff, quá hạn thì dead-letter."""
+
+    __tablename__ = "field_webhook_deliveries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    integration_id: Mapped[int] = mapped_column(ForeignKey("field_integrations.id"), index=True)
+    event_type: Mapped[str] = mapped_column(String(40))
+    payload_json: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(12), default="pending", index=True)  # pending|delivered|dead
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    last_error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    response_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ServiceCaseStep(Base):

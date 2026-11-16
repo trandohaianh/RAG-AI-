@@ -470,6 +470,12 @@ export type FieldCase = {
   status: CaseStatus;
   created_at: string;
   updated_at: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  priority?: "urgent" | "high" | "normal" | "low";
+  scheduled_start?: string | null;
+  route_order?: number | null;
+  external_ref?: string | null;
   steps: FieldStep[];
   events: FieldEvent[];
 };
@@ -615,4 +621,59 @@ export async function getMessageEvidence(convId: number, messageId: number, refe
 }
 export async function getFieldEvidence(caseId: number, eventId: number, reference: string) {
   return request<{evidence: Evidence; document_status: string}>(`/field/cases/${caseId}/events/${eventId}/evidence/${encodeURIComponent(reference)}`);
+}
+
+// ---- Ảnh hiện trường ----
+export type FieldPhoto = {
+  id: number;
+  case_id: number;
+  uploaded_by: number;
+  caption: string;
+  width: number;
+  height: number;
+  created_at: string;
+  url: string;
+  thumb_url: string;
+};
+
+export async function listFieldPhotos(caseId: number) {
+  return request<FieldPhoto[]>(`/field/cases/${caseId}/photos`);
+}
+
+export async function deleteFieldPhoto(photoId: number) {
+  return request<null>(`/field/photos/${photoId}`, { method: "DELETE" });
+}
+
+/** Upload một ảnh; client_action_id giúp gửi lại an toàn (máy chủ trả ảnh cũ, không tạo trùng). */
+export async function uploadFieldPhoto(caseId: number, uri: string, caption: string, clientActionId: string) {
+  const base = await getApiUrl();
+  const token = await getToken();
+  const form = new FormData();
+  if (Platform.OS === "web") {
+    const blob = await (await fetch(uri)).blob();
+    form.append("file", blob, "photo.jpg");
+  } else {
+    form.append("file", { uri, name: "photo.jpg", type: "image/jpeg" } as any);
+  }
+  form.append("caption", caption);
+  form.append("client_action_id", clientActionId);
+  let res: Response;
+  try {
+    res = await fetch(`${base}/field/cases/${caseId}/photos`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: form,
+    });
+  } catch {
+    throw new ApiError("Không kết nối được máy chủ");
+  }
+  if (res.status === 401) {
+    await clearAuth(token);
+    throw new ApiError("Phiên đăng nhập hết hạn, vui lòng đăng nhập lại.", 401);
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.detail || "Tải ảnh thất bại", res.status);
+  }
+  return (await res.json()) as FieldPhoto;
 }

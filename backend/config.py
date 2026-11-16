@@ -78,6 +78,12 @@ EMBED_MAX_RETRIES: int = int(os.getenv("EMBED_MAX_RETRIES", "5"))
 DATA_ROOT = Path(os.getenv("DATA_DIR", str(ROOT_DIR / "data")))
 CHROMA_DIR: Path = DATA_ROOT / "chroma_db"
 UPLOAD_DIR: Path = DATA_ROOT / "uploads"
+# Ảnh hiện trường (field/photos.py): ngoài thư mục web, chỉ tải qua URL ký có hạn.
+FIELD_PHOTO_DIR: Path = DATA_ROOT / "field_photos"
+FIELD_PHOTO_MAX_MB: int = int(os.getenv("FIELD_PHOTO_MAX_MB", "12"))
+FIELD_PHOTO_MAX_PER_CASE: int = int(os.getenv("FIELD_PHOTO_MAX_PER_CASE", "40"))
+FIELD_PHOTO_WORKSPACE_QUOTA_MB: int = int(os.getenv("FIELD_PHOTO_WORKSPACE_QUOTA_MB", "2048"))
+FIELD_PHOTO_RETENTION_DAYS: int = int(os.getenv("FIELD_PHOTO_RETENTION_DAYS", "365"))
 DATABASE_PATH: Path = DATA_ROOT / "app.db"
 DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{DATABASE_PATH}")
 

@@ -74,6 +74,7 @@ def repair_legacy_accounts(conn: Connection, table_names: set[str] | None = None
         "field_service_cases": ("created_by", "assigned_to"),
         "field_service_case_steps": ("created_by", "completed_by"),
         "field_service_case_events": ("actor_id",), "field_client_actions": ("actor_id",),
+        "field_case_photos": ("uploaded_by",), "field_integrations": ("created_by", "default_assignee"),
     }
     for table_name, names in references.items():
         if table_name not in tables:
@@ -149,6 +150,39 @@ def _add_identity_providers(conn: Connection) -> None:
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub ON users (google_sub)"))
 
 
+def _add_dispatch_and_integration_columns(conn: Connection) -> None:
+    """Điều phối tuyến (toạ độ, khung giờ, lịch) và tích hợp CRM/NMS (mã nguồn ngoài)."""
+    inspector = inspect(conn)
+    tables = set(inspector.get_table_names())
+    timestamp = "TIMESTAMP WITH TIME ZONE" if conn.dialect.name == "postgresql" else "DATETIME"
+    real = "DOUBLE PRECISION" if conn.dialect.name == "postgresql" else "FLOAT"
+    if "field_service_cases" in tables:
+        columns = {column["name"] for column in inspector.get_columns("field_service_cases")}
+        for name, ddl in (
+            ("latitude", real), ("longitude", real),
+            ("priority", "VARCHAR(10) NOT NULL DEFAULT 'normal'"),
+            ("window_start", timestamp), ("window_end", timestamp),
+            ("est_minutes", "INTEGER NOT NULL DEFAULT 60"),
+            ("scheduled_start", timestamp), ("route_order", "INTEGER"),
+            ("external_source", "VARCHAR(32)"), ("external_ref", "VARCHAR(128)"),
+        ):
+            if name not in columns:
+                conn.execute(text(f"ALTER TABLE field_service_cases ADD COLUMN {name} {ddl}"))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_field_case_external "
+            "ON field_service_cases (workspace_id, external_source, external_ref)"
+        ))
+    if "field_workspace_members" in tables:
+        columns = {column["name"] for column in inspector.get_columns("field_workspace_members")}
+        for name, ddl in (
+            ("base_latitude", real), ("base_longitude", real),
+            ("shift_start", "VARCHAR(5) NOT NULL DEFAULT '08:00'"),
+            ("shift_end", "VARCHAR(5) NOT NULL DEFAULT '17:00'"),
+        ):
+            if name not in columns:
+                conn.execute(text(f"ALTER TABLE field_workspace_members ADD COLUMN {name} {ddl}"))
+
+
 @dataclass(frozen=True)
 class Migration:
     version: int
@@ -161,6 +195,7 @@ _MIGRATIONS = (
     Migration(2, "reserve_historic_identities", repair_legacy_accounts),
     Migration(3, "immutable_rag_evidence_snapshots", _add_evidence_snapshots),
     Migration(4, "google_identity_and_email_verification", _add_identity_providers),
+    Migration(5, "field_dispatch_and_integrations", _add_dispatch_and_integration_columns),
 )
 
 

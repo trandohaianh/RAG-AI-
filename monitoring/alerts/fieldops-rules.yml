@@ -78,3 +78,13 @@ groups:
         labels: {severity: warning}
         annotations:
           summary: "Ổ dữ liệu còn < 10% (backup/Chroma/uploads)"
+  - name: fieldops-field-integrations
+    rules:
+      - alert: FieldOpsWebhookDeadLetter
+        expr: sum(increase(fieldops_field_webhooks_total{direction="outbound",outcome="dead"}[1h])) > 0
+        labels: {severity: warning}
+        annotations: {summary: "Có webhook báo ngược CRM/NMS bị dead-letter (gửi 8 lần không thành công) — xem trang Kết nối CRM/NMS"}
+      - alert: FieldOpsInboundRejected
+        expr: sum(increase(fieldops_field_webhooks_total{direction="inbound",outcome="rejected"}[15m])) > 20
+        labels: {severity: warning}
+        annotations: {summary: "Nhiều sự kiện CRM/NMS bị từ chối (sai chữ ký/khoá đã đổi?)"}
