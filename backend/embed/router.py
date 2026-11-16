@@ -1,5 +1,9 @@
 """Embed widget — token + chat + widget.js (tuần 5–6)."""
 import json
+import logging
+from contextlib import aclosing
+import secrets
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
@@ -8,14 +12,16 @@ from sqlalchemy.orm import Session
 
 from auth.models import User
 from chat import service as chat_service
-from config import API_PUBLIC_URL, APP_PUBLIC_URL, GEMINI_API_KEY
+from chat.models import Conversation
+from config import API_PUBLIC_URL, APP_PUBLIC_URL, GEMINI_API_KEY, LLM_PROVIDER
 from database import SessionLocal, get_db
 from dependencies import get_current_user
 from auth.schemas import CurrentUser
-from saas.limits import enforce_query_quota
-from saas.models import EmbedToken
+from saas.limits import enforce_query_quota, release_query_quota
+from saas.models import EmbedGuestSession, EmbedToken
 from saas.security import generate_embed_token, hash_secret
-from rag.chain import stream_rag_answer
+from rag.chain import RAG_ERROR_MESSAGE, stream_rag_answer
+from rag.evidence import public_bundle
 
 router = APIRouter(prefix="/embed", tags=["embed"])
 
@@ -43,14 +49,20 @@ class EmbedTokenCreated(EmbedTokenOut):
 
 class EmbedChatIn(BaseModel):
     question: str = Field(..., min_length=1, max_length=4000)
-    conversation_id: int | None = None
+    conversation_id: int | None = Field(default=None, gt=0)
+    session_token: str | None = Field(default=None, min_length=20, max_length=200)
 
 
 def _get_embed_row(db: Session, raw_token: str) -> EmbedToken:
     h = hash_secret(raw_token)
     row = (
         db.query(EmbedToken)
-        .filter(EmbedToken.token_hash == h, EmbedToken.active.is_(True))
+        .join(User, User.id == EmbedToken.user_id)
+        .filter(
+            EmbedToken.token_hash == h,
+            EmbedToken.active.is_(True),
+            User.deleted_at.is_(None),
+        )
         .first()
     )
     if not row:
@@ -70,8 +82,47 @@ def _check_origin(row: EmbedToken, origin: str | None) -> None:
 
 
 async def _embed_user_plan(db: Session, user_id: int) -> str:
-    u = db.query(User).filter(User.id == user_id).first()
-    return (u.subscription_plan if u else None) or "free"
+    u = db.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
+    if not u:
+        raise HTTPException(status_code=401, detail="Embed token không hợp lệ")
+    return u.subscription_plan or "free"
+
+
+def _guest_conversation(
+    db: Session, row: EmbedToken, body: EmbedChatIn
+) -> tuple[int, str]:
+    if body.conversation_id is not None or body.session_token is not None:
+        if body.conversation_id is None or body.session_token is None:
+            raise HTTPException(status_code=404, detail="Không tìm thấy phiên chat")
+        guest = (
+            db.query(EmbedGuestSession)
+            .join(Conversation, Conversation.id == EmbedGuestSession.conversation_id)
+            .filter(
+                EmbedGuestSession.token_hash == hash_secret(body.session_token),
+                EmbedGuestSession.embed_token_id == row.id,
+                EmbedGuestSession.conversation_id == body.conversation_id,
+                EmbedGuestSession.expires_at > datetime.now(timezone.utc),
+                Conversation.user_id == row.user_id,
+            )
+            .first()
+        )
+        if not guest:
+            raise HTTPException(status_code=404, detail="Không tìm thấy phiên chat")
+        return guest.conversation_id, body.session_token
+    conv = Conversation(user_id=row.user_id, title="Embed chat")
+    db.add(conv)
+    db.flush()
+    raw_session = secrets.token_urlsafe(32)
+    db.add(
+        EmbedGuestSession(
+            token_hash=hash_secret(raw_session),
+            embed_token_id=row.id,
+            conversation_id=conv.id,
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+        )
+    )
+    db.commit()
+    return conv.id, raw_session
 
 
 @router.post("/tokens", response_model=EmbedTokenCreated)
@@ -143,6 +194,9 @@ def revoke_embed_token(
     if not row:
         raise HTTPException(status_code=404, detail="Không tìm thấy token")
     row.active = False
+    db.query(EmbedGuestSession).filter(
+        EmbedGuestSession.embed_token_id == row.id
+    ).delete(synchronize_session=False)
     db.commit()
     return {"message": "Đã vô hiệu hóa embed token"}
 
@@ -154,52 +208,76 @@ async def embed_chat(
     x_embed_token: str = Header(..., alias="X-Embed-Token"),
     db: Session = Depends(get_db),
 ):
-    if not GEMINI_API_KEY:
+    if LLM_PROVIDER != "ollama" and not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="Thiếu GEMINI_API_KEY")
 
     row = _get_embed_row(db, x_embed_token)
     _check_origin(row, request.headers.get("origin"))
 
     plan = await _embed_user_plan(db, row.user_id)
-    enforce_query_quota(db, row.user_id, plan)
+    conv_id = None
+    session_token = None
+    if body.conversation_id is not None or body.session_token is not None:
+        # Check an existing guest before charging; create new guests only after
+        # admission so quota rejection cannot create unbounded empty sessions.
+        conv_id, session_token = _guest_conversation(db, row, body)
+    from costs.budget import enforce_budget
 
-    if body.conversation_id:
-        conv = chat_service.get_conversation(db, row.user_id, body.conversation_id)
-        if not conv:
-            raise HTTPException(status_code=404, detail="Không tìm thấy hội thoại")
-        conv_id = conv.id
-    else:
-        conv = chat_service.create_conversation(db, row.user_id, "Embed chat")
-        conv_id = conv.id
-
-    chat_service.add_message(db, conv_id, "user", body.question)
-    history = chat_service.get_history_for_rag(db, conv_id)
+    enforce_budget(db, row.user_id)
+    reservation = enforce_query_quota(db, row.user_id, plan)
+    try:
+        if conv_id is None:
+            conv_id, session_token = _guest_conversation(db, row, body)
+        chat_service.add_message(db, conv_id, "user", body.question)
+        history = chat_service.get_history_for_rag(db, conv_id)
+    except Exception:
+        release_query_quota(db, reservation)
+        raise
     user_id = row.user_id
     question = body.question
     history_snapshot = list(history)
     full_answer: list[str] = []
     sources: list[str] = []
+    evidence_bundle: dict = {}
 
     async def event_generator():
         nonlocal sources
-        try:
-            async for kind, payload in stream_rag_answer(user_id, question, history_snapshot):
-                if kind == "token":
-                    full_answer.append(payload)  # type: ignore[arg-type]
-                    yield f"data: {json.dumps({'token': payload}, ensure_ascii=False)}\n\n"
-                elif kind == "done":
-                    sources = payload  # type: ignore[assignment]
-                    yield f"data: {json.dumps({'done': True, 'sources': sources, 'conversation_id': conv_id}, ensure_ascii=False)}\n\n"
-        except Exception as exc:
-            yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
-            return
+        from costs.context import set_request_usage
 
-        answer_text = "".join(full_answer)
-        db_save = SessionLocal()
+        set_request_usage(user_id=user_id, feature="embed_chat")
         try:
-            chat_service.add_message(db_save, conv_id, "assistant", answer_text, sources)
-        finally:
-            db_save.close()
+            async with aclosing(stream_rag_answer(user_id, question, history_snapshot, include_evidence=True)) as answer_stream:
+                async for kind, payload in answer_stream:
+                    if kind == "evidence":
+                        evidence_bundle.update(payload)
+                    elif kind == "token":
+                        full_answer.append(payload)  # type: ignore[arg-type]
+                        yield f"data: {json.dumps({'token': payload}, ensure_ascii=False)}\n\n"
+                    elif kind == "done":
+                        sources = payload  # type: ignore[assignment]
+                        db_save = SessionLocal()
+                        try:
+                            live_token = _get_embed_row(db_save, x_embed_token)
+                            _guest_conversation(
+                                db_save,
+                                live_token,
+                                EmbedChatIn(
+                                    question=question,
+                                    conversation_id=conv_id,
+                                    session_token=session_token,
+                                ),
+                            )
+                            chat_service.add_message(
+                                db_save, conv_id, "assistant", "".join(full_answer), sources, **({"evidence": evidence_bundle} if evidence_bundle else {})
+                            )
+                        finally:
+                            db_save.close()
+                        yield f"data: {json.dumps({'done': True, 'sources': sources, 'conversation_id': conv_id, 'session_token': session_token, **public_bundle(evidence_bundle)}, ensure_ascii=False)}\n\n"
+                        return
+        except Exception as exc:
+            logging.getLogger(__name__).warning("RAG request failed (%s)", type(exc).__name__)
+            yield f"data: {json.dumps({'error': RAG_ERROR_MESSAGE, 'code': 'rag_unavailable'}, ensure_ascii=False)}\n\n"
+            return
 
     return StreamingResponse(
         event_generator(),

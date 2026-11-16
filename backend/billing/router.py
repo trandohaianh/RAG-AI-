@@ -1,6 +1,10 @@
 """Stripe subscription — tuần 7–8."""
+import asyncio
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from auth.models import User
@@ -47,7 +51,7 @@ def billing_status(
 
     return BillingStatusOut(
         plan=user.subscription_plan,
-        stripe_configured=bool(STRIPE_SECRET_KEY and STRIPE_PRICE_PRO),
+        stripe_configured=bool(STRIPE_SECRET_KEY and STRIPE_PRICE_PRO and STRIPE_WEBHOOK_SECRET),
         daily_limit=plan_daily_limit(user.subscription_plan),
         queries_today=daily_query_count(db, user.id),
     )
@@ -59,10 +63,10 @@ def create_checkout(
     db: Session = Depends(get_db),
 ):
     stripe = _stripe()
-    if not stripe or not STRIPE_PRICE_PRO:
+    if not stripe or not STRIPE_PRICE_PRO or not STRIPE_WEBHOOK_SECRET:
         raise HTTPException(
             status_code=503,
-            detail="Stripe chưa cấu hình (STRIPE_SECRET_KEY, STRIPE_PRICE_PRO)",
+            detail="Stripe chưa cấu hình (STRIPE_SECRET_KEY, STRIPE_PRICE_PRO, STRIPE_WEBHOOK_SECRET)",
         )
 
     row = db.query(User).filter(User.id == user.id).first()
@@ -107,45 +111,95 @@ def customer_portal(
     return CheckoutOut(url=session.url)
 
 
+def _current_customer_plan(stripe, customer_id: str) -> str:
+    """Resolve entitlement from current subscriptions instead of an event snapshot."""
+    for status in ("active", "trialing"):
+        page = stripe.Subscription.list(
+            customer=customer_id, status=status, price=STRIPE_PRICE_PRO, limit=1,
+        )
+        for subscription in page["data"]:
+            if (
+                subscription["customer"] == customer_id
+                and subscription["status"] == status
+                and any(
+                    item["price"]["id"] == STRIPE_PRICE_PRO
+                    for item in subscription["items"]["data"]
+                )
+            ):
+                return "pro"
+    return "free"
+
+
 @router.post("/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     stripe = _stripe()
-    if not stripe:
-        raise HTTPException(status_code=503, detail="Stripe chưa cấu hình")
+    if not stripe or not STRIPE_WEBHOOK_SECRET or not STRIPE_PRICE_PRO:
+        raise HTTPException(status_code=503, detail="Stripe webhook chưa cấu hình đầy đủ")
 
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
     try:
-        if STRIPE_WEBHOOK_SECRET:
-            event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
-        else:
-            import json
-
-            event = stripe.Event.construct_from(json.loads(payload), stripe.api_key)
+        # Verify the original bytes before decoding. Use native dicts after verification:
+        # Stripe Event objects do not expose dict.get() in all supported SDK versions.
+        stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+        event = json.loads(payload)
+        etype = event["type"]
+        data = event["data"]["object"]
+        if not isinstance(data, dict):
+            raise ValueError("Invalid event object")
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="Stripe webhook không hợp lệ") from exc
 
-    etype = event["type"]
-    data = event.get("data", {}).get("object", {})
+    if etype not in (
+        "checkout.session.completed",
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+    ):
+        return {"received": True}
 
-    if etype in ("checkout.session.completed", "customer.subscription.created", "customer.subscription.updated"):
-        user_id = data.get("metadata", {}).get("user_id")
-        customer_id = data.get("customer")
-        if not user_id and customer_id:
-            row = db.query(User).filter(User.stripe_customer_id == customer_id).first()
-        else:
-            row = db.query(User).filter(User.id == int(user_id)).first() if user_id else None
-        if row:
-            row.subscription_plan = "pro"
-            if customer_id and not row.stripe_customer_id:
-                row.stripe_customer_id = customer_id
-            db.commit()
+    customer_id = data.get("customer")
+    if not isinstance(customer_id, str) or not customer_id:
+        raise HTTPException(status_code=400, detail="Stripe webhook thiếu customer")
 
-    if etype in ("customer.subscription.deleted",):
-        customer_id = data.get("customer")
-        row = db.query(User).filter(User.stripe_customer_id == customer_id).first()
-        if row:
-            row.subscription_plan = "free"
-            db.commit()
-
+    # The customer is bound during authenticated checkout; never bind accounts using
+    # user_id from an incoming event's metadata.
+    row = db.query(User).filter(
+        User.stripe_customer_id == customer_id,
+        User.deleted_at.is_(None),
+    ).first()
+    if row is None:
+        return {"received": True}
+    # Reserve a monotonic revision before the provider call. An older in-flight
+    # lookup cannot overwrite a newer webhook, even across API workers.
+    user_id = row.id
+    revision = db.execute(
+        update(User)
+        .where(
+            User.id == user_id, User.deleted_at.is_(None),
+            User.stripe_customer_id == customer_id,
+        )
+        .values(billing_sync_version=User.billing_sync_version + 1)
+        .returning(User.billing_sync_version)
+        .execution_options(synchronize_session=False)
+    ).scalar_one_or_none()
+    db.commit()
+    if revision is None:
+        return {"received": True}
+    try:
+        plan = await asyncio.to_thread(_current_customer_plan, stripe, customer_id)
+    except Exception as exc:
+        # A non-2xx response asks Stripe to retry; retain the previous entitlement.
+        raise HTTPException(status_code=503, detail="Chưa xác minh được subscription Stripe") from exc
+    db.execute(
+        update(User)
+        .where(
+            User.id == user_id, User.deleted_at.is_(None),
+            User.stripe_customer_id == customer_id,
+            User.billing_sync_version == revision,
+        )
+        .values(subscription_plan=plan)
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
     return {"received": True}

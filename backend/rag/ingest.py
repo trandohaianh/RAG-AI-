@@ -7,6 +7,10 @@ Ingestion per-user: load → chunk → embed (rate-limited) → ChromaDB collect
 import asyncio
 
 import hashlib
+import logging
+import os
+import tempfile
+import uuid
 
 from pathlib import Path
 
@@ -41,9 +45,30 @@ from config import (
 )
 
 from rag.embed_utils import _is_quota_error, embed_texts_with_retry
+from rag.document_lifecycle import (
+    DocumentCommitUncertainError, DocumentRecoveryError, advance_revision, begin_transaction, collection_read_lock,
+    commit_transaction, delete_raw, publication_lock, publish_raw,
+    rollback_transaction, storage_lock, transaction_phase,
+)
+
+logger = logging.getLogger(__name__)
 
 
 
+
+
+def _invalidate_bm25(collection_name: str) -> None:
+    """Báo cho chỉ mục BM25 biết collection đã đổi. Import cục bộ để tránh vòng import.
+
+    Chỉ mục BM25 nằm trong bộ nhớ nên không tự biết kho đã thay đổi. Thiếu bước này
+    thì nó vẫn trả về tài liệu người dùng vừa gỡ bỏ.
+    """
+    try:
+        from rag.bm25 import invalidate
+
+        invalidate(collection_name)
+    except Exception:
+        pass
 
 
 def _collection_name(user_id: int, workspace_id: int | None = None) -> str:
@@ -56,14 +81,14 @@ def _collection_name(user_id: int, workspace_id: int | None = None) -> str:
 
 
 def _embeddings() -> GoogleGenerativeAIEmbeddings:
+    """Embedding Gemini, có ghi token/chi phí (xem rag.embed_utils.MeteredEmbeddings)."""
+    from rag.embed_utils import MeteredEmbeddings
 
-    return GoogleGenerativeAIEmbeddings(
-
+    inner = GoogleGenerativeAIEmbeddings(
         model=EMBEDDING_MODEL,
-
         google_api_key=GEMINI_API_KEY,
-
     )
+    return MeteredEmbeddings(inner, EMBEDDING_MODEL)  # type: ignore[return-value]
 
 
 
@@ -181,69 +206,120 @@ def _chunk_ids(source: str, count: int) -> list[str]:
 
 
 
-def _store_sync(
-    user_id: int,
-    chunks: list[Document],
-    source_name: str,
-    workspace_id: int | None = None,
-) -> int:
-
-    if not chunks:
-
-        return 0
-
-
-
-    embedder = _embeddings()
-
-    texts = [c.page_content for c in chunks]
-
-    metadatas = [c.metadata for c in chunks]
-
-
-
-    embeddings = embed_texts_with_retry(embedder, texts)
-
-
-
-    CHROMA_DIR.mkdir(parents=True, exist_ok=True)
-
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-
-    collection = client.get_or_create_collection(
-        name=_collection_name(user_id, workspace_id)
-    )
-
-
-
-    # Ghi đè chunk cùng tên file (upload lại)
-
+def _invalidate_scope(user_id: int, workspace_id: int | None = None) -> None:
+    _invalidate_bm25(_collection_name(user_id, workspace_id))
     try:
+        from rag.cache import invalidate_user_cache, invalidate_workspace_cache
 
-        collection.delete(where={"source": source_name})
-
+        if workspace_id is None:
+            invalidate_user_cache(user_id)
+        else:
+            invalidate_workspace_cache(workspace_id)
     except Exception:
-
-        pass
-
+        logger.warning("Could not clear retrieval cache", exc_info=True)
 
 
-    collection.add(
+def _store_sync(
+    user_id: int, chunks: list[Document], source_name: str,
+    workspace_id: int | None = None, *,
+    staged_path: Path | None = None, publish_path: Path | None = None,
+) -> int:
+    """Prepare embeddings before publishing under document + collection locks.
 
-        ids=_chunk_ids(source_name, len(chunks)),
-
-        embeddings=embeddings,
-
-        documents=texts,
-
-        metadatas=metadatas,
-
-    )
-
+    A persisted undo snapshot makes all noncommitted phases recoverable after
+    process termination. Readers recover or fail closed before exposing chunks.
+    """
+    if not chunks:
+        raise ValueError("Document contains no readable text")
+    if publish_path is not None and staged_path is None:
+        raise ValueError("Missing staged document")
+    texts = [chunk.page_content for chunk in chunks]
+    embeddings = embed_texts_with_retry(_embeddings(), texts)
+    if len(embeddings) != len(texts):
+        raise ValueError("Embedding count does not match document chunks")
+    version = uuid.uuid4().hex
+    ids = [f"{chunk_id}_{version}" for chunk_id in _chunk_ids(source_name, len(chunks))]
+    metadatas = [
+        {**chunk.metadata, "source": source_name, "document_version": version}
+        for chunk in chunks
+    ]
+    collection_name = _collection_name(user_id, workspace_id)
+    with publication_lock(CHROMA_DIR, collection_name, source_locked=source_name):
+        CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+        client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+        collection = client.get_or_create_collection(name=collection_name)
+        previous = collection.get(
+            where={"source": source_name}, include=["documents", "metadatas", "embeddings"],
+        )
+        record = begin_transaction(
+            CHROMA_DIR, collection_name, source_name, previous,
+            new_ids=ids, raw_path=publish_path,
+        )
+        try:
+            advance_revision(CHROMA_DIR, collection_name)
+            transaction_phase(CHROMA_DIR, record, "adding")
+            collection.add(ids=ids, embeddings=embeddings, documents=texts, metadatas=metadatas)
+            if publish_path is not None:
+                transaction_phase(CHROMA_DIR, record, "publishing")
+                publish_raw(staged_path, publish_path)
+            if previous.get("ids"):
+                transaction_phase(CHROMA_DIR, record, "retiring")
+                collection.delete(ids=previous["ids"])
+            commit_transaction(CHROMA_DIR, record)
+        except DocumentCommitUncertainError:
+            raise
+        except Exception as original_error:
+            try:
+                rollback_transaction(CHROMA_DIR, record, collection)
+            except DocumentRecoveryError as recovery_error:
+                logger.critical("Document rollback needs recovery: %s", collection_name, exc_info=True)
+                raise recovery_error from ExceptionGroup(
+                    "Document update and rollback failed", [original_error, recovery_error]
+                )
+            raise
+        finally:
+            _invalidate_scope(user_id, workspace_id)
     return len(chunks)
 
 
+def _ingest_prepared_sync(
+    user_id: int, file_path: Path, dag_run_id: str | None,
+    workspace_id: int | None, publish_path: Path | None = None,
+) -> int:
+    from pipeline.db import is_medallion_enabled
+    from pipeline.medallion import run_medallion_for_file
 
+    if is_medallion_enabled():
+        result = run_medallion_for_file(user_id, file_path, dag_run_id)
+        if not result.get("skipped") and not result.get("success", True):
+            raise ValueError("Document validation failed")
+    documents = _load_sync(file_path)
+    chunks = _split_sync(documents)
+    return _store_sync(
+        user_id, chunks, file_path.name, workspace_id,
+        staged_path=file_path if publish_path is not None else None,
+        publish_path=publish_path,
+    )
+
+
+def _ingest_file_sync(
+    user_id: int, file_path: Path, dag_run_id: str | None = None,
+    workspace_id: int | None = None, content: bytes | None = None,
+) -> int:
+    collection_name = _collection_name(user_id, workspace_id)
+    with storage_lock(CHROMA_DIR, collection_name, source=file_path.name):
+        # Recover before reading an existing raw file for a batch reindex.
+        with publication_lock(CHROMA_DIR, collection_name, source_locked=file_path.name):
+            pass
+        if content is None:
+            return _ingest_prepared_sync(user_id, file_path, dag_run_id, workspace_id)
+        # The worker owns staging cleanup, including when the HTTP task is cancelled.
+        with tempfile.TemporaryDirectory(
+            prefix=".document-stage-", dir=file_path.parent, ignore_cleanup_errors=True
+        ) as staging:
+            staged = Path(staging) / file_path.name
+            staged.write_bytes(content)
+            return _ingest_prepared_sync(user_id, staged, dag_run_id, workspace_id, file_path)
 
 
 async def ingest_file(
@@ -251,53 +327,31 @@ async def ingest_file(
     file_path: Path,
     dag_run_id: str | None = None,
     workspace_id: int | None = None,
+    *,
+    content: bytes | None = None,
 ) -> int:
     import time
 
     from metrics import EMBED_QUOTA_HITS, INGEST_DURATION, INGEST_ERRORS
-    from pipeline.db import is_medallion_enabled
-    from pipeline.medallion import run_medallion_for_file
+
+    from costs.context import usage_scope
 
     start = time.perf_counter()
     try:
-        if is_medallion_enabled():
-            result = await asyncio.to_thread(
-                run_medallion_for_file, user_id, file_path, dag_run_id
+        # to_thread sao chép context → token embedding được gán đúng user/workspace.
+        with usage_scope(user_id=user_id, workspace_id=workspace_id):
+            count = await asyncio.to_thread(
+                _ingest_file_sync, user_id, file_path, dag_run_id, workspace_id, content
             )
-            if not result.get("skipped") and not result.get("success", True):
-                INGEST_ERRORS.labels(reason="validation").inc()
-                raise ValueError(
-                    "Great Expectations validation thất bại — kiểm tra PostgreSQL silver layer"
-                )
-
-        documents = await asyncio.to_thread(_load_sync, file_path)
-        chunks = await asyncio.to_thread(_split_sync, documents)
-        count = await asyncio.to_thread(
-            _store_sync, user_id, chunks, file_path.name, workspace_id
-        )
         INGEST_DURATION.observe(time.perf_counter() - start)
-        try:
-            from rag.cache import invalidate_user_cache
-
-            if workspace_id is not None:
-                from rag.cache import invalidate_workspace_cache
-
-                invalidate_workspace_cache(workspace_id)
-            else:
-                invalidate_user_cache(user_id)
-        except Exception:
-            pass
         return count
     except Exception as exc:
-        if "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc):
+        if _is_quota_error(exc):
             EMBED_QUOTA_HITS.inc()
             INGEST_ERRORS.labels(reason="quota").inc()
         else:
             INGEST_ERRORS.labels(reason="other").inc()
         raise
-
-
-
 
 
 async def list_user_docs(
@@ -314,11 +368,12 @@ def _list_docs_sync(user_id: int, workspace_id: int | None = None) -> list[dict]
 
     try:
 
-        client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+        with collection_read_lock(CHROMA_DIR, _collection_name(user_id, workspace_id)):
+            client = chromadb.PersistentClient(path=str(CHROMA_DIR))
 
-        collection = client.get_collection(_collection_name(user_id, workspace_id))
+            collection = client.get_collection(_collection_name(user_id, workspace_id))
 
-        result = collection.get(include=["metadatas"])
+            result = collection.get(include=["metadatas"])
 
         counts: dict[str, int] = {}
 
@@ -338,6 +393,8 @@ def _list_docs_sync(user_id: int, workspace_id: int | None = None) -> list[dict]
 
         ]
 
+    except DocumentRecoveryError:
+        raise
     except Exception:
 
         return []
@@ -347,72 +404,67 @@ def _list_docs_sync(user_id: int, workspace_id: int | None = None) -> list[dict]
 
 
 async def delete_doc(
-    user_id: int, filename: str, workspace_id: int | None = None
+    user_id: int, filename: str, workspace_id: int | None = None,
+    *, file_path: Path | None = None,
 ) -> int:
-
-    return await asyncio.to_thread(_delete_doc_sync, user_id, filename, workspace_id)
-
-
-
+    return await asyncio.to_thread(_delete_doc_sync, user_id, filename, workspace_id, file_path)
 
 
 def _delete_doc_sync(
-    user_id: int, filename: str, workspace_id: int | None = None
+    user_id: int, filename: str, workspace_id: int | None = None,
+    file_path: Path | None = None,
 ) -> int:
-
-    try:
-
-        client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-
-        collection = client.get_collection(_collection_name(user_id, workspace_id))
-
-        before = collection.get(where={"source": filename}, include=[])
-
-        count = len(before.get("ids") or [])
-
-        if count > 0:
-
-            collection.delete(where={"source": filename})
-
-        try:
-
-            from rag.cache import invalidate_user_cache
-
-            if workspace_id is not None:
-                from rag.cache import invalidate_workspace_cache
-
-                invalidate_workspace_cache(workspace_id)
-            else:
-                invalidate_user_cache(user_id)
-
-        except Exception:
-
-            pass
-
-        return count
-
-    except Exception:
-
-        return 0
-
-
-
+    collection_name = _collection_name(user_id, workspace_id)
+    with storage_lock(CHROMA_DIR, collection_name, source=filename):
+        with publication_lock(CHROMA_DIR, collection_name, source_locked=filename):
+            client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+            try:
+                collection = client.get_collection(collection_name)
+            except chromadb.errors.NotFoundError:
+                return 0
+            previous = collection.get(
+                where={"source": filename}, include=["documents", "metadatas", "embeddings"]
+            )
+            ids = previous.get("ids") or []
+            if not ids:
+                return 0
+            record = begin_transaction(
+                CHROMA_DIR, collection_name, filename, previous,
+                new_ids=[], raw_path=file_path, operation="delete",
+            )
+            try:
+                advance_revision(CHROMA_DIR, collection_name)
+                transaction_phase(CHROMA_DIR, record, "deleting")
+                collection.delete(ids=ids)
+                if file_path is not None:
+                    delete_raw(file_path)
+                commit_transaction(CHROMA_DIR, record)
+            except DocumentCommitUncertainError:
+                raise
+            except Exception as original_error:
+                try:
+                    rollback_transaction(CHROMA_DIR, record, collection)
+                except DocumentRecoveryError as recovery_error:
+                    raise recovery_error from ExceptionGroup(
+                        "Document deletion and rollback failed", [original_error, recovery_error]
+                    )
+                raise
+            finally:
+                _invalidate_scope(user_id, workspace_id)
+            return len(ids)
 
 
 def delete_user_collection(user_id: int) -> None:
-
-    try:
-
-        client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-
-        client.delete_collection(_collection_name(user_id))
-
-    except Exception:
-
-        pass
-
-
-
+    collection_name = _collection_name(user_id)
+    with publication_lock(CHROMA_DIR, collection_name):
+        advance_revision(CHROMA_DIR, collection_name)
+        try:
+            client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+            client.delete_collection(collection_name)
+        except chromadb.errors.NotFoundError:
+            pass
+        finally:
+            _invalidate_scope(user_id)
 
 
 def format_ingest_error(exc: BaseException) -> str:

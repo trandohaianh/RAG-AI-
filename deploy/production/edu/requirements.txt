@@ -1,0 +1,16 @@
+numpy==2.4.6
+pandas==2.3.3
+scipy==1.16.3
+scikit-learn==1.8.0
+lightgbm==4.6.0
+networkx==3.7
+scikit-surprise==1.1.5
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
+celery[redis]>=5.5,<6
+redis>=5.2,<7
+pydantic>=2.10,<3
+PyJWT>=2.10,<3
+httpx==0.28.1
+pytest>=8.3,<10
+fakeredis[lua]>=2.30,<3

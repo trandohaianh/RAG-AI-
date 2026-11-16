@@ -13,6 +13,7 @@ import {
   Trash2,
   X,
   ClipboardList,
+  Wallet,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import api, { type Conversation, type DocItem } from "@/lib/api";
@@ -82,9 +83,17 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
     { href: "/analytics", label: "Thống kê", icon: BarChart3 },
     { href: "/settings", label: "Cài đặt", icon: Settings },
     ...(user?.role === "admin"
-      ? [{ href: "/admin", label: "Quản trị", icon: Shield }]
+      ? [
+          { href: "/admin/costs", label: "Chi phí", icon: Wallet },
+          { href: "/admin", label: "Quản trị", icon: Shield },
+        ]
       : []),
   ];
+  // Mục khớp dài nhất thắng: đang ở /admin/costs thì chỉ "Chi phí" sáng, không sáng cả "Quản trị".
+  const activeHref = nav
+    .map((n) => n.href)
+    .filter((href) => pathname === href || pathname.startsWith(`${href}/`))
+    .sort((a, b) => b.length - a.length)[0];
 
   const sidebar = (
     <aside className="flex flex-col h-full bg-slate-50 md:bg-transparent w-[240px] shrink-0">
@@ -104,11 +113,11 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
             href={n.href}
             onClick={onMobileClose}
             className={cn(
-              "flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-slate-600 hover:bg-white hover:shadow-sm transition-all",
-              pathname.startsWith(n.href) && "bg-white shadow-sm font-medium text-slate-900"
+              "flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-slate-600 hover:bg-white hover:shadow-xs transition-all",
+              activeHref === n.href && "bg-white shadow-xs font-medium text-slate-900"
             )}
           >
-            <n.icon className={cn("h-4 w-4", pathname.startsWith(n.href) && "text-primary")} />
+            <n.icon className={cn("h-4 w-4", activeHref === n.href && "text-primary")} />
             {n.label}
           </Link>
         ))}
@@ -135,9 +144,9 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
                 href={`/chat/${c.id}`}
                 onClick={onMobileClose}
                 className={cn(
-                  "flex-1 min-w-0 rounded-lg px-2.5 py-1.5 text-sm truncate text-slate-600 hover:bg-white hover:shadow-sm transition-all",
+                  "flex-1 min-w-0 rounded-lg px-2.5 py-1.5 text-sm truncate text-slate-600 hover:bg-white hover:shadow-xs transition-all",
                   pathname === `/chat/${c.id}` &&
-                    "bg-white shadow-sm font-medium text-slate-900"
+                    "bg-white shadow-xs font-medium text-slate-900"
                 )}
               >
                 {c.title}
@@ -145,7 +154,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
               <button
                 type="button"
                 onClick={(e) => deleteConversation(c.id, e)}
-                className="shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-destructive"
+                className="shrink-0 p-1 rounded-[0.25rem] opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-destructive"
                 title="Xóa hội thoại"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -202,7 +211,7 @@ function UserFooter({ user, onLogout }: { user: User | null; onLogout: () => voi
   if (!user) return null;
   return (
     <div className="flex items-center gap-2 pt-2">
-      <div className="brand-gradient h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm shadow-black/20">
+      <div className="brand-gradient h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-xs shadow-black/20">
         {user.email[0].toUpperCase()}
       </div>
       <div className="flex-1 min-w-0">

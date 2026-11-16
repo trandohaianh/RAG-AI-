@@ -1,0 +1,58 @@
+name: Eval (live Gemini)
+
+# Chạy bộ eval với Gemini thật: hằng đêm + khi bấm tay. Cần secret GEMINI_API_KEY.
+# Chi phí mỗi lần được ghi trong báo cáo (68 câu ≈ vài cent ở paid tier; free tier = $0).
+on:
+  schedule:
+    - cron: "30 19 * * *"   # 02:30 giờ Việt Nam
+  workflow_dispatch:
+    inputs:
+      split:
+        description: "all | dev | holdout"
+        default: "all"
+      judge:
+        description: "Bật LLM-judge (tốn thêm token)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: evals-live
+  cancel-in-progress: false
+
+jobs:
+  live-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+      LLM_MODEL: ${{ vars.LLM_MODEL || 'gemini-2.5-flash' }}
+      # Free tier ~10 RPM: giãn embedding để không dính 429.
+      EMBED_BATCH_DELAY_SEC: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install
+        run: pip install -r backend/requirements.txt
+      - name: Skip when no key
+        id: guard
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "::warning::Chưa có secret GEMINI_API_KEY — bỏ qua live eval"; fi
+      - name: Run live eval
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          python -B backend/scripts/run_evals.py --mode live \
+            --split "${{ inputs.split || 'all' }}" \
+            ${{ inputs.judge && '--judge' || '' }} \
+            --output-dir reports/evals
+      - name: Upload report
+        if: always() && steps.guard.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-live-${{ github.run_id }}
+          path: reports/evals/
+          retention-days: 90

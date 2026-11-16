@@ -19,6 +19,7 @@ function EmbedChatInner() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const convIdRef = useRef<number | null>(null);
+  const sessionTokenRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const send = useCallback(async () => {
@@ -42,6 +43,7 @@ function EmbedChatInner() {
         body: JSON.stringify({
           question,
           conversation_id: convIdRef.current,
+          session_token: sessionTokenRef.current,
         }),
       });
       if (!res.ok || !res.body) {
@@ -76,6 +78,7 @@ function EmbedChatInner() {
           }
           if (data.done) {
             if (data.conversation_id) convIdRef.current = data.conversation_id;
+            if (data.session_token) sessionTokenRef.current = data.session_token;
             setMessages((prev) => {
               const next = [...prev];
               const last = next[next.length - 1];
@@ -83,6 +86,7 @@ function EmbedChatInner() {
                 next[next.length - 1] = {
                   ...last,
                   sources: data.sources ?? [],
+                  evidence: data.evidence ?? [], citation_audit: data.citation_audit ?? null,
                   streaming: false,
                 };
               }

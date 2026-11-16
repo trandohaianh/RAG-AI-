@@ -13,6 +13,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as api from "../lib/api";
+import EvidencePanel from "../components/EvidencePanel";
 import {
   applyPendingFieldAction,
   cacheFieldCase,
@@ -52,7 +53,7 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
   const [stepSource, setStepSource] = useState("");
   const [note, setNote] = useState("");
   const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState<{ answer: string; sources: string[] } | null>(null);
+  const [answer, setAnswer] = useState<({ answer: string; sources: string[] } & api.EvidenceBundle) | null>(null);
   const [userId, setUserId] = useState<number | null>(null);
   const [offline, setOffline] = useState(false);
   const [pendingActions, setPendingActions] = useState(0);
@@ -84,7 +85,21 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
         }
       }
     } catch (e) {
-      if (user && api.isNetworkError(e) && await isSecureOfflineStorageAvailable()) {
+      const status = api.getApiErrorStatus(e);
+      if (status === 403 || status === 404) {
+        setItem(null);
+        setAnswer(null);
+        setModal(null);
+        setOffline(false);
+        setLoadError(api.getErrorMessage(e));
+        if (user && await isSecureOfflineStorageAvailable()) {
+          try {
+            await removeCachedFieldCase(user.id, caseId);
+          } catch (cacheError) {
+            setSyncMessage(`Không xóa được cache ca đã bị thu hồi: ${api.getErrorMessage(cacheError)}`);
+          }
+        }
+      } else if (user && api.isNetworkError(e) && await isSecureOfflineStorageAvailable()) {
         try {
           const individual = await getCachedFieldCase(user.id, caseId);
           const overview = individual
@@ -102,18 +117,6 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
               setSyncMessage(`Đang dùng bản offline hiện có; không cập nhật được cache: ${api.getErrorMessage(cacheError)}`);
             }
           } else {
-            const status = api.getApiErrorStatus(e);
-            if (user && (status === 403 || status === 404)) {
-              setItem(null);
-              setOffline(false);
-              if (await isSecureOfflineStorageAvailable()) {
-                try {
-                  await removeCachedFieldCase(user.id, caseId);
-                } catch (cacheError) {
-                  setSyncMessage(`Không xóa được cache ca đã bị thu hồi: ${api.getErrorMessage(cacheError)}`);
-                }
-              }
-            }
             setLoadError(api.getErrorMessage(e));
           }
         } catch (cacheError) {
@@ -431,6 +434,7 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
             <View style={styles.eventDot} />
             <View style={{ flex: 1 }}>
               <Text style={styles.eventText}>{event.detail}</Text>
+              <EvidencePanel evidence={event.evidence} audit={event.citation_audit} checkVersion={async reference => (await api.getFieldEvidence(item.id, event.id, reference)).document_status} />
               <Text style={styles.eventTime}>{new Date(event.created_at).toLocaleString("vi-VN")}</Text>
             </View>
           </View>
@@ -481,6 +485,7 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
                 {answer ? (
                   <ScrollView style={styles.answerCard}>
                     <Text style={styles.answerText}>{markdownToPlain(answer.answer)}</Text>
+                    <EvidencePanel evidence={answer.evidence} audit={answer.citation_audit} />
                     {answer.sources.length > 0 ? <Text style={styles.source}>Nguồn: {answer.sources.join(", ")}</Text> : null}
                   </ScrollView>
                 ) : null}

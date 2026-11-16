@@ -5,17 +5,21 @@ import asyncio
 import json
 import re
 
-from config import GEMINI_API_KEY
+from config import CHROMA_DIR, GEMINI_API_KEY
 from rag.llm import generate_text
-from rag.ingest import get_vectorstore
+from rag.ingest import _collection_name, get_vectorstore
+from rag.document_lifecycle import DocumentRecoveryError, collection_read_lock
 
 
 def _sample_context_sync(user_id: int, max_chars: int = 6000) -> str:
-    store = get_vectorstore(user_id)
-    try:
-        docs = store.similarity_search("nội dung chính tài liệu", k=10)
-    except Exception:
-        docs = []
+    with collection_read_lock(CHROMA_DIR, _collection_name(user_id)):
+        store = get_vectorstore(user_id)
+        try:
+            docs = store.similarity_search("nội dung chính tài liệu", k=10)
+        except DocumentRecoveryError:
+            raise
+        except Exception:
+            docs = []
     parts: list[str] = []
     total = 0
     for doc in docs:
@@ -40,7 +44,7 @@ async def suggest_questions_for_user(user_id: int, limit: int = 5) -> list[str]:
         f"Hãy đề xuất đúng {limit} câu hỏi ngắn (tiếng Việt) mà họ có thể hỏi chatbot RAG về nội dung này. "
         "Chỉ trả về một mảng JSON các chuỗi, ví dụ: [\"Câu 1?\", \"Câu 2?\"]. Không markdown."
     )
-    text = (await asyncio.to_thread(generate_text, prompt)).strip()
+    text = (await asyncio.to_thread(generate_text, prompt, feature="suggest")).strip()
     # Thử parse JSON
     try:
         m = re.search(r"\[[\s\S]*\]", text)

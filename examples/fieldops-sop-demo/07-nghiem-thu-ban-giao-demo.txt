@@ -1,0 +1,13 @@
+TÀI LIỆU MẪU GIẢ LẬP — chỉ dùng thử RAG. Không phải quy trình của hãng và chưa được duyệt để dùng ngoài hiện trường.
+
+Nghiệm thu hồ sơ và bàn giao mẫu
+
+Mã tài liệu: SOP-DEMO-07. Phiên bản: DEMO-1.0.
+1. Điều kiện đóng hồ sơ
+Hồ sơ mẫu chỉ đóng sau khi có kết quả ghi nhận, bằng chứng mở được, các bước đã ghi kết quả và người phụ trách xác nhận. Nhãn hoàn tất cục bộ chưa đủ nếu thao tác còn chờ đồng bộ.
+2. Bàn giao ca chưa xong
+Ca chưa xong cần việc tồn đọng, người nhận và lần kiểm tra tiếp theo. Không ghi đã khắc phục nếu mới ghi nhận triệu chứng.
+3. Nhật ký
+Giữ ai ghi nhận, thời điểm và thay đổi trạng thái. Khi phát hiện dữ liệu sai, tạo ghi chú sửa và lý do thay vì bịa thêm bằng chứng.
+4. Kết quả
+Mẫu nghiệm thu dùng hai kết quả: ĐỦ HỒ SƠ hoặc CẦN BỔ SUNG. Đây là kiểm tra hồ sơ giả lập, không phải chứng nhận thiết bị an toàn hoặc dịch vụ đạt chất lượng.

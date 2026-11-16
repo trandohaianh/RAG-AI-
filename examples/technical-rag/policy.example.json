@@ -1,0 +1,10 @@
+{
+  "reranker_id": "bge-v2-m3:REPLACE-WITH-REVIEWED-WEIGHTS-REVISION",
+  "calibration_id": "DEMO-ONLY-NOT-CALIBRATED",
+  "min_score": 0.4,
+  "candidates_per_branch": 40,
+  "fused_candidates": 40,
+  "top_children": 8,
+  "max_parents": 4,
+  "context_char_budget": 30000
+}

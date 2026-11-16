@@ -3,3 +3,7 @@ __pycache__
 data
 *.pyc
 .env
+.pytest*_tmp
+.pytest*_run
+
+.env*

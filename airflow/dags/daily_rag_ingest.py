@@ -37,6 +37,12 @@ with DAG(
         ),
     )
 
+    # KPI → kiểm tra chất lượng dữ liệu → retention → backup (pipeline/jobs/runner.py).
+    ops_chain = BashOperator(
+        task_id="run_ops_pipeline",
+        bash_command="cd /opt/rag/backend && python -m pipeline.jobs.runner",
+    )
+
     end = EmptyOperator(task_id="end")
 
-    start >> run_ingest >> end
+    start >> run_ingest >> ops_chain >> end

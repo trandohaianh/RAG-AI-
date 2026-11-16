@@ -6,10 +6,12 @@ import { ChevronDown, ChevronRight, ThumbsDown, ThumbsUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import LineageBadge from "@/components/LineageBadge";
+import EvidencePanel from "@/components/EvidencePanel";
+import api, { type EvidenceBundle } from "@/lib/api";
 import type { LineageMap } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-export type ChatMessage = {
+export type ChatMessage = EvidenceBundle & {
   id?: number;
   role: "user" | "assistant";
   content: string;
@@ -27,12 +29,13 @@ function scoreColor(score: number) {
 }
 
 type Props = {
+  convId?: number;
   message: ChatMessage;
   onRate?: (messageId: number, rating: -1 | 0 | 1) => void;
   lineage?: LineageMap;
 };
 
-export default function MessageBubble({ message, onRate, lineage = {} }: Props) {
+export default function MessageBubble({ message, onRate, lineage = {}, convId }: Props) {
   const isUser = message.role === "user";
   const [open, setOpen] = useState(false);
 
@@ -43,7 +46,7 @@ export default function MessageBubble({ message, onRate, lineage = {} }: Props) 
           "max-w-[85%] rounded-xl px-4 py-3 text-[13px] leading-relaxed",
           isUser
             ? "brand-gradient rounded-br-sm text-white shadow-md shadow-black/10"
-            : "rounded-bl-sm border border-slate-200 bg-white text-card-foreground shadow-sm"
+            : "rounded-bl-sm border border-slate-200 bg-white text-card-foreground shadow-xs"
         )}
       >
         {!isUser && message.streaming && !message.content && (
@@ -69,7 +72,9 @@ export default function MessageBubble({ message, onRate, lineage = {} }: Props) 
           </div>
         )}
 
-        {!isUser && message.sources && message.sources.length > 0 && !message.streaming && (
+        {!isUser && !message.streaming && <EvidencePanel key={`${convId ?? "embed"}:${message.id ?? "new"}:${message.evidence?.map(item => item.content_sha256).join(",")}`} evidence={message.evidence} audit={message.citation_audit} lineage={lineage}
+          checkVersion={convId && message.id ? async reference => (await api.get(`/conversations/${convId}/messages/${message.id}/evidence/${encodeURIComponent(reference)}`)).data.document_status : undefined} />}
+        {!isUser && !message.evidence?.length && message.sources && message.sources.length > 0 && !message.streaming && (
           <Collapsible open={open} onOpenChange={setOpen} className="mt-3">
             <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
               {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -124,7 +129,7 @@ export default function MessageBubble({ message, onRate, lineage = {} }: Props) 
               aria-label="Câu trả lời hữu ích"
               onClick={() => onRate(message.id!, message.rating === 1 ? 0 : 1)}
               className={cn(
-                "rounded p-1 hover:bg-success/10 transition-colors",
+                "rounded-[0.25rem] p-1 hover:bg-success/10 transition-colors",
                 message.rating === 1 && "text-success bg-success/10"
               )}
             >
@@ -135,7 +140,7 @@ export default function MessageBubble({ message, onRate, lineage = {} }: Props) 
               aria-label="Câu trả lời chưa tốt"
               onClick={() => onRate(message.id!, message.rating === -1 ? 0 : -1)}
               className={cn(
-                "rounded p-1 hover:bg-destructive/10 transition-colors",
+                "rounded-[0.25rem] p-1 hover:bg-destructive/10 transition-colors",
                 message.rating === -1 && "text-destructive bg-destructive/10"
               )}
             >

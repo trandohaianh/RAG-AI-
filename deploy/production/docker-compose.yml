@@ -1,0 +1,930 @@
+# Only gateway publishes host ports. Single-host deployment; Kafka RF=1 is NOT HA.
+name: ai-systems-prod
+services:
+  init-volumes:
+    restart: 'no'
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    image: ${REDIS_IMAGE:-redis:8-alpine}
+    user: 0:0
+    network_mode: none
+    cap_add:
+    - CHOWN
+    entrypoint:
+    - sh
+    - -ec
+    command:
+    - chown 10001:10001 /rag-data; chown 999:999 /policy /analytics /rag-cache /edu-state; chown 1000:1000 /kafka-data; for
+      f in /nginx-logs/access.log /nginx-logs/error.log; do if [ -L "$$f" ]; then unlink "$$f"; fi; touch "$$f"; done
+    volumes:
+    - rag_data:/rag-data
+    - redis_policy_data:/policy
+    - redis_analytics_data:/analytics
+    - redis_rag_data:/rag-cache
+    - redis_edu_data:/edu-state
+    - kafka_data:/kafka-data
+    - nginx_logs:/nginx-logs
+  redis-policy:
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    image: ${REDIS_IMAGE:-redis:8-alpine}
+    user: 999:999
+    entrypoint:
+    - sh
+    - /opt/redis-entrypoint.sh
+    environment:
+      REDIS_MAXMEMORY: 128mb
+    networks:
+    - policy_data
+    volumes:
+    - redis_policy_data:/data
+    - ./redis-entrypoint.sh:/opt/redis-entrypoint.sh:ro
+    secrets:
+    - source: policy_password
+      target: redis_password
+    depends_on: &id001
+      init-volumes: &id002
+        condition: service_completed_successfully
+    mem_limit: 512m
+    cpus: '1.0'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - REDISCLI_AUTH="$$(cat /run/secrets/redis_password)" redis-cli --user app ping | grep -qx PONG
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+  redis-analytics:
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    image: ${REDIS_IMAGE:-redis:8-alpine}
+    user: 999:999
+    entrypoint:
+    - sh
+    - /opt/redis-entrypoint.sh
+    environment:
+      REDIS_MAXMEMORY: 256mb
+    networks:
+    - telecom_analytics
+    volumes:
+    - redis_analytics_data:/data
+    - ./redis-entrypoint.sh:/opt/redis-entrypoint.sh:ro
+    secrets:
+    - source: analytics_password
+      target: redis_password
+    depends_on: *id001
+    mem_limit: 512m
+    cpus: '1.0'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - REDISCLI_AUTH="$$(cat /run/secrets/redis_password)" redis-cli --user app ping | grep -qx PONG
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+  redis-rag:
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    image: ${REDIS_IMAGE:-redis:8-alpine}
+    user: 999:999
+    entrypoint:
+    - sh
+    - /opt/redis-entrypoint.sh
+    environment:
+      REDIS_MAXMEMORY: 256mb
+    networks:
+    - rag_data_net
+    volumes:
+    - redis_rag_data:/data
+    - ./redis-entrypoint.sh:/opt/redis-entrypoint.sh:ro
+    secrets:
+    - source: rag_password
+      target: redis_password
+    depends_on: *id001
+    mem_limit: 512m
+    cpus: '1.0'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - REDISCLI_AUTH="$$(cat /run/secrets/redis_password)" redis-cli --user app ping | grep -qx PONG
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+  redis-edu:
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    image: ${REDIS_IMAGE:-redis:8-alpine}
+    user: 999:999
+    entrypoint:
+    - sh
+    - /opt/redis-entrypoint.sh
+    environment:
+      REDIS_MAXMEMORY: 768mb
+    networks:
+    - edu_analytics
+    volumes:
+    - redis_edu_data:/data
+    - ./redis-entrypoint.sh:/opt/redis-entrypoint.sh:ro
+    secrets:
+    - source: edu_password
+      target: redis_password
+    depends_on: *id001
+    mem_limit: 1g
+    cpus: '1.0'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - REDISCLI_AUTH="$$(cat /run/secrets/redis_password)" redis-cli --user app ping | grep -qx PONG
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+  postgres-rag:
+    restart: unless-stopped
+    init: true
+    read_only: false
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - NET_RAW
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    networks:
+    - rag_data_net
+    mem_limit: 1g
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+    secrets:
+    - postgres_admin_password
+    - rag_db_password
+    volumes:
+    - postgres_rag_data:/var/lib/postgresql/data
+    - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-rag.sh:ro
+    healthcheck:
+      test:
+      - CMD
+      - pg_isready
+      - -U
+      - postgres
+      - -d
+      - rag
+      interval: 10s
+      timeout: 3s
+      retries: 10
+  rag-backend:
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    build:
+      context: ../../backend
+      dockerfile: ../deploy/production/rag.Dockerfile
+    image: ai-systems-rag:audited
+    entrypoint: &id003
+    - python
+    - -B
+    - /opt/runtime/exec_service.py
+    command:
+    - uvicorn
+    - main:app
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8000'
+    - --proxy-headers
+    - --forwarded-allow-ips=172.30.10.2
+    - --timeout-graceful-shutdown=30
+    - --no-access-log
+    environment:
+      APP_ENV: production
+      DATA_DIR: /app/data
+      MEDALLION_ENABLED: 'false'
+      SECRET_KEY_FILE: /run/secrets/rag_signing_key
+      DATABASE_URL_FILE: /run/secrets/rag_database_url
+      REDIS_URL_FILE: /run/secrets/rag_redis_url
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      APP_PUBLIC_URL: https://${RAG_DOMAIN:-rag.localhost}
+      API_PUBLIC_URL: https://${RAG_API_DOMAIN:-api-rag.localhost}
+      CORS_ORIGINS: https://${RAG_DOMAIN:-rag.localhost}
+      JUDGE_SAMPLE_RATE: '0'
+    networks:
+    - rag_edge
+    - rag_data_net
+    - rag_egress
+    volumes:
+    - rag_data:/app/data
+    - ./runtime:/opt/runtime:ro
+    secrets:
+    - rag_signing_key
+    - rag_database_url
+    - rag_redis_url
+    depends_on:
+      init-volumes: *id002
+      postgres-rag:
+        condition: service_healthy
+    mem_limit: 2g
+    cpus: '2.0'
+    stop_grace_period: 40s
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=2)
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 60s
+  rag-frontend:
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    - /app/.next/cache:rw,nosuid,size=64m,uid=1000,gid=1000
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    build:
+      context: ../../frontend
+      args:
+        NEXT_PUBLIC_API_URL: https://${RAG_API_DOMAIN:-api-rag.localhost}
+    image: ai-systems-rag-web:audited
+    user: 1000:1000
+    networks:
+    - rag_edge
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: '1'
+    mem_limit: 768m
+    cpus: '1.0'
+    healthcheck:
+      test:
+      - CMD
+      - node
+      - -e
+      - fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      interval: 20s
+      timeout: 4s
+      retries: 5
+      start_period: 30s
+  telecom-api:
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    build: ./telecom
+    image: ai-systems-telecom:audited
+    entrypoint: *id003
+    command:
+    - uvicorn
+    - ram_online.api:app
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8000'
+    - --no-access-log
+    - --proxy-headers
+    - --forwarded-allow-ips=172.30.11.2
+    - --timeout-graceful-shutdown=20
+    environment:
+      POLICY_REDIS_URL_FILE: /run/secrets/policy_redis_url
+      TELECOM_API_KEY_FILE: /run/secrets/telecom_api_key
+    networks:
+    - telecom_edge
+    - policy_data
+    volumes:
+    - ./runtime:/opt/runtime:ro
+    secrets:
+    - policy_redis_url
+    - telecom_api_key
+    mem_limit: 256m
+    cpus: '1.0'
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  edu-api:
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    build: ./edu
+    image: ai-systems-edu:audited
+    entrypoint: *id003
+    command:
+    - uvicorn
+    - edudss_engine.api:create_app
+    - --factory
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8000'
+    - --no-access-log
+    - --proxy-headers
+    - --forwarded-allow-ips=172.30.12.2
+    - --timeout-graceful-shutdown=30
+    environment:
+      EDUDSS_ENGINE_SIGNING_KEY_FILE: /run/secrets/edu_signing_key
+      EDUDSS_ENGINE_REDIS_URL_FILE: /run/secrets/edu_redis_url
+      EDUDSS_ENGINE_BROKER_URL_FILE: /run/secrets/edu_broker_url
+      EDUDSS_ENGINE_DEMO: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      CELERY_MAX_TASKS_PER_CHILD: '50'
+      CELERY_MAX_MEMORY_PER_CHILD_KIB: '786432'
+    networks:
+    - edu_edge
+    - edu_analytics
+    volumes:
+    - ./runtime:/opt/runtime:ro
+    secrets:
+    - edu_signing_key
+    - edu_redis_url
+    - edu_broker_url
+    depends_on:
+      redis-edu:
+        condition: service_healthy
+    mem_limit: 768m
+    cpus: '1.0'
+    stop_grace_period: 40s
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=2)
+      interval: 15s
+      timeout: 3s
+      retries: 5
+  edu-cpu-worker:
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    image: ai-systems-edu:audited
+    build: ./edu
+    entrypoint: *id003
+    command:
+    - celery
+    - -A
+    - edudss_engine.worker:celery_app
+    - worker
+    - -Q
+    - cpu
+    - --pool=prefork
+    - --concurrency=1
+    - --max-tasks-per-child=50
+    - --max-memory-per-child=786432
+    - --prefetch-multiplier=1
+    - --loglevel=WARNING
+    environment:
+      EDUDSS_ENGINE_SIGNING_KEY_FILE: /run/secrets/edu_signing_key
+      EDUDSS_ENGINE_REDIS_URL_FILE: /run/secrets/edu_redis_url
+      EDUDSS_ENGINE_BROKER_URL_FILE: /run/secrets/edu_broker_url
+      EDUDSS_ENGINE_DEMO: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      CELERY_MAX_TASKS_PER_CHILD: '50'
+      CELERY_MAX_MEMORY_PER_CHILD_KIB: '786432'
+    networks:
+    - edu_analytics
+    - edu_egress
+    volumes:
+    - ./runtime:/opt/runtime:ro
+    secrets:
+    - edu_signing_key
+    - edu_redis_url
+    - edu_broker_url
+    depends_on:
+      redis-edu:
+        condition: service_healthy
+    mem_limit: 2g
+    cpus: '2.0'
+    stop_grace_period: 16m
+  edu-llm-worker:
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    image: ai-systems-edu:audited
+    build: ./edu
+    entrypoint: *id003
+    command:
+    - celery
+    - -A
+    - edudss_engine.worker:celery_app
+    - worker
+    - -Q
+    - llm
+    - --pool=prefork
+    - --concurrency=2
+    - --max-tasks-per-child=50
+    - --max-memory-per-child=524288
+    - --prefetch-multiplier=1
+    - --loglevel=WARNING
+    environment:
+      EDUDSS_ENGINE_SIGNING_KEY_FILE: /run/secrets/edu_signing_key
+      EDUDSS_ENGINE_REDIS_URL_FILE: /run/secrets/edu_redis_url
+      EDUDSS_ENGINE_BROKER_URL_FILE: /run/secrets/edu_broker_url
+      EDUDSS_ENGINE_DEMO: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      CELERY_MAX_TASKS_PER_CHILD: '50'
+      CELERY_MAX_MEMORY_PER_CHILD_KIB: '524288'
+    networks:
+    - edu_analytics
+    - edu_egress
+    volumes:
+    - ./runtime:/opt/runtime:ro
+    secrets:
+    - edu_signing_key
+    - edu_redis_url
+    - edu_broker_url
+    depends_on:
+      redis-edu:
+        condition: service_healthy
+    mem_limit: 2g
+    cpus: '2.0'
+    stop_grace_period: 3m
+  kafka:
+    restart: unless-stopped
+    init: true
+    read_only: false
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    image: ${KAFKA_IMAGE:-apache/kafka:4.4.0}
+    networks:
+    - telecom_analytics
+    volumes:
+    - kafka_data:/var/lib/kafka/data
+    depends_on: *id001
+    environment:
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?run bootstrap_local.py first}
+      KAFKA_NODE_ID: '1'
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9094
+      KAFKA_LISTENERS: BROKER://0.0.0.0:9093,CONTROLLER://127.0.0.1:9094
+      KAFKA_ADVERTISED_LISTENERS: BROKER://kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: BROKER:SSL,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: BROKER
+      KAFKA_SSL_KEYSTORE_TYPE: PEM
+      KAFKA_SSL_KEYSTORE_LOCATION: /run/secrets/kafka_broker_keystore
+      KAFKA_SSL_TRUSTSTORE_TYPE: PEM
+      KAFKA_SSL_TRUSTSTORE_LOCATION: /run/secrets/kafka_ca
+      KAFKA_SSL_CLIENT_AUTH: required
+      KAFKA_AUTHORIZER_CLASS_NAME: org.apache.kafka.metadata.authorizer.StandardAuthorizer
+      KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: 'false'
+      KAFKA_SUPER_USERS: User:CN=kafka-broker;User:CN=kafka-admin;User:ANONYMOUS
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: '1'
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: '1'
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: '1'
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx1g
+      KAFKA_LOG_RETENTION_HOURS: '168'
+    secrets:
+    - kafka_ca
+    - kafka_broker_keystore
+    - kafka_admin_keystore
+    - kafka_admin_properties
+    mem_limit: 2g
+    cpus: '2.0'
+    stop_grace_period: 60s
+    healthcheck:
+      test:
+      - CMD
+      - /opt/kafka/bin/kafka-broker-api-versions.sh
+      - --bootstrap-server
+      - kafka:9093
+      - --command-config
+      - /run/secrets/kafka_admin_properties
+      interval: 20s
+      timeout: 15s
+      retries: 10
+      start_period: 40s
+  kafka-init:
+    restart: 'no'
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    image: ${KAFKA_IMAGE:-apache/kafka:4.4.0}
+    networks:
+    - telecom_analytics
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint:
+    - /bin/bash
+    - -ec
+    command:
+    - /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9093 --command-config /run/secrets/kafka_admin_properties --create
+      --if-not-exists --topic telecom.call-setup.v1 --partitions 3 --replication-factor 1; /opt/kafka/bin/kafka-acls.sh --bootstrap-server
+      kafka:9093 --command-config /run/secrets/kafka_admin_properties --add --allow-principal User:CN=telecom-analytics --operation
+      Read --operation Describe --topic telecom.call-setup.v1; /opt/kafka/bin/kafka-acls.sh --bootstrap-server kafka:9093
+      --command-config /run/secrets/kafka_admin_properties --add --allow-principal User:CN=telecom-analytics --operation Read
+      --group telecom-window-v1
+    secrets:
+    - kafka_ca
+    - kafka_admin_keystore
+    - kafka_admin_properties
+    mem_limit: 512m
+  telecom-consumer:
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    image: ai-systems-telecom:audited
+    build: ./telecom
+    entrypoint: *id003
+    command:
+    - python
+    - -B
+    - -m
+    - ram_online.streaming
+    - --bootstrap
+    - kafka:9093
+    - --topic
+    - telecom.call-setup.v1
+    environment:
+      POLICY_REDIS_URL_FILE: /run/secrets/policy_redis_url
+      ANALYTICS_REDIS_URL_FILE: /run/secrets/analytics_redis_url
+      KAFKA_SECURITY_CONFIG_FILE: /run/secrets/kafka_client_json
+    networks:
+    - policy_data
+    - telecom_analytics
+    volumes:
+    - ./runtime:/opt/runtime:ro
+    secrets:
+    - policy_redis_url
+    - analytics_redis_url
+    - kafka_client_json
+    - kafka_ca
+    - kafka_client_cert
+    - kafka_client_key
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      redis-analytics:
+        condition: service_healthy
+    mem_limit: 512m
+    cpus: '1.0'
+    stop_grace_period: 30s
+  gateway:
+    restart: unless-stopped
+    init: false
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=32m,mode=1777
+    - /var/cache/nginx:rw,nosuid,size=128m,uid=101,gid=101
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    build: ./nginx
+    image: ai-systems-gateway:audited
+    ports:
+    - 80:80
+    - 443:443
+    cap_add:
+    - NET_BIND_SERVICE
+    - SETUID
+    - SETGID
+    - CHOWN
+    - DAC_OVERRIDE
+    - KILL
+    stop_signal: SIGQUIT
+    stop_grace_period: 30s
+    environment:
+      RAG_DOMAIN: ${RAG_DOMAIN:-rag.localhost}
+      RAG_API_DOMAIN: ${RAG_API_DOMAIN:-api-rag.localhost}
+      TELECOM_DOMAIN: ${TELECOM_DOMAIN:-telecom.localhost}
+      EDU_DOMAIN: ${EDU_DOMAIN:-edu.localhost}
+      TLS_CERT_FILE: ${TLS_CERT_FILE:-/etc/nginx/tls/fullchain.pem}
+      TLS_KEY_FILE: ${TLS_KEY_FILE:-/etc/nginx/tls/privkey.pem}
+      HSTS_MAX_AGE: ${HSTS_MAX_AGE:-0}
+    networks:
+      ingress: {}
+      rag_edge:
+        ipv4_address: 172.30.10.2
+      telecom_edge:
+        ipv4_address: 172.30.11.2
+      edu_edge:
+        ipv4_address: 172.30.12.2
+    volumes:
+    - ./tls/fullchain.pem:/etc/nginx/tls/fullchain.pem:ro
+    - ./tls/privkey.pem:/etc/nginx/tls/privkey.pem:ro
+    - issued_tls:/etc/nginx/issued:ro
+    - acme_webroot:/var/www/acme:ro
+    - nginx_logs:/var/log/nginx
+    depends_on: *id001
+    mem_limit: 256m
+    cpus: '2.0'
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - -q
+      - -O
+      - /dev/null
+      - http://127.0.0.1:8080/health
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+  certbot:
+    restart: 'no'
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    - /var/lib/letsencrypt:rw,noexec,nosuid,size=64m,mode=0700
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    image: ${CERTBOT_IMAGE:-certbot/certbot:v5.8.0}
+    profiles:
+    - certificates
+    networks:
+    - acme_egress
+    volumes:
+    - letsencrypt:/etc/letsencrypt
+    - acme_webroot:/var/www/acme
+    - certbot_logs:/var/log/letsencrypt
+    - issued_tls:/exports
+    - ./export-certificates.py:/opt/export-certificates.py:ro
+    command:
+    - renew
+    - --webroot
+    - -w
+    - /var/www/acme
+    - --non-interactive
+    - --deploy-hook
+    - python /opt/export-certificates.py
+networks:
+  rag_data_net:
+    internal: true
+  policy_data:
+    internal: true
+  telecom_analytics:
+    internal: true
+  edu_analytics:
+    internal: true
+  rag_edge:
+    internal: true
+    ipam:
+      config:
+      - subnet: 172.30.10.0/24
+        ip_range: 172.30.10.128/25
+  telecom_edge:
+    internal: true
+    ipam:
+      config:
+      - subnet: 172.30.11.0/24
+        ip_range: 172.30.11.128/25
+  edu_edge:
+    internal: true
+    ipam:
+      config:
+      - subnet: 172.30.12.0/24
+        ip_range: 172.30.12.128/25
+  ingress: {}
+  rag_egress: {}
+  edu_egress: {}
+  acme_egress: {}
+secrets:
+  policy_password:
+    file: ./secrets/policy_password
+  analytics_password:
+    file: ./secrets/analytics_password
+  rag_password:
+    file: ./secrets/rag_password
+  edu_password:
+    file: ./secrets/edu_password
+  postgres_admin_password:
+    file: ./secrets/postgres_admin_password
+  rag_db_password:
+    file: ./secrets/rag_db_password
+  policy_redis_url:
+    file: ./secrets/policy_redis_url
+  analytics_redis_url:
+    file: ./secrets/analytics_redis_url
+  rag_redis_url:
+    file: ./secrets/rag_redis_url
+  edu_redis_url:
+    file: ./secrets/edu_redis_url
+  edu_broker_url:
+    file: ./secrets/edu_broker_url
+  rag_database_url:
+    file: ./secrets/rag_database_url
+  rag_signing_key:
+    file: ./secrets/rag_signing_key
+  edu_signing_key:
+    file: ./secrets/edu_signing_key
+  telecom_api_key:
+    file: ./secrets/telecom_api_key
+  kafka_ca:
+    file: ./secrets/kafka_ca
+  kafka_broker_keystore:
+    file: ./secrets/kafka_broker_keystore
+  kafka_admin_keystore:
+    file: ./secrets/kafka_admin_keystore
+  kafka_admin_properties:
+    file: ./secrets/kafka_admin_properties
+  kafka_client_json:
+    file: ./secrets/kafka_client_json
+  kafka_client_cert:
+    file: ./secrets/kafka_client_cert
+  kafka_client_key:
+    file: ./secrets/kafka_client_key
+volumes:
+  rag_data: {}
+  redis_policy_data: {}
+  redis_analytics_data: {}
+  redis_rag_data: {}
+  redis_edu_data: {}
+  postgres_rag_data: {}
+  kafka_data: {}
+  nginx_logs: {}
+  letsencrypt: {}
+  acme_webroot: {}
+  certbot_logs: {}
+  issued_tls: {}

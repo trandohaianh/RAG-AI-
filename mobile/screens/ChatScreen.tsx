@@ -14,10 +14,11 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as api from "../lib/api";
+import EvidencePanel from "../components/EvidencePanel";
 import { markdownToPlain } from "../lib/text";
 import { colors, radius } from "../lib/theme";
 
-type ChatMsg = {
+type ChatMsg = api.EvidenceBundle & {
   id?: number;
   role: "user" | "assistant";
   content: string;
@@ -44,6 +45,13 @@ export default function ChatScreen({ route, navigation }: any) {
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [pickerVisible, setPickerVisible] = useState(false);
   const listRef = useRef<FlatList>(null);
+  const cancelStream = useRef<(() => void) | null>(null);
+  const streamVersion = useRef(0);
+  useEffect(() => () => {
+    streamVersion.current += 1;
+    cancelStream.current?.();
+    cancelStream.current = null;
+  }, [convId]);
 
   useEffect(() => {
     api.listDocuments().then(setDocs).catch(() => {});
@@ -63,6 +71,7 @@ export default function ChatScreen({ route, navigation }: any) {
             role: m.role as "user" | "assistant",
             content: m.content,
             sources: m.sources,
+            evidence: m.evidence, citation_audit: m.citation_audit,
             rating: m.rating,
             eval_faithfulness: m.eval_faithfulness,
             eval_relevancy: m.eval_relevancy,
@@ -117,8 +126,10 @@ export default function ChatScreen({ route, navigation }: any) {
     ]);
     scrollToEnd();
 
-    api.streamChat(convId, question, {
+    const version = ++streamVersion.current;
+    cancelStream.current = api.streamChat(convId, question, {
       onToken: (token) => {
+        if (version !== streamVersion.current) return;
         setMessages((prev) => {
           const next = [...prev];
           const last = next[next.length - 1];
@@ -128,14 +139,16 @@ export default function ChatScreen({ route, navigation }: any) {
           return next;
         });
       },
-      onDone: (sources, messageId) => {
+      onDone: (sources, messageId, evidence, citation_audit) => {
+        if (version !== streamVersion.current) return;
+        cancelStream.current = null;
         setMessages((prev) => {
           const next = [...prev];
           const last = next[next.length - 1];
           if (last?.role === "assistant") {
             next[next.length - 1] = {
               ...last,
-              sources,
+              sources, evidence, citation_audit,
               streaming: false,
               id: messageId ?? undefined,
               rating: null,
@@ -148,6 +161,8 @@ export default function ChatScreen({ route, navigation }: any) {
         if (messageId) pollEvalScore(messageId);
       },
       onError: (err) => {
+        if (version !== streamVersion.current) return;
+        cancelStream.current = null;
         setMessages((prev) => {
           const next = [...prev];
           next[next.length - 1] = { role: "assistant", content: `Lỗi: ${err}`, streaming: false };
@@ -187,6 +202,8 @@ export default function ChatScreen({ route, navigation }: any) {
             ) : (
               <Text style={styles.bubbleTextAssistant}>{markdownToPlain(item.content)}</Text>
             )}
+
+            {!item.streaming && <EvidencePanel key={`${convId}:${item.id ?? "new"}:${item.evidence?.map(source => source.content_sha256).join(",")}`} evidence={item.evidence} audit={item.citation_audit} checkVersion={item.id ? async reference => (await api.getMessageEvidence(convId, item.id!, reference)).document_status : undefined} />}
 
             {(item.eval_faithfulness != null || item.eval_relevancy != null) && !item.streaming && (
               <View style={styles.badgeRow}>

@@ -1,11 +1,16 @@
-"""Logic đăng ký, đăng nhập, JWT."""
+"""Authentication with typed JWTs and transactional credential revocation."""
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from auth.models import User
+from auth.models import PasswordResetToken, User
 from auth.schemas import UserCreate
 from config import (
     ACCESS_TOKEN_EXPIRE_DAYS,
@@ -16,66 +21,283 @@ from config import (
 
 
 def hash_password(password: str) -> str:
-    """Băm mật khẩu bằng bcrypt (UTF-8)."""
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    raw = password.encode("utf-8")
+    if len(raw) > 72:
+        raise ValueError("Mật khẩu tối đa 72 byte UTF-8")
+    return bcrypt.hashpw(raw, bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    try:
+        raw = plain.encode("utf-8")
+        if len(raw) > 72:
+            return False
+        return bcrypt.checkpw(raw, hashed.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
 
 
-def create_access_token(email: str) -> str:
+def create_access_token(user: User) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
-    payload = {"sub": email, "exp": expire}
+    payload = {
+        "sub": str(user.id),
+        "exp": expire,
+        "purpose": "access",
+        "version": user.token_version,
+    }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def decode_token(token: str) -> dict | None:
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
+        return jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+            options={"require": ["exp", "sub"]},
+        )
+    except PyJWTError:
         return None
 
 
-def create_reset_token(email: str) -> str:
-    """Token ngắn hạn (30 phút), có claim purpose='reset' để phân biệt với access token."""
+def _typed_claims(token: str, purpose: str) -> dict | None:
+    payload = decode_token(token)
+    if (
+        not payload
+        or payload.get("purpose") != purpose
+        or type(payload.get("version")) is not int
+        or payload["version"] < 0
+        or not isinstance(payload.get("sub"), str)
+        or not payload["sub"].isascii()
+        or not payload["sub"].isdigit()
+        or len(payload["sub"]) > 19
+        or not 0 < int(payload["sub"]) <= 9223372036854775807
+    ):
+        return None
+    return payload
+
+
+def decode_access_token(token: str) -> dict | None:
+    return _typed_claims(token, "access")
+
+
+def create_reset_token(db: Session, user: User) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
-    payload = {"sub": email, "exp": expire, "purpose": "reset"}
+    token_id = secrets.token_urlsafe(32)
+    payload = {
+        "sub": str(user.id),
+        "exp": expire,
+        "purpose": "reset",
+        "version": user.token_version,
+        "jti": token_id,
+    }
+    db.add(
+        PasswordResetToken(
+            token_hash=hashlib.sha256(token_id.encode("utf-8")).hexdigest(),
+            user_id=user.id,
+            token_version=user.token_version,
+            expires_at=expire,
+        )
+    )
+    db.commit()
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def decode_reset_token(token: str) -> str | None:
-    """Trả về email nếu token hợp lệ và đúng mục đích reset, ngược lại None."""
-    payload = decode_token(token)
-    if not payload or payload.get("purpose") != "reset" or "sub" not in payload:
+def decode_reset_token(token: str) -> dict | None:
+    payload = _typed_claims(token, "reset")
+    if not payload or not isinstance(payload.get("jti"), str) or not payload["jti"]:
         return None
-    return payload["sub"]
+    return payload
+
+
+def _change_password(
+    db: Session, user_id: int, version: int, new_password: str
+) -> bool:
+    changed = db.execute(
+        update(User)
+        .where(
+            User.id == user_id,
+            User.deleted_at.is_(None),
+            User.token_version == version,
+        )
+        .values(
+            hashed_password=hash_password(new_password),
+            token_version=User.token_version + 1,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    return changed.rowcount == 1
+
+
+def reset_password_with_token(db: Session, token: str, new_password: str) -> bool:
+    payload = decode_reset_token(token)
+    if not payload:
+        return False
+    now = datetime.now(timezone.utc)
+    token_hash = hashlib.sha256(payload["jti"].encode("utf-8")).hexdigest()
+    try:
+        # This conditional UPDATE serializes concurrent consumers. The claim and
+        # password/version change commit together, or both roll back.
+        claimed = db.execute(
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.token_hash == token_hash,
+                PasswordResetToken.user_id == int(payload["sub"]),
+                PasswordResetToken.token_version == payload["version"],
+                PasswordResetToken.used_at.is_(None),
+                PasswordResetToken.expires_at > now,
+            )
+            .values(used_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        if claimed.rowcount != 1 or not _change_password(
+            db, int(payload["sub"]), payload["version"], new_password
+        ):
+            db.rollback()
+            return False
+        db.commit()
+        db.expire_all()
+        return True
+    except Exception:
+        db.rollback()
+        raise
 
 
 def set_password(db: Session, user: User, new_password: str) -> None:
-    user.hashed_password = hash_password(new_password)
+    if not _change_password(db, user.id, user.token_version, new_password):
+        db.rollback()
+        raise ValueError("Thông tin xác thực đã thay đổi; hãy thử lại")
     db.commit()
+    db.refresh(user)
 
 
 def register_user(db: Session, data: UserCreate) -> User:
-    """Đăng ký — user đầu tiên được gán role admin."""
     if db.query(User).filter(User.email == data.email).first():
         raise ValueError("Email đã được sử dụng")
-
-    is_first = db.query(User).count() == 0
     user = User(
         email=data.email,
         hashed_password=hash_password(data.password),
-        role="admin" if is_first else "user",
+        role="user",
     )
     db.add(user)
-    db.commit()
+    try:
+        db.flush()
+        # The first allocated identity is the bootstrap administrator. This
+        # avoids granting admin to two concurrent registrations on an empty DB.
+        if user.id == 1:
+            user.role = "admin"
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise ValueError("Email đã được sử dụng") from exc
     db.refresh(user)
     return user
 
 
 def authenticate_user(db: Session, email: str, password: str) -> User | None:
-    user = db.query(User).filter(User.email == email).first()
+    user = (
+        db.query(User)
+        .filter(User.email == email, User.deleted_at.is_(None))
+        .first()
+    )
     if not user or not verify_password(password, user.hashed_password):
         return None
     return user
+
+
+# ------------------------------------------------------------------ email verification
+def create_email_verification_token(user: User) -> str:
+    from config import EMAIL_VERIFY_EXPIRE_HOURS
+
+    expire = datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFY_EXPIRE_HOURS)
+    payload = {
+        "sub": str(user.id),
+        "exp": expire,
+        "purpose": "verify_email",
+        "version": user.token_version,
+        # Gắn email để link cũ mất hiệu lực nếu email tài khoản thay đổi.
+        "email": hashlib.sha256(user.email.lower().encode("utf-8")).hexdigest(),
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def verify_email_with_token(db: Session, token: str) -> User | None:
+    payload = _typed_claims(token, "verify_email")
+    if not payload or not isinstance(payload.get("email"), str):
+        return None
+    user = (
+        db.query(User)
+        .filter(User.id == int(payload["sub"]), User.deleted_at.is_(None))
+        .first()
+    )
+    if user is None:
+        return None
+    if not hmac_compare(payload["email"], hashlib.sha256(user.email.lower().encode("utf-8")).hexdigest()):
+        return None
+    if user.email_verified_at is None:
+        user.email_verified_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(user)
+    return user
+
+
+def hmac_compare(a: str, b: str) -> bool:
+    import hmac
+
+    return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+
+
+# ------------------------------------------------------------------ Google Sign-In
+_UNUSABLE_PASSWORD = "!external-login"
+
+
+def login_with_google(db: Session, identity) -> tuple[User, bool]:
+    """Đăng nhập/đăng ký bằng Google. Trả về (user, created).
+
+    - Đã liên kết google_sub → đăng nhập.
+    - Chưa liên kết nhưng email trùng tài khoản mật khẩu → liên kết (Google đã xác minh email).
+    - Chưa có → tạo tài khoản mới (không có mật khẩu; có thể đặt sau qua "Quên mật khẩu").
+    """
+    from sqlalchemy import func as sa_func
+
+    now = datetime.now(timezone.utc)
+    user = db.query(User).filter(User.google_sub == identity.sub).first()
+    if user is not None:
+        if user.deleted_at is not None:
+            raise ValueError("Tài khoản đã bị vô hiệu hoá")
+        if user.email_verified_at is None:
+            user.email_verified_at = now
+            db.commit()
+        return user, False
+
+    user = db.query(User).filter(sa_func.lower(User.email) == identity.email.lower()).first()
+    if user is not None:
+        if user.deleted_at is not None:
+            raise ValueError("Tài khoản đã bị vô hiệu hoá")
+        if user.google_sub and user.google_sub != identity.sub:
+            raise ValueError("Email này đã liên kết với tài khoản Google khác")
+        user.google_sub = identity.sub
+        user.email_verified_at = user.email_verified_at or now
+        db.commit()
+        db.refresh(user)
+        return user, False
+
+    user = User(
+        email=identity.email,
+        hashed_password=_UNUSABLE_PASSWORD,
+        role="user",
+        auth_provider="google",
+        google_sub=identity.sub,
+        email_verified_at=now,
+    )
+    db.add(user)
+    try:
+        db.flush()
+        if user.id == 1:
+            user.role = "admin"
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise ValueError("Không thể tạo tài khoản, vui lòng thử lại") from exc
+    db.refresh(user)
+    return user, True

@@ -1,0 +1,15 @@
+--- a/src/voice_api.py
++++ b/src/voice_api.py
+@@ -234,8 +234,10 @@
+ 
+     @contextlib.asynccontextmanager
+     async def lifespan(_app):
+-        yield
+-        await service.close()
++        try:
++            yield
++        finally:
++            await service.close()
+ 
+     router = APIRouter(lifespan=lifespan)
+ 

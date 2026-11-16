@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import Sidebar, { MobileMenuButton } from "@/components/Sidebar";
+import VerifyEmailBanner from "@/components/VerifyEmailBanner";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -44,6 +45,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { href: "/docs", label: "Tài liệu của đội" },
     { href: "/analytics", label: "Thống kê" },
     { href: "/settings", label: "Cài đặt" },
+    { href: "/admin/costs", label: "Chi phí AI & hạ tầng" },
     { href: "/admin", label: "Quản trị" },
   ];
   const section = SECTIONS.find((s) => pathname.startsWith(s.href))?.label ?? "";
@@ -51,12 +53,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 p-0 md:p-3 md:gap-3">
       <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
-      <div className="flex-1 flex flex-col min-w-0 bg-white md:rounded-xl md:border md:border-slate-200 md:shadow-sm overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 bg-white md:rounded-xl md:border md:border-slate-200 md:shadow-xs overflow-hidden">
         <header className="h-12 border-b border-border flex items-center gap-3 px-4 shrink-0">
           <MobileMenuButton onOpen={() => setMobileOpen(true)} />
           <span className="text-[13px] font-semibold tracking-tight text-slate-900">{section}</span>
           <span className="text-[13px] text-slate-400">FieldOps</span>
         </header>
+        <VerifyEmailBanner />
         <main className="flex-1 min-h-0 overflow-hidden">{children}</main>
       </div>
     </div>

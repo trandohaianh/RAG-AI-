@@ -23,6 +23,7 @@ export default function ChatDetailPage() {
             role: m.role as "user" | "assistant",
             content: m.content,
             sources: m.sources,
+            evidence: m.evidence, citation_audit: m.citation_audit,
             rating: m.rating,
             eval_faithfulness: m.eval_faithfulness,
             eval_relevancy: m.eval_relevancy,

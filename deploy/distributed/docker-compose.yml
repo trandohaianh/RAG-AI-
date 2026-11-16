@@ -1,0 +1,176 @@
+name: telecom-edu-distributed
+x-base: &base
+  init: true
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp:rw,noexec,nosuid,size=256m,mode=1777"]
+  logging:
+    driver: local
+    options: {max-size: "10m", max-file: "5"}
+x-edu-env: &edu-env
+  EDUDSS_ENGINE_SIGNING_KEY_FILE: /run/secrets/edu_signing_key
+  EDUDSS_ENGINE_REDIS_URL_FILE: /run/secrets/edu_redis_url
+  EDUDSS_ENGINE_BROKER_URL_FILE: /run/secrets/edu_broker_url
+  EDUDSS_ENGINE_DEMO: ${EDUDSS_ENGINE_DEMO:-0}
+  OMP_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+  CELERY_MAX_TASKS_PER_CHILD: "50"
+  CELERY_MAX_MEMORY_PER_CHILD_KIB: "786432"
+x-edu: &edu
+  <<: *base
+  image: telecom-edu-engine:distributed
+  build: ./edu
+  user: "10001:10001"
+  entrypoint: ["python", "/opt/runtime/exec_service.py"]
+  environment: *edu-env
+  secrets: [edu_signing_key, edu_redis_url, edu_broker_url]
+  volumes: ["./runtime:/opt/runtime:ro"]
+  mem_limit: 2g
+  networks: [edu_data]
+  depends_on:
+    redis-cache: {condition: service_healthy}
+services:
+  init-volumes:
+    <<: *base
+    restart: "no"
+    image: redis:8-alpine@sha256:47b08295737773de3b711fb86f13ae802f5074e96a9a2d29f5f80164ac08c046
+    user: "0:0"
+    network_mode: none
+    cap_add: [CHOWN]
+    entrypoint: ["sh", "-ec", "chown 999:999 /policy /edu"]
+    volumes: ["policy_data:/policy", "edu_data:/edu"]
+  redis-policy:
+    <<: *base
+    image: redis:8-alpine@sha256:47b08295737773de3b711fb86f13ae802f5074e96a9a2d29f5f80164ac08c046
+    user: "999:999"
+    entrypoint: ["sh", "/opt/redis-entrypoint.sh"]
+    environment: {REDIS_MAXMEMORY: 128mb}
+    secrets:
+      - {source: policy_password, target: redis_password}
+    volumes: ["policy_data:/data", "./redis-entrypoint.sh:/opt/redis-entrypoint.sh:ro"]
+    networks: [policy_data]
+    mem_limit: 512m
+    healthcheck: &redis-health
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$(cat /run/secrets/redis_password) redis-cli --user app ping | grep -qx PONG"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+    depends_on: {init-volumes: {condition: service_completed_successfully}}
+  redis-cache:
+    <<: *base
+    image: redis:8-alpine@sha256:47b08295737773de3b711fb86f13ae802f5074e96a9a2d29f5f80164ac08c046
+    user: "999:999"
+    entrypoint: ["sh", "/opt/redis-entrypoint.sh"]
+    environment: {REDIS_MAXMEMORY: 512mb}
+    secrets:
+      - {source: edu_password, target: redis_password}
+    volumes: ["edu_data:/data", "./redis-entrypoint.sh:/opt/redis-entrypoint.sh:ro"]
+    networks: [edu_data]
+    mem_limit: 1g
+    healthcheck: *redis-health
+    depends_on: {init-volumes: {condition: service_completed_successfully}}
+  telecom-grpc:
+    <<: *base
+    image: telecom-policy:grpc
+    build: ./telecom
+    user: "10001:10001"
+    entrypoint: ["python", "/opt/runtime/exec_service.py"]
+    command: ["python", "-m", "ram_online.grpc_server"]
+    environment:
+      POLICY_REDIS_URL_FILE: /run/secrets/policy_redis_url
+      TELECOM_API_KEY_FILE: /run/secrets/telecom_api_key
+      BLOOM_LEASE_SECONDS: ${BLOOM_LEASE_SECONDS:-0.25}
+    secrets: [policy_redis_url, telecom_api_key]
+    volumes: ["./runtime:/opt/runtime:ro"]
+    networks: [telecom_edge, policy_data]
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',50051),timeout=1).close()"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+  fastapi-backend:
+    <<: *edu
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--proxy-headers", "--forwarded-allow-ips=172.29.10.2"]
+    networks: [edu_edge, ui_api, edu_data]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready',timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+  streamlit-ui:
+    <<: *base
+    image: telecom-edu-ui:distributed
+    build: ./ui
+    user: "10001:10001"
+    environment: {EDU_API_URL: "http://fastapi-backend:8000"}
+    networks: [edu_edge, ui_api]
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health',timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    depends_on: {fastapi-backend: {condition: service_healthy}}
+  celery-cpu-worker:
+    <<: *edu
+    command: ["celery", "-A", "edudss_engine.worker:celery_app", "worker", "-n", "cpu@%h", "-Q", "cpu", "--pool=prefork", "--concurrency=1", "--max-tasks-per-child=50", "--max-memory-per-child=786432", "--prefetch-multiplier=1", "--loglevel=WARNING"]
+    stop_grace_period: 16m
+  celery-worker:
+    <<: *edu
+    command: ["celery", "-A", "edudss_engine.worker:celery_app", "worker", "-n", "llm@%h", "-Q", "llm", "--pool=prefork", "--concurrency=2", "--max-tasks-per-child=50", "--max-memory-per-child=524288", "--prefetch-multiplier=1", "--loglevel=WARNING"]
+    networks: [edu_data, llm_egress]
+    stop_grace_period: 3m
+  nginx-gateway:
+    <<: *base
+    image: telecom-edu-gateway:distributed
+    build: ./nginx
+    user: "0:0"
+    cap_add: [NET_BIND_SERVICE, SETUID, SETGID, CHOWN, DAC_OVERRIDE, KILL]
+    environment:
+      TELECOM_DOMAIN: ${TELECOM_DOMAIN:-telecom.localhost}
+      EDU_DOMAIN: ${EDU_DOMAIN:-edu.localhost}
+    ports: ["${HTTP_PORT:-80}:80", "${HTTPS_PORT:-443}:443"]
+    volumes:
+      - ./tls/fullchain.pem:/etc/nginx/tls/fullchain.pem:ro
+      - ./tls/privkey.pem:/etc/nginx/tls/privkey.pem:ro
+      - ./tls/local-ca.crt:/etc/nginx/tls/local-ca.crt:ro
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m,mode=1777", "/var/cache/nginx:rw,noexec,nosuid,size=64m,mode=1777"]
+    networks:
+      ingress: {}
+      telecom_edge: {ipv4_address: 172.29.11.2}
+      edu_edge: {ipv4_address: 172.29.10.2}
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+    depends_on:
+      telecom-grpc: {condition: service_healthy}
+      streamlit-ui: {condition: service_healthy}
+networks:
+  ingress: {}
+  telecom_edge:
+    internal: true
+    ipam: {config: [{subnet: 172.29.11.0/24, ip_range: 172.29.11.128/25}]}
+  edu_edge:
+    internal: true
+    ipam: {config: [{subnet: 172.29.10.0/24, ip_range: 172.29.10.128/25}]}
+  ui_api: {internal: true}
+  policy_data: {internal: true}
+  edu_data: {internal: true}
+  llm_egress: {}
+volumes: {policy_data: {}, edu_data: {}}
+secrets:
+  policy_password: {file: ./secrets/policy_password}
+  policy_redis_url: {file: ./secrets/policy_redis_url}
+  telecom_api_key: {file: ./secrets/telecom_api_key}
+  edu_password: {file: ./secrets/edu_password}
+  edu_redis_url: {file: ./secrets/edu_redis_url}
+  edu_broker_url: {file: ./secrets/edu_broker_url}
+  edu_signing_key: {file: ./secrets/edu_signing_key}

@@ -1,6 +1,8 @@
 """Routes: conversations CRUD + streaming chat."""
 
 import json
+import logging
+from contextlib import aclosing
 
 
 
@@ -18,13 +20,14 @@ from chat import service as chat_service
 
 from chat.schemas import ChatRequest, ConversationCreate, ConversationOut, FeedbackRequest, MessageOut
 
-from config import GEMINI_API_KEY, JUDGE_SAMPLE_RATE
+from config import GEMINI_API_KEY, JUDGE_SAMPLE_RATE, LLM_PROVIDER
 
 from database import get_db
 
 from dependencies import get_current_user
 
-from rag.chain import stream_rag_answer
+from rag.chain import RAG_ERROR_MESSAGE, stream_rag_answer
+from rag.evidence import public_bundle
 from rag.judge import judge_answer
 
 _background_tasks: set = set()
@@ -176,13 +179,11 @@ async def chat_stream(
 
     """Stream RAG response, lưu user + assistant message vào DB."""
 
-    if not GEMINI_API_KEY:
+    if LLM_PROVIDER != "ollama" and not GEMINI_API_KEY:
 
         raise HTTPException(status_code=500, detail="Thiếu GEMINI_API_KEY")
 
-    from saas.limits import enforce_query_quota
-
-    enforce_query_quota(db, user.id, user.subscription_plan)
+    from saas.limits import enforce_query_quota, release_query_quota
 
     conv = chat_service.get_conversation(db, user.id, conv_id)
 
@@ -192,9 +193,16 @@ async def chat_stream(
 
 
 
-    chat_service.add_message(db, conv_id, "user", body.question)
+    from costs.budget import enforce_budget
 
-    history = chat_service.get_history_for_rag(db, conv_id)
+    enforce_budget(db, user.id)
+    reservation = enforce_query_quota(db, user.id, user.subscription_plan)
+    try:
+        chat_service.add_message(db, conv_id, "user", body.question)
+        history = chat_service.get_history_for_rag(db, conv_id)
+    except Exception:
+        release_query_quota(db, reservation)
+        raise
 
 
 
@@ -213,6 +221,7 @@ async def chat_stream(
     full_answer: list[str] = []
 
     sources: list[str] = []
+    evidence_bundle: dict = {}
 
     retrieved_context: list[str] = [""]
 
@@ -222,55 +231,63 @@ async def chat_stream(
 
         nonlocal sources
 
+        from costs.context import set_request_usage
+
+        set_request_usage(user_id=user_id, feature="chat")
+
         try:
 
-            async for kind, payload in stream_rag_answer(
+            async with aclosing(stream_rag_answer(
 
-                user_id, question, history_snapshot, source
+                user_id, question, history_snapshot, source, include_evidence=True
 
-            ):
+            )) as answer_stream:
+                async for kind, payload in answer_stream:
 
-                if kind == "context":
+                    if kind == "evidence":
+                        evidence_bundle.update(payload)
+                    elif kind == "context":
 
-                    retrieved_context[0] = payload  # type: ignore[assignment]
+                        retrieved_context[0] = payload  # type: ignore[assignment]
 
-                elif kind == "token":
+                    elif kind == "token":
 
-                    full_answer.append(payload)  # type: ignore[arg-type]
+                        full_answer.append(payload)  # type: ignore[arg-type]
 
-                    yield f"data: {json.dumps({'token': payload}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'token': payload}, ensure_ascii=False)}\n\n"
 
-                elif kind == "done":
+                    elif kind == "done":
 
-                    sources = payload  # type: ignore[assignment]
+                        sources = payload  # type: ignore[assignment]
 
-                    answer_text = "".join(full_answer)
+                        answer_text = "".join(full_answer)
 
-                    from database import SessionLocal
+                        from database import SessionLocal
 
-                    db_save = SessionLocal()
+                        db_save = SessionLocal()
 
-                    try:
+                        try:
 
-                        saved = chat_service.add_message(db_save, conv_id, "assistant", answer_text, sources)
+                            saved = chat_service.add_message(db_save, conv_id, "assistant", answer_text, sources, **({"evidence": evidence_bundle} if evidence_bundle else {}))
 
-                        saved_id = saved.id
+                            saved_id = saved.id
 
-                    finally:
+                        finally:
 
-                        db_save.close()
+                            db_save.close()
 
-                    if answer_text.strip():
+                        if answer_text.strip():
 
-                        _schedule_eval(saved_id, question, retrieved_context[0], answer_text)
+                            _schedule_eval(saved_id, question, retrieved_context[0], answer_text)
 
-                    yield f"data: {json.dumps({'done': True, 'sources': sources, 'message_id': saved_id}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'done': True, 'sources': sources, 'message_id': saved_id, **public_bundle(evidence_bundle)}, ensure_ascii=False)}\n\n"
 
-                    return
+                        return
 
         except Exception as exc:
 
-            yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+            logging.getLogger(__name__).warning("RAG request failed (%s)", type(exc).__name__)
+            yield f"data: {json.dumps({'error': RAG_ERROR_MESSAGE, 'code': 'rag_unavailable'}, ensure_ascii=False)}\n\n"
 
             return
 
@@ -286,3 +303,21 @@ async def chat_stream(
 
     )
 
+
+
+@router.get("/conversations/{conv_id}/messages/{message_id}/evidence/{reference_id}")
+def get_message_evidence(conv_id: int, message_id: int, reference_id: str,
+                         user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    from chat.models import Message
+    from rag.evidence import read_bundle, evidence_status
+    if not chat_service.get_conversation(db, user.id, conv_id):
+        raise HTTPException(status_code=404, detail="Không tìm thấy hội thoại")
+    message = db.query(Message).filter_by(id=message_id, conversation_id=conv_id, role="assistant").first()
+    if message is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bằng chứng")
+    bundle = read_bundle(message.evidence_json)
+    item = next((item for item in bundle['evidence'] if item['reference_id'] == reference_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bằng chứng")
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"evidence": item, "document_status": evidence_status(bundle, f"user_{user.id}")}, headers={"Cache-Control": "no-store"})

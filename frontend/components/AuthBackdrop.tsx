@@ -48,7 +48,7 @@ export default function AuthBackdrop({ children }: { children: React.ReactNode }
 export function darkInputClass(extra?: string) {
   return cn(
     "w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-white/30",
-    "outline-none transition-colors focus:border-white/25 focus:bg-white/[0.06]",
+    "outline-hidden transition-colors focus:border-white/25 focus:bg-white/[0.06]",
     extra
   );
 }

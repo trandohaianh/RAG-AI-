@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 
 from chat.models import Conversation, Message
+from rag.evidence import read_bundle, public_bundle
 
 
 
@@ -142,6 +143,7 @@ def message_to_out(msg: Message) -> dict:
         "content": msg.content,
 
         "sources": sources,
+        **public_bundle(read_bundle(msg.evidence_json)),
 
         "rating": msg.rating,
 
@@ -168,6 +170,7 @@ def add_message(
     content: str,
 
     sources: list[str] | None = None,
+    *, evidence: dict | None = None,
 
 ) -> Message:
 
@@ -180,6 +183,7 @@ def add_message(
         content=content,
 
         sources_json=json.dumps(sources or [], ensure_ascii=False),
+        evidence_json=json.dumps(evidence, ensure_ascii=False) if evidence else None,
 
     )
 

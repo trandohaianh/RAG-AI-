@@ -16,12 +16,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    (async () => {
-      const cached = await api.loadUser();
-      const token = await api.getToken();
-      if (cached && token) setUser(cached);
-      setLoading(false);
+    let alive = true;
+    let changed = false;
+    const unsubscribe = api.subscribeAuth((nextUser) => {
+      changed = true;
+      if (alive) { setUser(nextUser); setLoading(false); }
+    });
+    void (async () => {
+      try {
+        const cached = await api.loadUser();
+        const token = await api.getToken();
+        if (alive && !changed) setUser(cached && token ? cached : null);
+      } catch {
+        if (alive && !changed) setUser(null);
+      } finally {
+        if (alive) setLoading(false);
+      }
     })();
+    return () => { alive = false; unsubscribe(); };
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {

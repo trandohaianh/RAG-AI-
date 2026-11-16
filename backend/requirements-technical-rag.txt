@@ -1,0 +1,19 @@
+# Standalone Python 3.12 profile, verified against PyPI on 2026-10-26.
+# Create an isolated venv; do not overlay the current application lockfile.
+langchain-core==1.7.0
+langchain-google-genai==4.4.2
+chromadb==1.5.9
+pydantic==2.14.1
+httpx==0.28.1
+filelock==4.2.4
+# Tested Windows wheel; grpcio 1.85 DLL was blocked by local Application Control.
+grpcio==1.84.0; sys_platform == "win32"
+
+# Optional PDF/DOCX layout extraction; Linux image with Poppler/Tesseract recommended.
+# Install this separately only on the ingestion worker:
+# unstructured[pdf,docx]==0.27.34
+
+# Optional local cross-encoder, installed separately on the inference worker:
+# transformers==5.20.2
+# torch==2.14.1
+# Download/pin model safetensors separately. No automatic model downloads at runtime.

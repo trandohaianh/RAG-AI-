@@ -23,7 +23,7 @@ const components = {
   h1: (props: any) => <h1 className="mb-2 mt-3 text-base font-semibold text-slate-900 first:mt-0" {...props} />,
   h2: (props: any) => <h2 className="mb-2 mt-3 text-sm font-semibold text-slate-900 first:mt-0" {...props} />,
   h3: (props: any) => <h3 className="mb-1 mt-3 text-sm font-semibold text-slate-900 first:mt-0" {...props} />,
-  code: (props: any) => <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[12px]" {...props} />,
+  code: (props: any) => <code className="rounded-[0.25rem] bg-slate-100 px-1 py-0.5 font-mono text-[12px]" {...props} />,
   pre: (props: any) => <pre className="my-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-[12px] text-slate-100" {...props} />,
   a: (props: any) => <a className="text-indigo-600 underline underline-offset-2" {...props} />,
   table: (props: any) => <table className="my-2 w-full border-collapse text-left text-[12px]" {...props} />,

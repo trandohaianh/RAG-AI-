@@ -1,5 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
+import * as SecureStore from "expo-secure-store";
+import { rememberOfflineApiOrigin } from "./offlineOrigin";
 
 // Địa chỉ Tailscale của laptop — dùng được cả khi ở nhà lẫn ra ngoài (wifi hay 4G),
 // vì Tailscale tạo 1 mạng riêng ảo giữa laptop và điện thoại, không phụ thuộc mạng LAN.
@@ -20,12 +22,51 @@ export async function getApiUrl(): Promise<string> {
 }
 
 export async function setApiUrl(url: string): Promise<void> {
-  cachedApiUrl = url;
-  await AsyncStorage.setItem(API_URL_KEY, url);
+  const parsed = new URL(url.trim());
+  if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("Địa chỉ API phải dùng HTTP hoặc HTTPS.");
+  const normalized = parsed.toString().replace(/\/$/, "");
+  const previous = await getApiUrl();
+  if (normalized !== previous) {
+    await rememberOfflineApiOrigin(previous);
+    await clearAuth();
+  }
+  await AsyncStorage.setItem(API_URL_KEY, normalized);
+  cachedApiUrl = normalized;
 }
 
-export async function getToken(): Promise<string | null> {
-  return AsyncStorage.getItem(TOKEN_KEY);
+let authLock: Promise<unknown> = Promise.resolve();
+let authRevision = 0;
+const authListeners = new Set<(user: User | null) => void>();
+function withAuthLock<T>(task: () => Promise<T>): Promise<T> {
+  const run = authLock.then(task, task);
+  authLock = run.catch(() => undefined);
+  return run;
+}
+
+export function subscribeAuth(listener: (user: User | null) => void): () => void {
+  authListeners.add(listener);
+  return () => { authListeners.delete(listener); };
+}
+
+function notifyAuth(user: User | null) {
+  for (const listener of authListeners) listener(user);
+}
+
+async function readToken(): Promise<string | null> {
+  if (Platform.OS === "web") return AsyncStorage.getItem(TOKEN_KEY);
+  const secure = await SecureStore.getItemAsync(TOKEN_KEY);
+  if (secure) return secure;
+  const legacy = await AsyncStorage.getItem(TOKEN_KEY);
+  if (legacy) {
+    // Remove the old plaintext copy only after secure storage succeeds.
+    await SecureStore.setItemAsync(TOKEN_KEY, legacy);
+    await AsyncStorage.removeItem(TOKEN_KEY);
+  }
+  return legacy;
+}
+
+export function getToken(): Promise<string | null> {
+  return withAuthLock(readToken);
 }
 
 export type User = {
@@ -36,9 +77,18 @@ export type User = {
   created_at: string;
 };
 
-export async function saveAuth(token: string, user: User): Promise<void> {
-  await AsyncStorage.setItem(TOKEN_KEY, token);
-  await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+export function saveAuth(token: string, user: User): Promise<void> {
+  return withAuthLock(async () => {
+    authRevision += 1;
+    if (Platform.OS === "web") {
+      await AsyncStorage.setItem(TOKEN_KEY, token);
+    } else {
+      await SecureStore.setItemAsync(TOKEN_KEY, token);
+      await AsyncStorage.removeItem(TOKEN_KEY);
+    }
+    await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+    notifyAuth(user);
+  });
 }
 
 export async function loadUser(): Promise<User | null> {
@@ -51,8 +101,19 @@ export async function loadUser(): Promise<User | null> {
   }
 }
 
-export async function clearAuth(): Promise<void> {
-  await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+export function clearAuth(expectedToken?: string | null): Promise<void> {
+  return withAuthLock(async () => {
+    // A late 401 from an old request must not log out a newer session.
+    if (expectedToken !== undefined && await readToken() !== expectedToken) return;
+    authRevision += 1;
+    try {
+      if (Platform.OS !== "web") await SecureStore.deleteItemAsync(TOKEN_KEY);
+      await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+    } finally {
+      // Update navigation immediately even if storage is temporarily unavailable.
+      notifyAuth(null);
+    }
+  });
 }
 
 class ApiError extends Error {
@@ -71,15 +132,37 @@ export function getApiErrorStatus(error: unknown): number | undefined {
   return error instanceof ApiError ? error.status : undefined;
 }
 
+export type ApiSession = { apiUrl: string; token: string; userId: number; revision: number };
+
+export function captureSession(userId: number): Promise<ApiSession> {
+  return withAuthLock(async () => {
+    const token = await readToken();
+    const user = await loadUser();
+    if (!token || user?.id !== userId) throw new ApiError("Cần đăng nhập lại đúng tài khoản để đồng bộ.", 401);
+    return { apiUrl: await getApiUrl(), token, userId, revision: authRevision };
+  });
+}
+
+export async function isSessionCurrent(session: ApiSession): Promise<boolean> {
+  return withAuthLock(async () => session.revision === authRevision &&
+    await readToken() === session.token && (await loadUser())?.id === session.userId &&
+    await getApiUrl() === session.apiUrl);
+}
+
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; auth?: boolean } = {}
+  options: { method?: string; body?: unknown; auth?: boolean; session?: ApiSession } = {}
 ): Promise<T> {
-  const base = await getApiUrl();
+  const session = options.session;
+  if (session && !(await isSessionCurrent(session))) {
+    throw new ApiError("Phiên đăng nhập đã thay đổi; thao tác vẫn được giữ để đồng bộ sau.", 401);
+  }
+  const base = session?.apiUrl ?? await getApiUrl();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (options.auth !== false) {
-    const token = await getToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
+  const token = session?.token ?? (options.auth !== false ? await getToken() : null);
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (session && session.revision !== authRevision) {
+    throw new ApiError("Phiên đăng nhập đã thay đổi; thao tác vẫn được giữ để đồng bộ sau.", 401);
   }
 
   let res: Response;
@@ -96,7 +179,7 @@ async function request<T>(
   }
 
   if (res.status === 401 && options.auth !== false) {
-    await clearAuth();
+    await clearAuth(token);
     throw new ApiError("Phiên đăng nhập hết hạn, vui lòng đăng nhập lại.", 401);
   }
 
@@ -153,7 +236,11 @@ export async function deleteConversation(id: number) {
   return request<void>(`/conversations/${id}`, { method: "DELETE" });
 }
 
-export type Message = {
+export type Evidence = { reference_id: string; chunk_id: string | null; source: string; page: number | null;
+  document_version: string | null; collection_revision: string | null; content_sha256: string; quote: string };
+export type CitationAudit = { status: string; cited_references: string[]; invalid_references: string[]; semantic_support_verified: boolean };
+export type EvidenceBundle = { evidence?: Evidence[]; citation_audit?: CitationAudit | null };
+export type Message = EvidenceBundle & {
   id: number;
   role: string;
   content: string;
@@ -175,65 +262,104 @@ export async function sendFeedback(convId: number, messageId: number, rating: -1
   });
 }
 
-// ---- Chat streaming (XHR progressive read — fetch ReadableStream không ổn định trên RN) ----
+// ---- Chat streaming (XHR progressive read on React Native) ----
 export function streamChat(
   convId: number,
   question: string,
   callbacks: {
     onToken: (t: string) => void;
-    onDone: (sources: string[], messageId: number | null) => void;
+    onDone: (sources: string[], messageId: number | null, evidence?: Evidence[], audit?: CitationAudit | null) => void;
     onError: (e: string) => void;
   },
   source?: string | null
-) {
-  (async () => {
-    const base = await getApiUrl();
-    const token = await getToken();
-    const xhr = new XMLHttpRequest();
-    let processedLength = 0;
+): () => void {
+  let xhr: XMLHttpRequest | null = null;
+  let settled = false;
+  const fail = (message: string) => {
+    if (settled) return;
+    settled = true;
+    callbacks.onError(message);
+  };
+  const cancel = () => {
+    fail("Đã dừng câu trả lời.");
+    xhr?.abort();
+  };
 
-    xhr.open("POST", `${base}/chat/${convId}`);
-    xhr.setRequestHeader("Content-Type", "application/json");
-    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+  void (async () => {
+    try {
+      const base = await getApiUrl();
+      const token = await getToken();
+      if (settled) return;
+      const connection = new XMLHttpRequest();
+      xhr = connection;
+      let processedLength = 0;
+      let buffer = "";
 
-    function handleChunk(chunkText: string) {
-      const lines = chunkText.split("\n");
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
+      function consumeLine(line: string) {
+        if (settled || !line.startsWith("data:")) return;
+        const payload = line.slice(5).trim();
+        if (!payload) return;
+        let data;
         try {
-          const data = JSON.parse(line.slice(6));
-          if (data.error) {
-            callbacks.onError(data.error);
-            return;
-          }
-          if (data.token) callbacks.onToken(data.token);
-          if (data.done) callbacks.onDone(data.sources ?? [], data.message_id ?? null);
+          data = JSON.parse(payload);
         } catch {
-          /* dòng chưa trọn vẹn, bỏ qua */
+          fail("Máy chủ gửi dữ liệu chat không hợp lệ.");
+          return;
+        }
+        if (data.error) { fail(String(data.error)); return; }
+        if (typeof data.token === "string") callbacks.onToken(data.token);
+        if (data.done) {
+          settled = true;
+          callbacks.onDone(data.sources ?? [], data.message_id ?? null, data.evidence ?? [], data.citation_audit ?? null);
         }
       }
+
+      function consume(final = false) {
+        if (settled || connection.status < 200 || connection.status >= 300) return;
+        buffer += connection.responseText.slice(processedLength);
+        processedLength = connection.responseText.length;
+        let newline: number;
+        while (!settled && (newline = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, newline).replace(/\r$/, "");
+          buffer = buffer.slice(newline + 1);
+          consumeLine(line);
+        }
+        if (final && !settled && buffer.trim()) consumeLine(buffer.replace(/\r$/, ""));
+      }
+
+      connection.open("POST", `${base}/chat/${convId}`);
+      connection.timeout = 180000;
+      connection.setRequestHeader("Content-Type", "application/json");
+      if (token) connection.setRequestHeader("Authorization", `Bearer ${token}`);
+      connection.onprogress = () => consume();
+      connection.onerror = () => fail("Lỗi mạng khi nhận câu trả lời. Vui lòng thử lại.");
+      connection.ontimeout = () => fail("Máy chủ trả lời quá lâu. Vui lòng thử lại.");
+      connection.onabort = () => fail("Đã dừng câu trả lời.");
+      connection.onload = () => {
+        if (settled) return;
+        if (connection.status === 401) {
+          void clearAuth(token).catch(() => undefined).finally(() =>
+            fail("Phiên đăng nhập hết hạn, vui lòng đăng nhập lại."));
+          return;
+        }
+        if (connection.status < 200 || connection.status >= 300) {
+          let message = `Lỗi chat (${connection.status})`;
+          try {
+            const detail = JSON.parse(connection.responseText).detail;
+            if (typeof detail === "string") message = detail;
+          } catch { /* Use the HTTP status when the body is not JSON. */ }
+          fail(message);
+          return;
+        }
+        consume(true);
+        if (!settled) fail("Kết nối kết thúc trước khi nhận đủ câu trả lời. Vui lòng thử lại.");
+      };
+      connection.send(JSON.stringify({ question, source: source || null }));
+    } catch (error) {
+      fail(getErrorMessage(error));
     }
-
-    xhr.onprogress = () => {
-      const newText = xhr.responseText.slice(processedLength);
-      processedLength = xhr.responseText.length;
-      if (newText) handleChunk(newText);
-    };
-
-    xhr.onerror = () => callbacks.onError("Lỗi mạng — kiểm tra backend đang chạy");
-    xhr.onload = () => {
-      if (xhr.status >= 400) {
-        try {
-          const err = JSON.parse(xhr.responseText);
-          callbacks.onError(err.detail ?? "Lỗi chat");
-        } catch {
-          callbacks.onError(`Lỗi ${xhr.status}`);
-        }
-      }
-    };
-
-    xhr.send(JSON.stringify({ question, source: source || null }));
   })();
+  return cancel;
 }
 
 // ---- Documents ----
@@ -276,6 +402,10 @@ export async function uploadDocument(
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     body: form,
   });
+  if (res.status === 401) {
+    await clearAuth(token);
+    throw new ApiError("Phiên đăng nhập hết hạn, vui lòng đăng nhập lại.", 401);
+  }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new ApiError(data.detail || "Tải lên thất bại", res.status);
@@ -295,7 +425,7 @@ export type FieldMember = { user_id: number; email: string; role: string };
 export type CaseStatus = "open" | "in_progress" | "waiting" | "escalated" | "resolved";
 export type CaseStepStatus = "todo" | "done" | "blocked";
 
-export type FieldEvent = {
+export type FieldEvent = EvidenceBundle & {
   id: number;
   actor_id: number;
   event_type: string;
@@ -394,8 +524,8 @@ export async function createFieldCase(
   });
 }
 
-export async function getFieldCase(caseId: number) {
-  return request<FieldCase>(`/field/cases/${caseId}`);
+export async function getFieldCase(caseId: number, session?: ApiSession) {
+  return request<FieldCase>(`/field/cases/${caseId}`, { session });
 }
 
 export async function updateFieldCase(
@@ -404,11 +534,13 @@ export async function updateFieldCase(
     status?: CaseStatus;
     assigned_to?: number | null;
     client_action_id?: string;
-  }
+  },
+  session?: ApiSession
 ) {
   return request<FieldCase>(`/field/cases/${caseId}`, {
     method: "PATCH",
     body: input,
+    session,
   });
 }
 
@@ -434,30 +566,42 @@ export async function updateFieldCaseStep(
     status: CaseStepStatus;
     result_note?: string;
     client_action_id?: string;
-  }
+  },
+  session?: ApiSession
 ) {
   return request<FieldStep>(`/field/cases/${caseId}/steps/${stepId}`, {
     method: "PATCH",
     body: input,
+    session,
   });
 }
 
 export async function addFieldCaseNote(
   caseId: number,
   detail: string,
-  clientActionId?: string
+  clientActionId?: string,
+  session?: ApiSession
 ) {
   return request<FieldEvent>(`/field/cases/${caseId}/events`, {
     method: "POST",
     body: { detail, client_action_id: clientActionId },
+    session,
   });
 }
 
 export async function askFieldAssistant(caseId: number, question: string) {
-  return request<{ answer: string; sources: string[] }>(
+  return request<{ answer: string; sources: string[] } & EvidenceBundle>(
     `/field/cases/${caseId}/assist`,
     { method: "POST", body: { question } }
   );
 }
 
 export { ApiError };
+
+
+export async function getMessageEvidence(convId: number, messageId: number, reference: string) {
+  return request<{evidence: Evidence; document_status: string}>(`/conversations/${convId}/messages/${messageId}/evidence/${encodeURIComponent(reference)}`);
+}
+export async function getFieldEvidence(caseId: number, eventId: number, reference: string) {
+  return request<{evidence: Evidence; document_status: string}>(`/field/cases/${caseId}/events/${eventId}/evidence/${encodeURIComponent(reference)}`);
+}

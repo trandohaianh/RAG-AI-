@@ -1,6 +1,5 @@
 """Routes quản lý tài liệu: upload, list, delete."""
 import os
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -55,6 +54,9 @@ async def suggested_questions(
     limit: int = 5,
 ):
     """Tuần 3–4: gợi ý câu hỏi dựa trên chunk đã index."""
+    from costs.context import set_request_usage
+
+    set_request_usage(user_id=user.id, feature="suggest")
     q = await suggest_questions_for_user(user.id, limit=min(max(limit, 1), 10))
     return SuggestedQuestionsOut(questions=q)
 
@@ -170,10 +172,8 @@ async def upload_doc(
         )
     if not content:
         raise HTTPException(status_code=400, detail="File rỗng")
-    dest.write_bytes(content)
-
     try:
-        chunks = await ingest_file(user.id, dest, workspace_id=workspace_id)
+        chunks = await ingest_file(user.id, dest, workspace_id=workspace_id, content=content)
     except Exception as exc:
         status = 429 if "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc) else 500
         raise HTTPException(status_code=status, detail=format_ingest_error(exc)) from exc
@@ -233,28 +233,13 @@ async def remove_doc(
         _require_workspace_member(db, workspace_id, user.id)
         _require_workspace_owner(db, workspace_id, user.id)
     filename = safe_filename(filename)
-    deleted = await delete_doc(user.id, filename, workspace_id=workspace_id)
-    if deleted == 0:
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài liệu")
-
     fpath = (
         _path_in_workspace_dir(workspace_id, filename)
         if workspace_id is not None
         else _path_in_user_dir(user.id, filename)
     )
-    if fpath.exists():
-        fpath.unlink()
-
-    try:
-        if workspace_id is not None:
-            from rag.cache import invalidate_workspace_cache
-
-            invalidate_workspace_cache(workspace_id)
-        else:
-            from rag.cache import invalidate_user_cache
-
-            invalidate_user_cache(user.id)
-    except Exception:
-        pass
+    deleted = await delete_doc(user.id, filename, workspace_id=workspace_id, file_path=fpath)
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài liệu")
 
     return {"message": f"Đã xóa {filename}", "deleted_chunks": deleted}

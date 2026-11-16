@@ -7,13 +7,14 @@ from sqlalchemy.orm import Session
 
 from auth.models import User
 from auth.schemas import CurrentUser
-from config import GEMINI_API_KEY
+from config import GEMINI_API_KEY, LLM_PROVIDER
 from database import get_db
 from dependencies import get_current_user
 from saas.limits import enforce_query_quota
 from saas.models import ApiKey
 from saas.security import generate_api_key, hash_secret
-from rag.chain import answer_rag_once
+from rag.chain import RagGenerationError, answer_rag_once
+from rag.evidence import EvidenceOut, CitationAudit, public_bundle
 from rag.ingest import list_user_docs
 
 router = APIRouter(tags=["public-api"])
@@ -43,6 +44,8 @@ class V1AskIn(BaseModel):
 class V1AskOut(BaseModel):
     answer: str
     sources: list[str]
+    evidence: list[EvidenceOut] = Field(default_factory=list)
+    citation_audit: CitationAudit | None = None
 
 
 async def get_api_key_user(
@@ -53,7 +56,7 @@ async def get_api_key_user(
     row = db.query(ApiKey).filter(ApiKey.key_hash == h).first()
     if not row:
         raise HTTPException(status_code=401, detail="API key không hợp lệ")
-    user = db.query(User).filter(User.id == row.user_id).first()
+    user = db.query(User).filter(User.id == row.user_id, User.deleted_at.is_(None)).first()
     if not user:
         raise HTTPException(status_code=401, detail="User không tồn tại")
     row.last_used_at = datetime.now(timezone.utc)
@@ -128,24 +131,33 @@ async def v1_ask(
     db: Session = Depends(get_db),
     api_user: User = Depends(get_api_key_user),
 ):
-    if not GEMINI_API_KEY:
+    if LLM_PROVIDER != "ollama" and not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="Thiếu GEMINI_API_KEY")
     plan = api_user.subscription_plan or "free"
+    from costs.budget import enforce_budget
+    from costs.context import set_request_usage
+
+    enforce_budget(db, api_user.id)
+    set_request_usage(user_id=api_user.id, feature="public_api")
     enforce_query_quota(db, api_user.id, plan)
-    answer, sources = await answer_rag_once(api_user.id, body.question)
+    evidence_bundle = {}
+    try:
+        answer, sources = await answer_rag_once(api_user.id, body.question, evidence_out=evidence_bundle)
+    except RagGenerationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
     from chat import service as chat_service
 
     conv = chat_service.get_or_create_conversation(db, api_user.id, "__api__")
     chat_service.add_message(db, conv.id, "user", body.question)
-    chat_service.add_message(db, conv.id, "assistant", answer, sources)
-    return V1AskOut(answer=answer, sources=sources)
+    chat_service.add_message(db, conv.id, "assistant", answer, sources, evidence=evidence_bundle)
+    return V1AskOut(answer=answer, sources=sources, **public_bundle(evidence_bundle))
 
 
 @v1.get("/documents")
 async def v1_documents(api_user: User = Depends(get_api_key_user)):
     docs = await list_user_docs(api_user.id)
     return [
-        {"name": d.name, "chunks": d.chunks, "uploaded_at": d.uploaded_at}
+        {"name": d["name"], "chunks": d["chunks"], "uploaded_at": d.get("uploaded_at")}
         for d in docs
     ]
 

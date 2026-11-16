@@ -1,5 +1,6 @@
 """Cấu hình ứng dụng — Gemini, JWT, đường dẫn data."""
 import os
+import math
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -20,14 +21,34 @@ LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-2.5-flash")
 LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
 OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+# Per-provider I/O timeout, not a hard deadline for an entire streamed answer.
+LLM_REQUEST_TIMEOUT_SEC: float = float(os.getenv("LLM_REQUEST_TIMEOUT_SEC", "60"))
+if not math.isfinite(LLM_REQUEST_TIMEOUT_SEC) or LLM_REQUEST_TIMEOUT_SEC < 0.001:
+    raise ValueError("LLM_REQUEST_TIMEOUT_SEC must be finite and at least 0.001")
 # Tỉ lệ câu trả lời được LLM-as-judge chấm điểm (0–1). Mỗi lần chấm tốn thêm 1 lượt gọi Gemini.
 JUDGE_SAMPLE_RATE: float = min(1.0, max(0.0, float(os.getenv("JUDGE_SAMPLE_RATE", "0.1"))))
 
 # JWT
+APP_ENV: str = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower()
 SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-change-in-production-32ch")
 ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_DAYS: int = 7
 RESET_TOKEN_EXPIRE_MINUTES: int = 30
+
+# Google Sign-In: OAuth client ID loại "Web application" (có thể nhiều, cách nhau dấu phẩy
+# — ví dụ thêm client iOS/Android cho app mobile). Để trống = tắt nút Google.
+GOOGLE_CLIENT_IDS: list[str] = [
+    item.strip() for item in os.getenv("GOOGLE_CLIENT_ID", "").split(",") if item.strip()
+]
+# Bắt buộc xác thực email trước khi dùng tính năng (chỉ có hiệu lực khi đã cấu hình gửi email).
+REQUIRE_EMAIL_VERIFICATION: bool = os.getenv("REQUIRE_EMAIL_VERIFICATION", "false").lower() in (
+    "1", "true", "yes",
+)
+EMAIL_VERIFY_EXPIRE_HOURS: int = int(os.getenv("EMAIL_VERIFY_EXPIRE_HOURS", "48"))
+# Chống dò mật khẩu: giới hạn số lần đăng nhập/đăng ký theo email và IP.
+AUTH_RATE_LIMIT_ENABLED: bool = os.getenv("AUTH_RATE_LIMIT_ENABLED", "true").lower() not in (
+    "0", "false", "no",
+)
 
 # Resend — gửi email quên mật khẩu
 RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
@@ -87,3 +108,15 @@ PRO_PLAN_DAILY_QUERIES: int = int(os.getenv("PRO_PLAN_DAILY_QUERIES", "1000"))
 STRIPE_SECRET_KEY: str = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET: str = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 STRIPE_PRICE_PRO: str = os.getenv("STRIPE_PRICE_PRO", "")
+
+
+def validate_security_config() -> None:
+    """Require a deployment-specific signing key outside local development."""
+    if APP_ENV in {"prod", "production", "staging"} and (
+        len(SECRET_KEY) < 32
+        or SECRET_KEY in {
+            "dev-secret-change-in-production-32ch",
+            "your_jwt_secret_32chars_minimum",
+        }
+    ):
+        raise RuntimeError("Production requires a unique SECRET_KEY of at least 32 characters")

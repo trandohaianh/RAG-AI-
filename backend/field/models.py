@@ -115,11 +115,22 @@ class ServiceCaseEvent(Base):
     actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     event_type: Mapped[str] = mapped_column(String(32))
     detail: Mapped[str] = mapped_column(Text, default="")
+    evidence_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
     case = relationship("ServiceCase", back_populates="events")
+
+    @property
+    def evidence(self):
+        from rag.evidence import read_bundle
+        return read_bundle(self.evidence_json)['evidence']
+
+    @property
+    def citation_audit(self):
+        from rag.evidence import read_bundle
+        return read_bundle(self.evidence_json)['citation_audit']
 
 
 class FieldClientAction(Base):

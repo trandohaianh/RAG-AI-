@@ -41,6 +41,14 @@ if (typeof window !== "undefined") {
   if (t) setAuthToken(t);
 }
 
+function expireSession(token: string | null) {
+  if (typeof window === "undefined" || !token || localStorage.getItem("rag_token") !== token) return;
+  localStorage.removeItem("rag_token");
+  localStorage.removeItem("rag_user");
+  setAuthToken(null);
+  if (!window.location.pathname.startsWith("/login")) window.location.href = "/login";
+}
+
 // Token hết hạn/không hợp lệ (401) trên API cần đăng nhập → tự đăng xuất thay vì
 // hiện lỗi "token không hợp lệ" mãi trong khi UI vẫn tưởng đang đăng nhập.
 api.interceptors.response.use(
@@ -49,13 +57,11 @@ api.interceptors.response.use(
     const status = err.response?.status;
     const url: string = err.config?.url ?? "";
     const isAuthEndpoint = url.includes("/auth/login") || url.includes("/auth/register");
-    if (status === 401 && !isAuthEndpoint && typeof window !== "undefined") {
-      localStorage.removeItem("rag_token");
-      localStorage.removeItem("rag_user");
-      setAuthToken(null);
-      if (!window.location.pathname.startsWith("/login")) {
-        window.location.href = "/login";
-      }
+    const currentToken = typeof window !== "undefined" ? localStorage.getItem("rag_token") : null;
+    const sentAuthorization = err.config?.headers?.Authorization ?? err.config?.headers?.authorization;
+    if (status === 401 && !isAuthEndpoint && currentToken &&
+        sentAuthorization === `Bearer ${currentToken}` && typeof window !== "undefined") {
+      expireSession(currentToken);
     }
     return Promise.reject(err);
   }
@@ -63,8 +69,12 @@ api.interceptors.response.use(
 
 export default api;
 
+export type Evidence = { reference_id: string; chunk_id: string | null; source: string; page: number | null;
+  document_version: string | null; collection_revision: string | null; content_sha256: string; quote: string };
+export type CitationAudit = { status: string; cited_references: string[]; invalid_references: string[]; semantic_support_verified: boolean };
+export type EvidenceBundle = { evidence?: Evidence[]; citation_audit?: CitationAudit | null };
 export type Conversation = { id: number; title: string; created_at: string };
-export type Message = {
+export type Message = EvidenceBundle & {
   id: number;
   role: string;
   content: string;
@@ -87,7 +97,7 @@ export type FieldWorkspace = {
 export type FieldMember = { user_id: number; email: string; role: string };
 export type FieldStatus = "open" | "in_progress" | "waiting" | "escalated" | "resolved";
 export type FieldStepStatus = "todo" | "done" | "blocked";
-export type FieldEvent = {
+export type FieldEvent = EvidenceBundle & {
   id: number;
   actor_id: number;
   event_type: string;
@@ -152,7 +162,7 @@ export async function streamChat(
   question: string,
   callbacks: {
     onToken: (t: string) => void;
-    onDone: (sources: string[], messageId: number | null) => void;
+    onDone: (sources: string[], messageId: number | null, evidence?: Evidence[], audit?: CitationAudit | null) => void;
     onError: (e: string) => void;
   },
   source?: string | null
@@ -168,6 +178,7 @@ export async function streamChat(
   });
 
   if (!res.ok || !res.body) {
+    if (res.status === 401) expireSession(token);
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     callbacks.onError(err.detail ?? "Lỗi chat");
     return;
@@ -192,7 +203,7 @@ export async function streamChat(
           return;
         }
         if (data.token) callbacks.onToken(data.token);
-        if (data.done) callbacks.onDone(data.sources ?? [], data.message_id ?? null);
+        if (data.done) callbacks.onDone(data.sources ?? [], data.message_id ?? null, data.evidence ?? [], data.citation_audit ?? null);
       } catch {
         /* skip */
       }

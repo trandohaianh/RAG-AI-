@@ -14,6 +14,7 @@ phép bỏ qua việc xếp lại.
 from __future__ import annotations
 
 import re
+import time
 
 import httpx
 
@@ -69,6 +70,19 @@ def lexical_rerank(query: str, chunks: list[Chunk], top_n: int) -> list[Chunk]:
     return sorted(chunks, key=score, reverse=True)[:top_n]
 
 
+def _record_rerank(data: dict, doc_count: int, started: float) -> None:
+    """Cohere tính tiền theo lượt search (mỗi lượt ≤100 tài liệu)."""
+    from costs.recorder import record_usage
+
+    billed = ((data.get("meta") or {}).get("billed_units") or {}).get("search_units")
+    units = float(billed) if isinstance(billed, (int, float)) else float(max(1, -(-doc_count // 100)))
+    record_usage(
+        provider="cohere", model=COHERE_RERANK_MODEL, units=units,
+        estimated=not isinstance(billed, (int, float)),
+        latency_ms=int((time.perf_counter() - started) * 1000), feature="rerank",
+    )
+
+
 def rerank_chunks(
     query: str,
     chunks: list[Chunk],
@@ -84,6 +98,7 @@ def rerank_chunks(
         return lexical_rerank(query, chunks, top_n)
 
     documents = [c[0][:8000] for c in chunks]  # giới hạn Cohere
+    started = time.perf_counter()
     try:
         resp = httpx.post(
             "https://api.cohere.com/v1/rerank",
@@ -101,6 +116,7 @@ def rerank_chunks(
         )
         resp.raise_for_status()
         data = resp.json()
+        _record_rerank(data, len(documents), started)
         results = data.get("results") or []
         out: list[Chunk] = []
         for item in results:

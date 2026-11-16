@@ -17,6 +17,9 @@ export type User = {
   email: string;
   role: string;
   subscription_plan?: string;
+  auth_provider?: string;
+  email_verified?: boolean;
+  has_google?: boolean;
   created_at: string;
 };
 
@@ -81,10 +84,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       const res = await api.get<User>("/auth/me", { timeout: 8000 });
+      if (loadToken() !== token) return;
       setUser(res.data);
       localStorage.setItem(USER_KEY, JSON.stringify(res.data));
     } catch {
-      if (!cached) {
+      if (!cached && loadToken() === token) {
         clearAuth();
         setUser(null);
       }
@@ -94,7 +98,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    refreshUser();
+    void refreshUser();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === TOKEN_KEY || event.key === USER_KEY || event.key === null) {
+        setUser(loadToken() ? loadUser() : null);
+        void refreshUser();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, [refreshUser]);
 
   const login = useCallback((token: string, u: User) => {

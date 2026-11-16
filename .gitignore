@@ -25,3 +25,26 @@ eval_results*.json
 /*.docx
 /*.html
 ~$*
+
+# Publication coordination and local regression artifacts
+data/.rag-locks/
+backend/.pytest*_run/
+
+# Reproducible local retrieval benchmark output
+/fieldops_eval_results.json
+/evaluation.local/
+/rag_eval_results*.json
+
+# Production secrets/TLS stay local; ship only generators and examples.
+/deploy/production/secrets/
+/deploy/production/tls/
+/deploy/production/.env
+
+/deploy/distributed/secrets/
+/deploy/distributed/tls/
+/deploy/distributed/.env
+
+# Cloud deploy (VM): secrets only on the server
+/deploy/cloud/.env
+# Eval run outputs (CI uploads them as artifacts; baselines live in backend/evals/baselines)
+/reports/evals/

@@ -7,6 +7,7 @@ import api, { getApiErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import AuthBackdrop, { darkInputClass } from "@/components/AuthBackdrop";
 import { LogoMark } from "@/components/Logo";
+import GoogleSignInButton from "@/components/GoogleSignInButton";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -59,6 +60,7 @@ export default function RegisterPage() {
         </p>
 
         <form onSubmit={onSubmit} className="mt-8 space-y-3 text-left">
+          <GoogleSignInButton onError={setError} />
           {error && (
             <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
               {error}

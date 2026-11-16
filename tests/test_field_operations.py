@@ -19,7 +19,10 @@ from rag.ingest import _collection_name
 
 
 @pytest.fixture
-def field_client():
+def field_client(tmp_path, monkeypatch):
+    # Route tests must never inspect or initialise the developer's vector store.
+    monkeypatch.setattr("rag.ingest.CHROMA_DIR", tmp_path / "chroma")
+    monkeypatch.setattr("docs.router.UPLOAD_DIR", tmp_path / "uploads")
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -200,7 +203,7 @@ def test_assistant_uses_workspace_knowledge(monkeypatch, field_client):
     case_id = created.json()["id"]
     called = {}
 
-    async def fake_answer(user_id, question, history=None, workspace_id=None):
+    async def fake_answer(user_id, question, history=None, workspace_id=None, **kwargs):
         called["user_id"] = user_id
         called["workspace_id"] = workspace_id
         called["question"] = question
@@ -216,6 +219,7 @@ def test_assistant_uses_workspace_knowledge(monkeypatch, field_client):
     assert response.json() == {
         "answer": "Kiểm tra đầu nối quang.",
         "sources": ["SOP.pdf"],
+        "evidence": [], "citation_audit": None,
     }
     assert called["user_id"] == 1
     assert called["workspace_id"] == workspace["id"]

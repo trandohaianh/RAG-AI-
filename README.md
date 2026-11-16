@@ -1,4 +1,18 @@
+> **Production/HTTPS (28/10/2026):** Root Compose hiện dùng bộ production có secrets/TLS bootstrap. Xem [hướng dẫn triển khai](deploy/production/README.md) và [kết quả audit](docs/FINAL-PRODUCTION-AUDIT.md) trước khi chạy `docker compose up`. Không tự nhập dữ liệu cũ vào volume mới.
+
 # FieldOps — Field Service Intelligence Platform
+
+> **Bản full-stack (11/2026):**
+> - Đăng nhập Google và xác thực email, có rate-limit chống dò mật khẩu.
+> - Theo dõi chi phí token và server: trang *Chi phí* cho admin, ngân sách ngày, metric Prometheus.
+> - Bộ eval tự viết gồm 68 câu, chạy trên CI và hằng đêm với Gemini thật.
+> - Pipeline vận hành hằng ngày: KPI, kiểm tra chất lượng dữ liệu, retention, backup.
+> - Dashboard và 10 cảnh báo trên Grafana Cloud.
+> - Deploy miễn phí lên Oracle Cloud kèm HTTPS.
+>
+> Hướng dẫn deploy: [deploy/cloud/README.md](deploy/cloud/README.md). Bộ eval:
+> [backend/evals/README.md](backend/evals/README.md).
+
 
 [![CI](https://github.com/YOUR_USERNAME/rag-chatbot/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/rag-chatbot/actions/workflows/ci.yml)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
@@ -53,12 +67,12 @@ flowchart LR
 
 **Các lớp sản phẩm:** tổ chức/workspace → danh mục ca sửa → thông tin thiết bị và bàn giao → checklist tại hiện trường → tri thức SOP/manual dùng chung → nhật ký kết quả và cải thiện tri thức. RAG là một lớp hỗ trợ trong vòng vận hành, không phải toàn bộ sản phẩm.
 
-**Phạm vi hiện tại:** workspace, phân quyền thành viên cơ bản, tạo/cập nhật ca, checklist, sự kiện xử lý, thư viện tài liệu workspace và trợ lý theo tài liệu workspace. Ứng dụng iOS/Android lưu bản ca gần đây và hàng đợi checklist/ghi nhận/trạng thái bằng SecureStore (Keychain/Android Keystore); thao tác tự đồng bộ khi ứng dụng mở lại trang ca/danh sách/tổng quan có mạng. Tạo ca mới, thêm bước checklist và hỏi RAG vẫn cần mạng. Offline cache chưa bật trên web. Chưa có đồng bộ tổng đài/CRM/NMS, điều phối lịch tuyến, lưu ảnh hiện trường hoặc tích hợp hệ thống nội bộ; đây là các bước cần discovery/pilot riêng.
+**Phạm vi hiện tại:** workspace, phân quyền thành viên cơ bản, tạo/cập nhật ca, checklist, sự kiện xử lý, thư viện tài liệu workspace và trợ lý theo tài liệu workspace. Ứng dụng iOS/Android lưu bản ca gần đây và hàng đợi checklist/ghi nhận/trạng thái bằng SecureStore (Keychain/Android Keystore); thao tác tự đồng bộ khi ứng dụng mở lại trang ca/danh sách/tổng quan có mạng. Tạo ca mới, thêm bước checklist và hỏi RAG vẫn cần mạng. Web lưu hàng đợi thay đổi ca sửa trong IndexedDB, tách theo API/tài khoản/workspace; chưa có cache ca đầy đủ trên web. Chưa có đồng bộ tổng đài/CRM/NMS, điều phối lịch tuyến, lưu ảnh hiện trường hoặc tích hợp hệ thống nội bộ; đây là các bước cần discovery/pilot riêng.
 
 ```mermaid
 flowchart TB
     subgraph Client
-        UI[Next.js 14 App]
+        UI[Next.js 16 App]
     end
 
     subgraph API["FastAPI Backend"]
@@ -137,7 +151,7 @@ uploads/{user_id}/file.pdf
 
 | Layer | Stack |
 |-------|--------|
-| Frontend | Next.js 14, Tailwind, shadcn/ui |
+| Frontend | Next.js 16, React 19, Tailwind 4, shadcn/ui |
 | API | FastAPI, LangChain, ChromaDB |
 | LLM / Embed | Gemini 2.5 Flash, gemini-embedding-001 |
 | App DB | SQLite |
@@ -195,7 +209,7 @@ Script sẽ:
 
 ### Yêu cầu
 
-- Python 3.11+, Node 20+
+- Python 3.11–3.12, Node 22.13+ cho web/mobile (CI và Docker web dùng Node 22)
 - [Gemini API key](https://aistudio.google.com/apikey)
 
 ### Quick start (thủ công)
@@ -213,7 +227,9 @@ cp .env.example .env
 cd backend
 python -m venv .venv
 .\.venv\Scripts\activate          # Windows
+python -m pip install --upgrade pip
 pip install -r requirements.txt
+python -B scripts/check_dependencies.py
 uvicorn main:app --reload --port 8000
 ```
 
@@ -221,7 +237,7 @@ uvicorn main:app --reload --port 8000
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -271,7 +287,7 @@ docker compose up --build
 | POST/GET | `/embed/tokens`, `GET /embed/widget.js` | ✓ / — |
 | POST | `/billing/checkout`, `/billing/webhook` | ✓ / — |
 | GET | `/metrics` | — |
-| GET | `/de/gold/stats` | — |
+| GET | `/de/gold/stats` | admin |
 | GET | `/admin/stats`, `/admin/users` | admin |
 
 ---
@@ -302,7 +318,23 @@ rag-chatbot/
 pytest tests/ -v
 ```
 
-GitHub Actions: `.github/workflows/ci.yml`
+GitHub Actions: `.github/workflows/ci.yml`. CI kiểm tra backend, build web, kiểm thử hàng đợi/streaming và typecheck mobile.
+
+Xem [ghi chú nâng cấp, thay đổi phiên đăng nhập và kiểm tra trước triển khai](docs/UPGRADE-NOTES.md).
+
+Backend có migration theo phiên bản cho SQLite/PostgreSQL và kiểm tra schema trước khi phục vụ API. CI được cấu hình chạy Python 3.11/3.12 với PostgreSQL 16 để kiểm tra migration và quota.
+
+Kiểm tra môi trường bằng `python -B backend/scripts/check_dependencies.py`. Khi nâng cấp từ môi trường cũ, tạo venv mới từ requirements; cài chồng không tự loại bỏ provider/package thừa.
+
+Chuẩn bị đánh giá trên tài liệu thực bằng `python -B backend/scripts/run_rag_evaluation.py --mode validate-only`. Mẫu `backend/evaluation/rag-real.template.json` cần được thay bằng câu hỏi và nguồn/trang do người phụ trách xác nhận; xem hướng dẫn Đợt 3 trong ghi chú nâng cấp. Lệnh mặc định chỉ xác minh dữ liệu, không gọi API.
+
+Quota hiện được lưu độc lập với lịch sử chat và dùng chung cho các đường gọi RAG. File/index có journal phục hồi khi worker bị gián đoạn; startup kiểm tra phục hồi trước khi phục vụ API.
+
+Benchmark truy xuất tổng hợp FieldOps (offline, không gọi LLM/API) được chạy trong CI:
+
+```powershell
+.\backend\.pytest_security_runtime_tmp\.venv\Scripts\python.exe -B backend/scripts/run_eval_benchmark.py --offline --output fieldops_eval_results.json --fail-on-regression
+```
 
 ---
 
@@ -317,3 +349,9 @@ GitHub Actions: `.github/workflows/ci.yml`
 ## License
 
 MIT
+
+Bản vá dependency ngày 22/10/2026 và các advisory chưa có bản sửa được ghi tại [DEPENDENCY-SECURITY.md](docs/DEPENDENCY-SECURITY.md).
+
+Hướng phát triển RAG, các lỗi luồng trả lời đã sửa và thứ tự nâng chất lượng được ghi tại [RAG-ROADMAP.md](docs/RAG-ROADMAP.md).
+
+Bộ [8 SOP/manual FieldOps giả lập và 60 câu hỏi](examples/fieldops-sop-demo/README.md), cùng [hướng dẫn gán nhãn/chấm RAG và evidence](docs/RAG-EVALUATION-GUIDE.md), đã sẵn sàng dùng thử.

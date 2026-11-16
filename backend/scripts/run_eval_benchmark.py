@@ -1,171 +1,179 @@
-"""Benchmark đánh giá chất lượng RAG trên bộ câu hỏi kiểm thử thật.
+"""Repeatable synthetic FieldOps lexical retrieval regression benchmark.
 
-Chạy: cd backend && .venv/Scripts/python.exe -m scripts.run_eval_benchmark
-
-Mỗi câu hỏi được retrieve + generate qua ĐÚNG pipeline production (rag/chain.py),
-sau đó chấm bằng 2 phương pháp độc lập:
-  1. LLM-as-judge (rag/judge.py)         — Gemini tự chấm faithfulness/relevancy.
-  2. Sentence-grounding (rag/grounding.py) — đối chiếu từ vựng câu trả lời với
-     context đã retrieve, KHÔNG qua LLM, dùng để kiểm tra chéo điểm judge có
-     đáng tin hay không (nếu 2 số lệch nhau quá xa nghĩa là judge có thể lạc quan ảo).
-
-Kết quả ghi ra eval_results.json — dùng số liệu này trên landing page/báo cáo,
-không dùng số minh hoạ gõ tay.
+Default/offline mode calls BM25 only: no embeddings, vector database, LLM, judge,
+or paid API. It does not measure production RAG accuracy or generated refusal.
+Every invocation starts a fresh report and ignores legacy eval_results.partial.json.
 """
-import asyncio
+from __future__ import annotations
+
+import argparse
+import hashlib
 import json
 import sys
-import time
+import uuid
+from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+BACKEND = Path(__file__).resolve().parents[1]
+ROOT = BACKEND.parent
+sys.path.insert(0, str(BACKEND))
 
-from config import LLM_MODEL
-from rag.chain import _unique_sources
-from rag.grounding import sentence_grounding_score
-from rag.judge import judge_answer
-from rag.prompt import build_gemini_prompt, format_context
-from rag.retriever import retrieve
+from rag.bm25 import BM25_AVAILABLE, bm25_search, invalidate
 
-from rag.llm import generate_text
-
-# Test user thật đã có tài liệu "Dặc tả.txt" ingest sẵn (bộ dữ liệu khảo sát học sinh).
-TEST_USER_ID = 1
-
-TEST_SET = [
-    {
-        "question": "Dữ liệu trong tài liệu này được thu thập từ đâu?",
-        "expect_keywords": ["khảo sát", "học sinh", "trung học"],
-    },
-    {
-        "question": "G3 là gì và có thang điểm từ bao nhiêu đến bao nhiêu?",
-        "expect_keywords": ["điểm", "cuối", "20"],
-    },
-    {
-        "question": "Có bao nhiêu sinh viên xuất hiện ở cả hai tập dữ liệu Toán và tiếng Bồ Đào Nha?",
-        "expect_keywords": ["382"],
-    },
-    {
-        "question": "famrel đo lường điều gì và thang điểm ra sao?",
-        "expect_keywords": ["gia đình", "quan hệ"],
-    },
-    {
-        "question": "Ai là tác giả của nghiên cứu gốc cung cấp bộ dữ liệu này?",
-        "expect_keywords": ["cortez", "silva"],
-    },
-    {
-        "question": "traveltime được mã hoá thành mấy mức và ý nghĩa từng mức là gì?",
-        "expect_keywords": ["phút", "giờ"],
-    },
-    {
-        "question": "Ngày mai thời tiết Hà Nội thế nào?",
-        "expect_keywords": [],  # ngoài phạm vi tài liệu — kỳ vọng hệ thống thừa nhận không biết
-        "out_of_scope": True,
-    },
-]
+DEFAULT_DATASET = BACKEND / "evaluation" / "fieldops-v1.json"
 
 
-async def _generate(prompt: str, retries: int = 4) -> str:
-    loop = asyncio.get_running_loop()
+def load_dataset(path: Path) -> dict:
+    dataset = json.loads(path.read_text(encoding="utf-8"))
+    if dataset.get("schema_version") != 1 or not dataset.get("dataset_id"):
+        raise ValueError("Unsupported or unidentified evaluation dataset")
+    documents, cases = dataset.get("documents", []), dataset.get("cases", [])
+    if not documents or not cases:
+        raise ValueError("Dataset requires documents and cases")
+    ids = [doc["id"] for doc in documents]
+    identities = [(doc["text"], doc["source"], doc["page"]) for doc in documents]
+    if len(ids) != len(set(ids)) or len(identities) != len(set(identities)):
+        raise ValueError("Document IDs and evidence identities must be unique")
+    if any((doc["page"] is not None and (type(doc["page"]) is not int or doc["page"] < 1)) or not doc["text"].strip() for doc in documents):
+        raise ValueError("Evidence needs nonempty text and a one-based positive page or null for unpaged text")
+    case_ids = [case["id"] for case in cases]
+    if len(case_ids) != len(set(case_ids)):
+        raise ValueError("Case IDs must be unique")
+    known = set(ids)
+    for case in cases:
+        expected = case["expected_evidence"]
+        if not case["query"].strip() or not set(expected).issubset(known) or len(expected) != len(set(expected)):
+            raise ValueError("Invalid query or expected evidence")
+        if bool(expected) == bool(case.get("expect_no_evidence", False)):
+            raise ValueError("Each case needs evidence or an explicit no-evidence expectation")
+    return dataset
 
-    def _call() -> str:
-        return generate_text(prompt)
 
-    for attempt in range(retries):
-        try:
-            return await loop.run_in_executor(None, _call)
-        except Exception as exc:  # ResourceExhausted (429) trên free tier
-            wait = getattr(getattr(exc, "retry_delay", None), "seconds", None) or (2 ** attempt) * 5
-            if attempt == retries - 1:
-                raise
-            print(f"  ... lỗi tạm thời ({exc.__class__.__name__}), chờ {wait}s rồi thử lại")
-            await asyncio.sleep(wait + 1)
-    raise RuntimeError("unreachable")
+class FixtureCollection:
+    def __init__(self, documents):
+        self.documents = documents
+
+    def get(self, include=None):
+        return {
+            "documents": [doc["text"] for doc in self.documents],
+            "metadatas": [{"source": doc["source"], "page": doc["page"] - 1 if doc["page"] is not None else None} for doc in self.documents],
+        }
 
 
-PARTIAL_PATH = Path(__file__).resolve().parents[2] / "eval_results.partial.json"
+def _implementation_hash() -> str:
+    digest = hashlib.sha256()
+    for path in [Path(__file__), BACKEND / "rag" / "bm25.py", BACKEND / "rag" / "evidence.py"]:
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
-async def run() -> dict:
+def run_offline(dataset_path: Path = DEFAULT_DATASET, k: int = 3, search=None) -> dict:
+    if k < 1:
+        raise ValueError("k must be positive")
+    dataset = load_dataset(Path(dataset_path))
+    if search is None and not BM25_AVAILABLE:
+        raise RuntimeError("rank_bm25 is required; refusing to report an unavailable retriever")
+    collection = FixtureCollection(dataset["documents"])
+    run_id = uuid.uuid4().hex
+    collection_name = "fieldops-eval-" + run_id
+    invalidate(collection_name)
+    if search is None:
+        def search(query, limit, source):
+            return bm25_search(collection, collection_name, query, limit, source, raise_errors=True)
+    evidence_ids = {
+        (doc["text"], doc["source"], doc["page"]): doc["id"]
+        for doc in dataset["documents"]
+    }
     results = []
-    if PARTIAL_PATH.exists():
-        results = json.loads(PARTIAL_PATH.read_text(encoding="utf-8"))
-        print(f"Tiếp tục từ {len(results)} câu đã chạy trước đó ({PARTIAL_PATH.name}).")
-
-    done_questions = {r["question"] for r in results}
-    for case in TEST_SET:
-        question = case["question"]
-        if question in done_questions:
-            continue
-        chunks = await retrieve(TEST_USER_ID, question)
-        context = format_context(chunks) if chunks else ""
-        sources = _unique_sources(chunks) if chunks else []
-        prompt = build_gemini_prompt(context, question, None)
+    supported_count = sum(bool(case["expected_evidence"]) for case in dataset["cases"])
+    no_evidence_count = len(dataset["cases"]) - supported_count
+    recall_sum = mrr_sum = no_evidence_correct = 0
+    for case in dataset["cases"]:
+        result = {
+            "id": case["id"], "query": case["query"],
+            "expected_evidence": case["expected_evidence"],
+            "expect_no_evidence": case.get("expect_no_evidence", False),
+        }
         try:
-            answer = await _generate(prompt)
+            rows = search(case["query"], k, case.get("source"))[:k]
+            retrieved = [evidence_ids.get(tuple(row)) for row in rows]
+            expected = set(case["expected_evidence"])
+            found = expected.intersection(retrieved)
+            recall = len(found) / len(expected) if expected else None
+            rank = next((i for i, item in enumerate(retrieved, 1) if item in expected), None)
+            reciprocal_rank = 1 / rank if rank else 0.0
+            passed = found == expected if expected else not rows
+            result.update({
+                "status": "completed", "passed": passed,
+                "retrieved_evidence": retrieved,
+                "retrieved_sources": [{"source": row[1], "page": row[2]} for row in rows],
+                "evidence_recall_at_k": recall,
+                "reciprocal_rank": reciprocal_rank if expected else None,
+                "no_evidence_detected": not rows,
+            })
+            # Account only after the whole result is constructed successfully.
+            # A malformed hit must not contribute to a case reported as failed.
+            recall_sum += recall or 0
+            mrr_sum += reciprocal_rank
+            no_evidence_correct += int(not expected and not rows)
         except Exception as exc:
-            print(f"Bỏ cuộc giữa chừng do lỗi API: {exc}")
-            PARTIAL_PATH.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
-            print(f"Đã lưu {len(results)} câu đã chạy vào {PARTIAL_PATH.name} — chạy lại script để tiếp tục.")
-            break
+            result.update({"status": "failed", "passed": False, "error_type": type(exc).__name__})
+        results.append(result)
 
-        judge = await judge_answer(question, context, answer)
-        grounding = sentence_grounding_score(answer, context)
-
-        keyword_hits = sum(1 for k in case["expect_keywords"] if k.lower() in answer.lower())
-        keyword_total = len(case["expect_keywords"])
-
-        results.append(
-            {
-                "question": question,
-                "out_of_scope": case.get("out_of_scope", False),
-                "answer": answer,
-                "sources": sources,
-                "chunks_retrieved": len(chunks),
-                "judge": judge,
-                "grounding": {
-                    "ratio": grounding["ratio"],
-                    "grounded": grounding["grounded"],
-                    "total_sentences": grounding["total"],
-                },
-                "keyword_check": {"hits": keyword_hits, "total": keyword_total},
-            }
-        )
-        print(f"[{len(results)}/{len(TEST_SET)}] {question!r} -> judge={judge} grounding={grounding['ratio']}")
-
-    judge_scores = [r["judge"] for r in results if r["judge"] is not None]
-    grounding_ratios = [r["grounding"]["ratio"] for r in results if r["grounding"]["ratio"] is not None]
-
-    def _avg(xs: list[float]) -> float | None:
-        return round(sum(xs) / len(xs), 4) if xs else None
-
-    report = {
-        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "model": LLM_MODEL,
-        "user_id": TEST_USER_ID,
-        "n_questions": len(TEST_SET),
-        "methodology": (
-            "Mỗi câu hỏi chạy qua đúng pipeline production (retrieve + build_gemini_prompt + "
-            "generate_content) rồi chấm bằng 2 phương pháp độc lập: (1) LLM-as-judge — Gemini "
-            "tự chấm faithfulness/relevancy 0-1; (2) sentence-grounding — đối chiếu từ vựng câu "
-            "trả lời với context đã retrieve theo Jaccard overlap, không qua LLM, dùng để kiểm "
-            "tra chéo xem điểm judge có lạc quan ảo hay không."
-        ),
-        "avg_faithfulness": _avg([j["faithfulness"] for j in judge_scores]),
-        "avg_relevancy": _avg([j["relevancy"] for j in judge_scores]),
-        "avg_sentence_grounding_ratio": _avg(grounding_ratios),
+    completed = sum(result["status"] == "completed" for result in results)
+    failed = len(results) - completed
+    all_passed = all(result["passed"] for result in results)
+    canonical = json.dumps(dataset, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    try:
+        bm25_version = version("rank-bm25")
+    except PackageNotFoundError:
+        bm25_version = None
+    return {
+        "schema_version": 1, "run_id": run_id,
+        "runtime": {"python": sys.version.split()[0], "rank_bm25": bm25_version},
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "dataset_id": dataset["dataset_id"],
+        "dataset_sha256": hashlib.sha256(canonical).hexdigest(),
+        "implementation_sha256": _implementation_hash(),
+        "mode": "offline", "scope": "synthetic BM25-only retrieval",
+        "model": None, "k": k,
+        "status": "completed" if not failed else "failed",
+        "planned": len(dataset["cases"]), "completed": completed,
+        "failed": failed, "skipped": 0, "all_expectations_passed": all_passed,
+        "metrics": {
+            "supported_planned": supported_count,
+            "no_evidence_planned": no_evidence_count,
+            "evidence_recall_at_k": round(recall_sum / supported_count, 4) if supported_count else None,
+            "mrr_at_k": round(mrr_sum / supported_count, 4) if supported_count else None,
+            "no_evidence_detection_accuracy": round(no_evidence_correct / no_evidence_count, 4) if no_evidence_count else None,
+            "failure_policy": "Failed cases count as zero in their planned denominator.",
+        },
+        "generation": {
+            "status": "not_evaluated", "refusal_rate": None,
+            "reason": "No answer generation or judge was invoked. Empty retrieval is not proof of generated refusal.",
+        },
+        "limitations": "Authored synthetic fixture; no production vector, rerank, generation, safety, or semantic accuracy claim.",
         "results": results,
     }
-    return report
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--offline", action="store_true", help="BM25-only mode (also the default)")
+    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
+    parser.add_argument("--output", type=Path, default=ROOT / "fieldops_eval_results.json")
+    parser.add_argument("--k", type=int, default=3)
+    parser.add_argument("--fail-on-regression", action="store_true")
+    args = parser.parse_args(argv)
+    report = run_offline(args.dataset, args.k)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({key: report[key] for key in ["scope", "planned", "completed", "failed", "metrics"]}, ensure_ascii=False))
+    print(f"Report: {args.output}")
+    return int(args.fail_on_regression and not report["all_expectations_passed"])
 
 
 if __name__ == "__main__":
-    report = asyncio.run(run())
-    out_path = Path(__file__).resolve().parents[2] / "eval_results.json"
-    out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    if report["n_questions"] == len(report["results"]) and PARTIAL_PATH.exists():
-        PARTIAL_PATH.unlink()
-    print(f"\nĐã ghi báo cáo: {out_path}")
-    print(f"avg_faithfulness={report['avg_faithfulness']}")
-    print(f"avg_relevancy={report['avg_relevancy']}")
-    print(f"avg_sentence_grounding_ratio={report['avg_sentence_grounding_ratio']}")
+    raise SystemExit(main())

@@ -9,12 +9,31 @@ on:
 jobs:
   test-backend:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12"]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: upgrade_test
+          POSTGRES_PASSWORD: upgrade_test_local
+          POSTGRES_DB: upgrade_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U upgrade_test -d upgrade_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      FIELDOPS_TEST_POSTGRES_URL: postgresql+psycopg2://upgrade_test:upgrade_test_local@127.0.0.1:5432/upgrade_test
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python }}
 
       - name: Install dependencies
         working-directory: backend
@@ -22,11 +41,42 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Verify installed backend dependencies
+        run: python -B backend/scripts/check_dependencies.py
+
       - name: Run unit tests
         run: pytest tests/ -v --tb=short
 
+      - name: Validate curated RAG evaluation template offline
+        run: python -B backend/scripts/run_rag_evaluation.py --mode validate-only
+
+      - name: FieldOps lexical retrieval regression gate
+        run: python -B backend/scripts/run_eval_benchmark.py --offline --output fieldops_eval_results.json --fail-on-regression
+
+      - name: FieldOps eval suite (offline gate — full pipeline, no API calls)
+        run: python -B backend/scripts/run_evals.py --mode offline --output-dir reports/evals
+
+      - name: Upload eval report
+        if: always() && matrix.python == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-offline-report
+          path: reports/evals/
+          retention-days: 30
+
+      - name: Validate alert rules
+        if: matrix.python == '3.12'
+        run: |
+          curl -sSL https://github.com/prometheus/prometheus/releases/download/v3.5.0/prometheus-3.5.0.linux-amd64.tar.gz | tar xz
+          ./prometheus-3.5.0.linux-amd64/promtool check rules monitoring/alerts/fieldops-rules.yml
+
       - name: Validate docker compose
-        run: docker compose config
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          cp deploy/cloud/.env.example deploy/cloud/.env
+          sed -i "s|^SECRET_KEY=.*|SECRET_KEY=$(openssl rand -hex 32)|; s|^METRICS_TOKEN=.*|METRICS_TOKEN=ci|" deploy/cloud/.env
+          docker compose -f deploy/cloud/docker-compose.yml --env-file deploy/cloud/.env config --quiet
 
   lint-frontend:
     runs-on: ubuntu-latest
@@ -34,9 +84,28 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - name: Install & build
         working-directory: frontend
         run: |
           npm ci
+          npm run typecheck
           npm run build
+      - name: Audit web dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=moderate
+      - name: Client state regression tests
+        run: node --test tests/client_state.test.cjs
+
+  typecheck-mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install and typecheck mobile
+        working-directory: mobile
+        run: |
+          npm ci
+          node node_modules/typescript/bin/tsc --noEmit --incremental false

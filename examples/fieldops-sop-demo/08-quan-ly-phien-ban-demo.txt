@@ -1,0 +1,13 @@
+TÀI LIỆU MẪU GIẢ LẬP — chỉ dùng thử RAG. Không phải quy trình của hãng và chưa được duyệt để dùng ngoài hiện trường.
+
+Quản lý tài liệu và trích dẫn mẫu
+
+Mã tài liệu: SOP-DEMO-08. Phiên bản: DEMO-1.0.
+1. Nhận diện nguồn
+Mỗi tài liệu thử cần mã tài liệu, phiên bản và phạm vi áp dụng. Cùng tên file không bảo đảm cùng nội dung hoặc phiên bản.
+2. Đoạn trích lịch sử
+Câu trả lời cần giữ đoạn trích, nguồn, trang nếu có và phiên bản tại thời điểm trả lời. File TXT không có trang cố định nên page là null, không tự gán trang PDF.
+3. Tài liệu thay đổi
+Khi nguồn đã cập nhật, giữ đoạn trích lịch sử để đối chiếu và báo trạng thái đã đổi. Không âm thầm thay đoạn cũ bằng nội dung file mới cùng tên.
+4. Phê duyệt mẫu
+Bộ SOP-DEMO này chưa có người phê duyệt chuyên môn. Cần thay bằng quy trình chính thức và đánh giá lại trước khi sử dụng thực tế. Trích dẫn đúng đoạn không tự chứng minh mọi kết luận của câu trả lời là đúng.

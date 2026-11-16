@@ -1,0 +1,14 @@
+TÀI LIỆU MẪU GIẢ LẬP — chỉ dùng thử RAG. Không phải quy trình của hãng và chưa được duyệt để dùng ngoài hiện trường.
+
+Manual trạng thái router giả lập
+
+Mã tài liệu: SOP-DEMO-04. Model giả lập: DEMO-ROUTER-B. Phiên bản: DEMO-1.0.
+1. Trạng thái chỉ đọc
+Màn hình mô phỏng dùng ONLINE, OFFLINE và UNKNOWN. UNKNOWN nghĩa là chưa có đủ dữ liệu để ghi nhận, không đồng nghĩa thiết bị hỏng.
+2. Phân biệt nhãn
+WAN và LAN là tên khu vực thông tin trong giao diện mẫu. Khi ghi nhận cần giữ đúng nhãn khu vực, trạng thái và thời điểm; không tự hoán đổi WAN và LAN.
+3. Mã mẫu
+E-310 là nhãn thiếu trạng thái uplink trong kịch bản giả lập. Hồ sơ cần ảnh khu vực WAN và thời điểm.
+E-311 là nhãn hồ sơ thiếu thông tin model trong kịch bản giả lập. Hồ sơ cần bổ sung model đã xác nhận hoặc ghi CHƯA XÁC ĐỊNH.
+4. Phạm vi
+Tài liệu không có lệnh đổi cấu hình, factory reset hoặc tài khoản quản trị. Các nhãn trên chỉ phục vụ kiểm thử hỏi đáp.

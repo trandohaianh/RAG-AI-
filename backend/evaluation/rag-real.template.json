@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "dataset_id": "replace-with-your-reviewed-dataset-id",
+  "kind": "template",
+  "annotation_notes": "TEMPLATE ONLY. No real index has been evaluated. Replace target IDs, collection, questions, source names and pages using authorized real documents; have a reviewer verify expected evidence, then set kind=user_curated. Do not invent no-evidence labels from retrieval failures. Use non-sensitive dataset and case IDs. Page=null means an unpaged document, not any page. A workspace target uses collection workspace_N and the operator must be authorized for that workspace. This offline operator CLI does not enforce application membership or query quota.",
+  "target": {
+    "user_id": 1,
+    "workspace_id": null,
+    "collection": "user_1"
+  },
+  "cases": [
+    {
+      "id": "replace-supported-case",
+      "query": "REPLACE: a real question with reviewer-confirmed evidence",
+      "source": "REPLACE-manual.pdf",
+      "expected_evidence": [
+        {
+          "source": "REPLACE-manual.pdf",
+          "page": 1
+        }
+      ],
+      "expect_no_evidence": false
+    },
+    {
+      "id": "replace-no-evidence-case",
+      "query": "REPLACE: a question confirmed absent from the indexed collection",
+      "expected_evidence": [],
+      "expect_no_evidence": true
+    }
+  ]
+}

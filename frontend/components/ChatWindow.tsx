@@ -80,14 +80,14 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
             return next;
           });
         },
-        onDone: (sources, messageId) => {
+        onDone: (sources, messageId, evidence, citation_audit) => {
           setMessages((prev) => {
             const next = [...prev];
             const last = next[next.length - 1];
             if (last?.role === "assistant") {
               next[next.length - 1] = {
                 ...last,
-                sources,
+                sources, evidence, citation_audit,
                 streaming: false,
                 id: messageId ?? undefined,
                 rating: null,
@@ -172,7 +172,7 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
       <ScrollArea className="flex-1 px-4 min-h-0">
         <div className="max-w-3xl mx-auto space-y-4 py-5">
           {empty && (
-            <div className="relative overflow-hidden rounded-xl border border-slate-100 bg-white px-6 py-14 text-center shadow-sm">
+            <div className="relative overflow-hidden rounded-xl border border-slate-100 bg-white px-6 py-14 text-center shadow-xs">
               <div
                 className="pointer-events-none absolute inset-0 opacity-70"
                 style={{
@@ -198,7 +198,7 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
             </div>
           )}
           {messages.map((m, i) => (
-            <MessageBubble key={i} message={m} onRate={handleRate} lineage={lineage} />
+            <MessageBubble convId={convId} key={i} message={m} onRate={handleRate} lineage={lineage} />
           ))}
           <div ref={bottomRef} />
         </div>
@@ -209,7 +209,7 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
           <button
             type="button"
             onClick={() => setPickerOpen((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-600 shadow-sm hover:bg-slate-50"
+            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-600 shadow-xs hover:bg-slate-50"
           >
             <FileText className="h-3.5 w-3.5 text-primary" />
             Đang hỏi: {selectedSource ?? "Tất cả tài liệu"}
@@ -259,7 +259,7 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
         </div>
 
         <SuggestionChips onPick={send} disabled={loading} />
-        <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
+        <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xs">
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}

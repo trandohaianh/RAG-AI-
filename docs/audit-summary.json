@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "verified_date": "2026-10-22",
+  "timezone": "Asia/Bangkok",
+  "notes": [
+    "Known advisory snapshot, not a guarantee that all security defects are absent.",
+    "No advisory ignored or suppressed. npm package/metavulnerability counts are not CVE counts.",
+    "Local raw artifacts are gitignored; SHA256 identifies the evidence used."
+  ],
+  "dependency_inputs": [
+    {
+      "path": "backend/requirements.txt",
+      "sha256": "93c71499809e7226169cd8e406b05e7f2c45bdf107d46f1f8a519b25d2236bc5"
+    },
+    {
+      "path": "frontend/package-lock.json",
+      "sha256": "3605ccf4357a810e89b5398e43193b7db3222c4b22ac53ba62e70cf73e71f044"
+    },
+    {
+      "path": "mobile/package-lock.json",
+      "sha256": "0b1a14df2a2fe4820326663d560c185bec1a2b5e603c443cd3b828cfedaf980a"
+    }
+  ],
+  "backend": {
+    "tool": "pip-audit 2.10.1",
+    "runtime": "Python 3.12.4 Windows, fresh venv; pip 26.2.2",
+    "before": {
+      "packages_scanned": 137,
+      "raw_advisory_records": 145,
+      "unique_package_advisory_pairs": 84,
+      "vulnerable_packages": 9,
+      "report": {
+        "path": "backend/.pytest_security_tmp/baseline.json",
+        "sha256": "05546ecfbae87fa10ebc4aa445239a4ca1eb86d24d764437be1a2568d7e2462c"
+      }
+    },
+    "after": {
+      "packages_scanned": 135,
+      "raw_advisory_records": 5,
+      "unique_package_advisory_pairs": 4,
+      "vulnerable_packages": 1,
+      "report": {
+        "path": "backend/.pytest_security_tmp/after.json",
+        "sha256": "fb3517288d467e79f2d7d4ea815488fb6384b35bc94a9482e5c18dded4a18e31"
+      }
+    },
+    "open_package": "chromadb 1.5.9",
+    "open_advisory_ids": [
+      "PYSEC-2026-311",
+      "PYSEC-2026-3813",
+      "PYSEC-2026-3814",
+      "PYSEC-2026-3815"
+    ]
+  },
+  "web": {
+    "baseline_observed": {
+      "info": 0,
+      "low": 0,
+      "moderate": 2,
+      "high": 12,
+      "critical": 1,
+      "total": 15
+    },
+    "baseline_raw_available": false,
+    "baseline_note": "Successful console audit observed; later raw-capture retry timed out.",
+    "after_full": {
+      "vulnerable_package_counts": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      },
+      "dependencies": {
+        "prod": 166,
+        "dev": 42,
+        "optional": 61,
+        "peer": 5,
+        "peerOptional": 0,
+        "total": 250
+      },
+      "report": {
+        "path": "backend/.pytest_web_security_tmp/final.json",
+        "sha256": "0b3ddfe0cd34f4aad9377487b07d67bb56b62c0fd156389eebba22e55979f9b9"
+      }
+    },
+    "after_production": {
+      "vulnerable_package_counts": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      },
+      "dependencies": {
+        "prod": 166,
+        "dev": 42,
+        "optional": 61,
+        "peer": 5,
+        "peerOptional": 0,
+        "total": 250
+      },
+      "report": {
+        "path": "backend/.pytest_web_security_tmp/production.json",
+        "sha256": "0b3ddfe0cd34f4aad9377487b07d67bb56b62c0fd156389eebba22e55979f9b9"
+      }
+    }
+  },
+  "mobile": {
+    "baseline": {
+      "vulnerable_package_counts": {
+        "info": 0,
+        "low": 0,
+        "moderate": 6,
+        "high": 19,
+        "critical": 1,
+        "total": 26
+      },
+      "dependencies": {
+        "prod": 501,
+        "dev": 0,
+        "optional": 11,
+        "peer": 20,
+        "peerOptional": 0,
+        "total": 531
+      },
+      "report": {
+        "path": "backend/.pytest_mobile_security_tmp/retry.json",
+        "sha256": "eec4c97dc5334a4a30add41240a46664e3173673901993bf58e40bbca1a9d1a4"
+      }
+    },
+    "last_successful_npm_audit_before_font_pin": {
+      "vulnerable_package_counts": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 15,
+        "critical": 0,
+        "total": 15
+      },
+      "dependencies": {
+        "prod": 504,
+        "dev": 0,
+        "optional": 11,
+        "peer": 20,
+        "peerOptional": 0,
+        "total": 534
+      },
+      "report": {
+        "path": "backend/.pytest_mobile_security_tmp/after.json",
+        "sha256": "e19086bf11731d499d50200e900e348552c9b8cfa5c72ef7fcbe8e58fb721f77"
+      }
+    },
+    "final_npm_audit_status": "CLI lockfile and installed-tree attempts timed out; no successful final CLI metadata claimed.",
+    "final_npm_error_reports": [
+      {
+        "path": "backend/.pytest_mobile_security_tmp/final.json",
+        "sha256": "31782458a00ae37fb1fe5c966da3821cb510243dde06e9d6b5854e330d0066b7"
+      },
+      {
+        "path": "backend/.pytest_mobile_security_tmp/production-final.json",
+        "sha256": "31782458a00ae37fb1fe5c966da3821cb510243dde06e9d6b5854e330d0066b7"
+      },
+      {
+        "path": "backend/.pytest_mobile_security_tmp/installed-final.json",
+        "sha256": "31782458a00ae37fb1fe5c966da3821cb510243dde06e9d6b5854e330d0066b7"
+      }
+    ],
+    "final_registry_bulk": {
+      "status": "verified",
+      "method": "Submit every name/version from the final package-lock to the official npm security advisory bulk API. This does not compute npm metavulnerability totals.",
+      "packages_submitted": 457,
+      "open_root_advisories": [
+        {
+          "package": "braces",
+          "url": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+          "affected_range": "<=3.0.3"
+        },
+        {
+          "package": "node-forge",
+          "url": "https://github.com/advisories/GHSA-86w9-cpqp-85rv",
+          "affected_range": "<=1.4.0"
+        }
+      ],
+      "report": {
+        "path": "backend/.pytest_mobile_security_tmp/final-registry-bulk.json",
+        "sha256": "40186dfc484bbe0ec89d4fc87999356a255cc3969e02bf33acdae50a19e0d613"
+      }
+    }
+  },
+  "validation": {
+    "backend_junit": {
+      "tests": 272,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report": {
+        "path": "backend/.pytest_security_verified_tmp/results.xml",
+        "sha256": "0cf8a90b19be188a7a5c3d95f56feff2b777962a86d9004f95db3df52e6b693b"
+      }
+    },
+    "client_tests_passed": 14,
+    "chrome_scenarios_passed": 12,
+    "chrome_report": {
+      "path": "backend/.pytest_browser_security_tmp/after-ui.json",
+      "sha256": "621fc6372dd8bae639332ea4c05271c7ec41fef93c3eafe03d82549d9f917a16"
+    },
+    "mobile_exports": [
+      "android Hermes",
+      "ios Hermes",
+      "web"
+    ],
+    "native_binary_or_device_tested": false,
+    "docker_images_built": false,
+    "linux_ci_run": false,
+    "cloud_deployed": false
+  }
+}

@@ -1,18 +1,18 @@
-"""Đo độ bám sát nguồn KHÔNG qua LLM chấm điểm — dùng để đối chiếu với LLM-judge.
+"""Lexical support diagnostic; this is not a factual/semantic accuracy score.
 
-LLM-judge (judge.py) có điểm yếu: AI tự chấm câu trả lời do chính AI (cùng model)
-sinh ra nên dễ thiên vị lạc quan. Module này tính một chỉ số độc lập, khách quan:
-tỉ lệ câu trong answer có từ ngữ trùng khớp đủ nhiều với context đã retrieve
-(word-overlap / Jaccard), không gọi thêm LLM nào — kết quả tái lập được 100%.
+Word overlap alone cannot verify an answer. We retain negation terms and flag a
+simple polarity reversal against the closest source sentence. Paraphrases, scope,
+double negation, quantities and more complex contradictions remain unverified.
 """
 import re
 
 _SENT_SPLIT_RE = re.compile(r"(?<=[.!?…])\s+|\n+")
 _WORD_RE = re.compile(r"[0-9a-zA-ZÀ-ỹà-ỹ]+", re.UNICODE)
+_NEGATION = {"không", "chưa", "cấm", "not", "never", "no"}
 
 _STOPWORDS = {
     "và", "là", "của", "có", "the", "a", "an", "trong", "cho", "được", "này",
-    "đã", "với", "để", "không", "một", "các", "những", "khi", "như", "về",
+    "đã", "với", "để", "một", "các", "những", "khi", "như", "về",
     "hay", "hoặc", "nếu", "thì", "đó", "vì", "nên", "ra", "lên", "tại", "từ",
 }
 
@@ -26,32 +26,52 @@ def split_sentences(text: str) -> list[str]:
     return [s for s in parts if len(s) > 3]
 
 
-def sentence_grounding_score(answer: str, context: str, threshold: float = 0.35) -> dict:
-    """Trả về tỉ lệ câu trong `answer` có overlap từ vựng >= threshold với `context`.
+def _polarity_mismatch(words: set[str], source_sentences: list[set[str]], threshold: float) -> bool:
+    content = words - _NEGATION
+    if len(content) < 2:
+        return False
+    matches = [
+        (len(content & (source - _NEGATION)) / len(content), source)
+        for source in source_sentences
+    ]
+    best = max((score for score, _ in matches), default=0.0)
+    if best < threshold:
+        return False
+    closest = [source for score, source in matches if score == best]
+    # A same-polarity source can support the sentence even if another source
+    # contains an unrelated negation.
+    return bool(closest) and all(bool(words & _NEGATION) != bool(source & _NEGATION) for source in closest)
 
-    threshold tính theo: |từ chung| / |từ trong câu trả lời| (bao nhiêu % từ của câu
-    này thực sự xuất hiện trong nguồn) — không đối xứng, vì context luôn dài hơn câu.
+
+def sentence_grounding_score(answer: str, context: str, threshold: float = 0.35) -> dict:
+    """Return lexical overlap plus a limited polarity diagnostic.
+
+    The legacy ratio/grounded keys remain for callers; they measure lexical
+    support, never semantic accuracy, safety, or correctness.
     """
     context_words = _words(context)
-    sentences = split_sentences(answer)
-    if not sentences:
-        return {"grounded": 0, "total": 0, "ratio": None, "per_sentence": []}
-
+    source_sentences = [_words(s) for s in split_sentences(context)]
     details = []
     grounded = 0
-    for s in sentences:
-        sw = _words(s)
-        if not sw:
+    for sentence in split_sentences(answer):
+        words = _words(sentence)
+        if not words:
             continue
-        overlap = len(sw & context_words) / len(sw)
-        is_grounded = overlap >= threshold
-        grounded += int(is_grounded)
-        details.append({"sentence": s, "overlap": round(overlap, 3), "grounded": is_grounded})
+        overlap = len(words & context_words) / len(words)
+        reversal = _polarity_mismatch(words, source_sentences, threshold)
+        supported = overlap >= threshold and not reversal
+        grounded += int(supported)
+        details.append({
+            "sentence": sentence, "overlap": round(overlap, 3),
+            "polarity_mismatch": reversal, "grounded": supported,
+        })
 
     total = len(details)
     return {
-        "grounded": grounded,
-        "total": total,
+        "metric": "lexical_support_diagnostic",
+        "semantic_accuracy": None,
+        "limitations": "Word overlap and simple negation checks cannot verify factual or semantic correctness.",
+        "grounded": grounded, "total": total,
         "ratio": (grounded / total) if total else None,
         "per_sentence": details,
     }

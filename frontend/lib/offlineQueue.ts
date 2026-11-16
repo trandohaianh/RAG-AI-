@@ -1,61 +1,77 @@
 /**
- * Hàng đợi thao tác khi mất sóng.
- *
- * Kỹ thuật viên làm việc ở nơi sóng chập chờn: tick xong một bước checklist rồi
- * mất mạng ngay thì thao tác đó không được phép biến mất. Mọi thay đổi vì vậy đi
- * qua `send()`: gửi thẳng khi còn mạng, còn khi hỏng mạng thì xếp vào IndexedDB
- * của trình duyệt và tự gửi lại khi kết nối trở lại, theo đúng thứ tự đã làm.
- *
- * Gửi lại an toàn được là nhờ phía máy chủ: mỗi thao tác mang một `client_action_id`
- * sinh một lần lúc người dùng bấm, và máy chủ đối chiếu id đó cùng mã băm nội dung
- * yêu cầu (xem backend/field/router.py::_claim_client_action). Gửi hai lần thì lần
- * sau không tạo thêm bản ghi — nên việc gửi lại cả hàng đợi không bao giờ nhân đôi
- * một ghi chú hay một bước checklist.
- *
- * Phạm vi: đây là hàng đợi trong trình duyệt, không phải trong bộ nhớ mã hoá của
- * hệ điều hành. Nó sống qua việc đóng tab và tắt máy, nhưng nằm trong vùng dữ liệu
- * của trình duyệt chứ không phải Keychain hay Keystore.
+ * Durable outbox for field actions. Records survive logout and are only replayed
+ * for their original API, account and workspace. Legacy records without an owner
+ * are retained for recovery, never automatically attributed to the current user.
  */
-
+export type QueueScope = { apiOrigin: string; userId: number; workspaceId: number };
 export type QueuedAction = {
   id: string;
+  scope: QueueScope;
   method: "post" | "patch";
   url: string;
   body: Record<string, unknown>;
   label: string;
   createdAt: number;
+  state?: "pending" | "rejected";
+  error?: string;
+  httpStatus?: number;
 };
 
 const DB_NAME = "fieldops";
 const STORE = "pending";
+// Keep the existing store: old records must not disappear during an upgrade.
 const VERSION = 1;
+type Sender = (method: "post" | "patch", url: string, body: Record<string, unknown>) => Promise<unknown>;
 
-function supported(): boolean {
-  return typeof window !== "undefined" && "indexedDB" in window;
+export function createQueueScope(apiUrl: string, userId: number, workspaceId: number): QueueScope {
+  return { apiOrigin: new URL(apiUrl).origin, userId, workspaceId };
+}
+
+function scopeKey(scope: QueueScope): string {
+  return JSON.stringify([scope.apiOrigin, scope.userId, scope.workspaceId]);
+}
+
+function owns(action: QueuedAction, scope: QueueScope): boolean {
+  return !!action.scope && scopeKey(action.scope) === scopeKey(scope);
 }
 
 function open(): Promise<IDBDatabase> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) {
+    return Promise.reject(new Error("Trình duyệt không hỗ trợ lưu thao tác offline. Nội dung chưa được lưu."));
+  }
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, VERSION);
     req.onupgradeneeded = () => {
       if (!req.result.objectStoreNames.contains(STORE)) {
-        // khoá chính là createdAt để đọc ra đúng thứ tự đã thao tác
         req.result.createObjectStore(STORE, { keyPath: "id" }).createIndex("seq", "createdAt");
       }
     };
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onerror = () => reject(req.error ?? new Error("Không mở được bộ nhớ offline."));
+    req.onblocked = () => reject(new Error("Bộ nhớ offline đang bị khóa bởi tab khác."));
   });
 }
 
 async function tx<T>(mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   const db = await open();
   return new Promise<T>((resolve, reject) => {
+    let result: T;
+    let requestError: DOMException | null = null;
     const t = db.transaction(STORE, mode);
-    const req = run(t.objectStore(STORE));
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-    t.oncomplete = () => db.close();
+    t.oncomplete = () => { db.close(); resolve(result); };
+    t.onabort = () => {
+      db.close();
+      reject(requestError ?? t.error ?? new Error("Không lưu được thao tác offline; giao dịch đã hủy."));
+    };
+    t.onerror = () => { requestError = t.error; };
+    try {
+      const req = run(t.objectStore(STORE));
+      req.onsuccess = () => { result = req.result; };
+      req.onerror = () => { requestError = req.error; };
+    } catch (error) {
+      t.abort();
+      reject(error);
+    }
   });
 }
 
@@ -64,88 +80,115 @@ export function newActionId(): string {
   return `a-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export async function pending(): Promise<QueuedAction[]> {
-  if (!supported()) return [];
-  try {
-    const all = await tx<QueuedAction[]>("readonly", (s) => s.getAll() as IDBRequest<QueuedAction[]>);
-    return all.sort((a, b) => a.createdAt - b.createdAt);
-  } catch {
-    return [];
-  }
+async function all(): Promise<QueuedAction[]> {
+  return tx("readonly", (s) => s.getAll() as IDBRequest<QueuedAction[]>);
+}
+
+export async function pending(scope: QueueScope): Promise<QueuedAction[]> {
+  return (await all()).filter((a) => owns(a, scope) && a.state !== "rejected")
+    .sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export async function rejected(scope: QueueScope): Promise<QueuedAction[]> {
+  return (await all()).filter((a) => owns(a, scope) && a.state === "rejected")
+    .sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export async function legacyPendingCount(): Promise<number> {
+  return (await all()).filter((a) => !a.scope).length;
 }
 
 async function put(action: QueuedAction): Promise<void> {
-  if (!supported()) return;
-  try {
-    await tx("readwrite", (s) => s.put(action) as IDBRequest<IDBValidKey>);
-  } catch {
-    /* hết chỗ lưu hoặc trình duyệt chặn: thao tác vẫn báo lỗi ở lớp trên */
-  }
+  await tx("readwrite", (s) => s.put(action));
 }
 
 async function drop(id: string): Promise<void> {
-  if (!supported()) return;
-  try {
-    await tx("readwrite", (s) => s.delete(id) as unknown as IDBRequest<undefined>);
-  } catch {
-    /* ignore */
+  await tx("readwrite", (s) => s.delete(id));
+}
+
+function retryable(err: unknown): boolean {
+  const status = (err as { response?: { status?: number } })?.response?.status;
+  return status === undefined || status === 401 || status === 408 || status === 429 || status >= 500;
+}
+
+// Serialise send/retry/flush in this tab; Web Locks also serialises other tabs.
+// Backend idempotency remains the final protection on browsers without Web Locks.
+const locks = new Map<string, Promise<unknown>>();
+function withScopeLock<T>(scope: QueueScope, task: () => Promise<T>): Promise<T> {
+  const key = scopeKey(scope);
+  const previous = locks.get(key) ?? Promise.resolve();
+  const run: Promise<T> = previous.catch(() => undefined).then(async () => {
+    if (typeof navigator !== "undefined" && navigator.locks) {
+      return await navigator.locks.request(`fieldops:${key}`, task);
+    }
+    return await task();
+  });
+  locks.set(key, run);
+  void run.finally(() => { if (locks.get(key) === run) locks.delete(key); }).catch(() => undefined);
+  return run;
+}
+
+async function runFlush(scope: QueueScope, sender: Sender) {
+  let sent = 0;
+  for (const action of await pending(scope)) {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) break;
+    try {
+      await sender(action.method, action.url, action.body);
+    } catch (err) {
+      if (retryable(err)) break;
+      const response = (err as { response?: { status?: number; data?: { detail?: unknown } } })?.response;
+      const detail = response?.data?.detail;
+      await put({
+        ...action,
+        state: "rejected",
+        error: typeof detail === "string" ? detail : err instanceof Error ? err.message : "Máy chủ từ chối thao tác.",
+        httpStatus: response?.status,
+      });
+      continue;
+    }
+    // A delete failure leaves the original ID queued: replay is still idempotent.
+    await drop(action.id);
+    sent += 1;
   }
+  return { sent, left: (await pending(scope)).length, rejected: (await rejected(scope)).length };
 }
 
-/** Lỗi mạng (mất sóng, server không trả lời) khác hẳn lỗi nghiệp vụ (400/403/409). */
-function isNetworkFailure(err: unknown): boolean {
-  if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
-  const e = err as { response?: unknown; code?: string };
-  if (e?.response) return false; // máy chủ đã trả lời → không phải mất mạng
-  return e?.code === "ERR_NETWORK" || e?.code === "ECONNABORTED" || !e?.response;
+export function flush(scope: QueueScope, sender: Sender) {
+  return withScopeLock(scope, () => runFlush(scope, sender));
 }
 
-type Sender = (method: "post" | "patch", url: string, body: Record<string, unknown>) => Promise<unknown>;
-
-/**
- * Gửi một thao tác. Trả về `queued: true` nếu nó được xếp lại để gửi sau.
- * Lỗi nghiệp vụ (ca đã đóng, không đủ quyền) vẫn ném ra như cũ: xếp hàng rồi
- * gửi lại một thao tác mà máy chủ đã từ chối thì chỉ lặp lại lỗi đó mãi.
- */
-export async function send(
+export function send(
+  scope: QueueScope,
   sender: Sender,
   method: "post" | "patch",
   url: string,
   body: Record<string, unknown>,
   label: string
 ): Promise<{ queued: boolean }> {
-  const action: QueuedAction = {
-    id: newActionId(),
-    method,
-    url,
-    label,
-    createdAt: Date.now(),
-    body: { ...body, client_action_id: body.client_action_id ?? newActionId() },
-  };
-  try {
-    await sender(method, url, action.body);
-    return { queued: false };
-  } catch (err) {
-    if (!isNetworkFailure(err)) throw err;
+  return withScopeLock(scope, async () => {
+    const id = newActionId();
+    const action: QueuedAction = {
+      id, scope, method, url, label, createdAt: Date.now(), state: "pending",
+      body: { ...body, client_action_id: body.client_action_id ?? id },
+    };
+    // Persist BEFORE the request so a tab closing mid-request cannot lose an edit.
     await put(action);
-    return { queued: true };
-  }
+    await runFlush(scope, sender);
+    const remaining = (await all()).find((entry) => entry.id === id);
+    if (remaining?.state === "rejected") throw new Error(remaining.error);
+    return { queued: !!remaining };
+  });
 }
 
-/** Gửi lại hàng đợi theo đúng thứ tự. Dừng ngay khi mạng lại hỏng. */
-export async function flush(sender: Sender): Promise<{ sent: number; left: number }> {
-  const queue = await pending();
-  let sent = 0;
-  for (const action of queue) {
-    try {
-      await sender(action.method, action.url, action.body);
-      await drop(action.id);
-      sent += 1;
-    } catch (err) {
-      if (isNetworkFailure(err)) break; // vẫn mất mạng: giữ nguyên phần còn lại
-      // máy chủ từ chối hẳn thao tác này — bỏ ra khỏi hàng đợi, không lặp vô hạn
-      await drop(action.id);
-    }
-  }
-  return { sent, left: (await pending()).length };
+export function retryRejected(scope: QueueScope, id: string): Promise<void> {
+  return withScopeLock(scope, async () => {
+    const action = (await rejected(scope)).find((entry) => entry.id === id);
+    if (action) await put({ ...action, state: "pending", error: undefined, httpStatus: undefined });
+  });
+}
+
+export function discardRejected(scope: QueueScope, id: string): Promise<void> {
+  return withScopeLock(scope, async () => {
+    if ((await rejected(scope)).some((entry) => entry.id === id)) await drop(id);
+  });
 }

@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import Logo, { LogoMark } from "@/components/Logo";
 
 const TECH = [
-  "Next.js 14",
+  "Next.js 16",
   "FastAPI",
   "Google Gemini",
   "ChromaDB",
@@ -225,10 +225,10 @@ export default function HomePage() {
           số đo lấy mẫu). Điểm chất lượng câu trả lời (faithfulness/relevancy) được đo trên bộ câu
           hỏi kiểm thử chạy qua đúng pipeline production, chấm chéo bằng LLM-judge và một thuật
           toán đối chiếu từ vựng độc lập không qua LLM — xem{" "}
-          <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
+          <code className="rounded-[0.25rem] bg-slate-100 px-1 py-0.5 text-[10px]">
             backend/scripts/run_eval_benchmark.py
           </code>{" "}
-          và <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">eval_results.json</code> để
+          và <code className="rounded-[0.25rem] bg-slate-100 px-1 py-0.5 text-[10px]">eval_results.json</code> để
           tái lập.
         </p>
 
@@ -259,7 +259,7 @@ export default function HomePage() {
               key={t.key}
               onClick={() => setTab(t.key)}
               className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
-                tab === t.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                tab === t.key ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-800"
               }`}
             >
               <t.icon className="h-3.5 w-3.5" />
@@ -268,7 +268,7 @@ export default function HomePage() {
           ))}
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
           {tab === "chat" && (
             <div className="grid grid-cols-1 gap-0 sm:grid-cols-2">
               <div className="p-6">
@@ -319,8 +319,8 @@ export default function HomePage() {
               </div>
               <div className="border-t border-slate-100 bg-slate-50/60 p-4 sm:border-l sm:border-t-0">
                 <div className="relative h-28 rounded-lg border border-slate-200 bg-white p-2">
-                  <div className="h-2 w-16 rounded bg-slate-100" />
-                  <div className="mt-1.5 h-2 w-24 rounded bg-slate-100" />
+                  <div className="h-2 w-16 rounded-[0.25rem] bg-slate-100" />
+                  <div className="mt-1.5 h-2 w-24 rounded-[0.25rem] bg-slate-100" />
                   <div className="absolute bottom-2 right-2 flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 shadow-lg">
                     <MessageSquare className="h-4 w-4 text-white" />
                   </div>
@@ -445,9 +445,9 @@ export default function HomePage() {
               </div>
               <p className="mt-3 text-[10px] text-white/30">
                 Ảnh minh hoạ giao diện (số % là ví dụ). Badge "Đã kiểm định · Gold" đọc trực tiếp
-                cột <code className="rounded bg-white/10 px-1">validation_passed</code> thật trong
+                cột <code className="rounded-[0.25rem] bg-white/10 px-1">validation_passed</code> thật trong
                 Postgres khi bật Data Pipeline — xem endpoint{" "}
-                <code className="rounded bg-white/10 px-1">GET /documents/lineage</code>.
+                <code className="rounded-[0.25rem] bg-white/10 px-1">GET /documents/lineage</code>.
               </p>
             </div>
           </div>

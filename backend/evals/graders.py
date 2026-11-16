@@ -1,0 +1,134 @@
+"""Bộ chấm điểm xác định (deterministic) cho câu trả lời RAG tiếng Việt.
+
+Không dùng LLM nên chạy được trong CI và cho cùng kết quả mỗi lần. LLM-judge là tuỳ chọn
+và nằm riêng ở harness (live --judge).
+"""
+from __future__ import annotations
+
+import math
+import re
+import unicodedata
+
+_STOPWORDS = {
+    "la", "va", "cua", "co", "khong", "cho", "nhung", "nao", "gi", "the", "thi", "duoc", "khi",
+    "trong", "mot", "cac", "can", "phai", "voi", "de", "nay", "do", "ve", "hay", "hoac", "neu",
+    "da", "dang", "se", "tu", "theo", "tai", "o", "ra", "vao", "len", "nhu", "bang", "lam",
+    "minh", "toi", "ban", "chung", "vay", "sao", "bao", "nhieu", "ma", "con", "chua", "nhat",
+}
+
+_REFUSAL_PATTERNS = [
+    r"khong co trong tai lieu",
+    r"khong (?:tim thay|thay) (?:thong tin|noi dung|tai lieu)",
+    r"tai lieu (?:da upload |da tai len |mau )?khong (?:cung cap|neu|de cap|co thong tin|chua)",
+    r"khong (?:du|co du) (?:thong tin|bang chung|du lieu)",
+    r"chua co (?:du )?(?:thong tin|bang chung|tai lieu)",
+    r"chi tra loi dua tren tai lieu",
+    r"khong the tra loi",
+    r"ngoai pham vi tai lieu",
+]
+
+
+def normalize(text: str) -> str:
+    """lowercase + bỏ dấu tiếng Việt + gộp khoảng trắng; giữ chữ/số/_ để khớp mã như client_action_id."""
+    text = (text or "").replace("Đ", "D").replace("đ", "d")
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    text = text.lower()
+    text = re.sub(r"[^\w\s\-/:.]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def content_tokens(text: str) -> list[str]:
+    return [t for t in re.findall(r"[\w\-]+", normalize(text)) if len(t) > 1 and t not in _STOPWORDS]
+
+
+def _contains(haystack_norm: str, phrase: str) -> bool:
+    needle = normalize(phrase)
+    if not needle:
+        return False
+    return re.search(rf"(?<![\w]){re.escape(needle)}(?![\w])", haystack_norm) is not None
+
+
+def fact_coverage(answer: str, facts: list[list[str]]) -> tuple[float | None, list[list[str]]]:
+    """Tỉ lệ nhóm dữ kiện xuất hiện trong câu trả lời và danh sách nhóm bị thiếu."""
+    if not facts:
+        return None, []
+    norm = normalize(answer)
+    missing = [group for group in facts if not any(_contains(norm, alt) for alt in group)]
+    return (len(facts) - len(missing)) / len(facts), missing
+
+
+def forbidden_hits(answer: str, phrases: list[str]) -> list[str]:
+    norm = normalize(answer)
+    return [p for p in phrases if _contains(norm, p)]
+
+
+def is_refusal(answer: str) -> bool:
+    norm = normalize(answer)
+    return any(re.search(pattern, norm) for pattern in _REFUSAL_PATTERNS)
+
+
+def _sentences(answer: str) -> list[str]:
+    cleaned = re.sub(r"【E\d+】", " ", answer or "")
+    parts = re.split(r"(?<=[.!?;\n])\s+|\n+|^\s*[-*•]\s+", cleaned)
+    return [p.strip(" -*•") for p in parts if len(content_tokens(p)) >= 3]
+
+
+def groundedness(answer: str, contexts: list[str], threshold: float = 0.6) -> float | None:
+    """Tỉ lệ câu trong câu trả lời có ≥60% từ nội dung xuất hiện trong ngữ cảnh truy xuất.
+
+    Đây là proxy từ vựng (lexical), không phải kiểm chứng ngữ nghĩa: phát hiện tốt câu bịa
+    thêm thông số/lệnh không có trong tài liệu, nhưng không bắt được suy luận sai từ đúng từ.
+    """
+    sentences = [s for s in _sentences(answer) if not is_refusal(s)]
+    if not sentences:
+        return None
+    vocab = set()
+    for ctx in contexts:
+        vocab.update(content_tokens(ctx))
+    supported = 0
+    for sentence in sentences:
+        tokens = content_tokens(sentence)
+        if tokens and sum(t in vocab for t in tokens) / len(tokens) >= threshold:
+            supported += 1
+    return supported / len(sentences)
+
+
+# --------------------------------------------------------------------------- retrieval
+def ranked_unique_sources(sources: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for src in sources:
+        if src not in seen:
+            seen.add(src)
+            out.append(src)
+    return out
+
+
+def retrieval_scores(ranked_sources: list[str], expected: list[str], k: int) -> dict | None:
+    """Recall@k, precision@k, MRR, nDCG@k ở mức tài liệu nguồn (relevance nhị phân)."""
+    if not expected:
+        return None
+    ranked = ranked_unique_sources(ranked_sources)[:k]
+    relevant = set(expected)
+    hits = [1 if src in relevant else 0 for src in ranked]
+    found = sum(hits)
+    first = next((i for i, h in enumerate(hits, 1) if h), None)
+    dcg = sum(h / math.log2(i + 1) for i, h in enumerate(hits, 1))
+    ideal = sum(1 / math.log2(i + 1) for i in range(1, min(len(relevant), k) + 1))
+    return {
+        "recall": found / len(relevant),
+        "precision": found / len(ranked) if ranked else 0.0,
+        "mrr": 1 / first if first else 0.0,
+        "ndcg": dcg / ideal if ideal else 0.0,
+        "hit": 1.0 if found else 0.0,
+    }
+
+
+def percentile(values: list[float], q: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    idx = (len(ordered) - 1) * q
+    lo, hi = math.floor(idx), math.ceil(idx)
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * (idx - lo)

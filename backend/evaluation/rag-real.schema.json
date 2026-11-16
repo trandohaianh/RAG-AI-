@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fieldops.local/evaluation/rag-real.schema.json",
+  "title": "User-curated production RAG evidence evaluation",
+  "description": "Page numbers are one-based; null matches unpaged evidence only. This schema does not grade generated answers.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "dataset_id",
+    "kind",
+    "target",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "dataset_id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "kind": {
+      "enum": [
+        "template",
+        "user_curated"
+      ]
+    },
+    "annotation_notes": {
+      "type": "string"
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "user_id",
+        "collection"
+      ],
+      "properties": {
+        "user_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "workspace_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "collection": {
+          "type": "string",
+          "pattern": "^(user|workspace)_[1-9][0-9]*$"
+        }
+      },
+      "description": "Collection must also match user_id/workspace_id; the runner checks this cross-field invariant."
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "query",
+          "expected_evidence",
+          "expect_no_evidence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "expected_evidence": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "required": [
+                "source",
+                "page"
+              ],
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "page": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "expect_no_evidence": {
+            "type": "boolean"
+          },
+          "skip_reason": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "reference_answer": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "expect_no_evidence": {
+                "const": false
+              },
+              "expected_evidence": {
+                "minItems": 1
+              }
+            }
+          },
+          {
+            "properties": {
+              "expect_no_evidence": {
+                "const": true
+              },
+              "expected_evidence": {
+                "maxItems": 0
+              }
+            }
+          }
+        ]
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "enum": [
+            "synthetic",
+            "user_documents",
+            "unspecified"
+          ]
+        },
+        "notice": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "deploy/production/edu/edudss_engine/api.py": "bd67dd5502f179134467e50306e947c87d98800d481e090d9850aa56e5305eac",
+  "deploy/production/edu/edudss_engine/auth.py": "f750680c6e73e7a3fca7a03298016fa4ab19f8c49ff4fadd44067ce0fe988653",
+  "deploy/production/edu/edudss_engine/demo.py": "2bb8a84a54e408ff5364e9d264a74f569362baa62fd67ac28beb9c512003ff3f",
+  "deploy/production/edu/edudss_engine/demo_data.py": "9f169d03d8c3c3344b5d798b2e009baa9efcfa406faa940cec6a13f7a2f8addf",
+  "deploy/production/edu/edudss_engine/features.py": "466163814017e20dbc1d3d95f79826b3fcab0aab46c1818c62208e512c82af15",
+  "deploy/production/edu/edudss_engine/recommendation.py": "86bd2a4f18ded5aa0331b7b02184fe6078bbacdf75f671860f5e9e5bafedb15e",
+  "deploy/production/edu/edudss_engine/runtime.py": "a3a2fc151fb18363da58179cd271a2eb1f98a2dba04d97e5c4a5d3fe0cd751ec",
+  "deploy/production/edu/edudss_engine/service.py": "5a75e07326402a9a472d979b2705737470417bf99449c475f7418a6f2911398a",
+  "deploy/production/edu/edudss_engine/storage.py": "108f9fb6c369e33467ba22af0af967b0e4faeb60be4c67ae0d6b13a283b1b21f",
+  "deploy/production/edu/edudss_engine/validation.py": "7979bb8e415590e3ebce90e59d3811698e3e039d66ad006bd54534d2a1948eff",
+  "deploy/production/edu/edudss_engine/worker.py": "10c68a0fe411d418d8f0cdca3dbb13591ece9250d0f60576981644fba7e6ce33",
+  "deploy/production/edu/edudss_engine/__init__.py": "699f89c0ca31069fbe7e7ec368d1f77edbedbce1e0388af8ce22dcf954c3c4bd",
+  "deploy/production/telecom/ram_online/api.py": "8a46f812a9927a007db14a038878cdd4a94cbaf0aa3955bc199267cc4298353a",
+  "deploy/production/telecom/ram_online/core.py": "131cd3ecdb8e520e65cac83e8ded7624fc8a219c239776ebd4877cfd1ef33d18",
+  "deploy/production/telecom/ram_online/production.py": "af68ec400db8020e84161faa936b25721fe0842749c5a3d18f9984d5aed2ec08",
+  "deploy/production/telecom/ram_online/resources.py": "e826f06c42cbb2868a89b91ef6598dde06b43213f6608598787dcd3397b1d64f",
+  "deploy/production/telecom/ram_online/streaming.py": "765249aa6db7d3eb361f13b9f0a2cfeadc6ae6f76118b15e5bc2c6fd2b66c1ff",
+  "deploy/production/telecom/ram_online/__init__.py": "ab57b67df45cee1a5448df347e64d44380bf80637f4bf552ea57a3c83e45bcff"
+}

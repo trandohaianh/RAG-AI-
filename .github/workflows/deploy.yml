@@ -1,0 +1,40 @@
+name: Deploy
+
+# Sau khi CI xanh trên main: SSH vào VM, kéo code mới, build lại, chạy smoke test.
+# Secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY (private key), tuỳ chọn DEPLOY_PORT.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: production
+    steps:
+      - name: Check secrets
+        id: guard
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          if [ -z "$HOST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "::warning::Chưa cấu hình DEPLOY_HOST — bỏ qua deploy"; fi
+      - name: Deploy over SSH
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+        run: |
+          install -m 600 /dev/null key && printf '%s\n' "$SSH_KEY" > key
+          ssh -i key -p "$PORT" -o StrictHostKeyChecking=accept-new "$USER@$HOST" \
+            'bash -lc "cd ~/fieldops && bash deploy/cloud/deploy.sh"'
+          rm -f key

@@ -1,0 +1,13 @@
+syntax = "proto3";
+package telecom.v1;
+service CallPolicy { rpc CheckCallAllowed(CheckCallRequest) returns (CheckCallResponse); }
+message CheckCallRequest { string phone_number = 1; }
+message CheckCallResponse {
+  enum Action { ACTION_UNSPECIFIED = 0; ALLOW = 1; BLOCK = 2; }
+  enum PolicyStatus { POLICY_UNSPECIFIED = 0; EXACT = 1; SNAPSHOT = 2; UNAVAILABLE = 3; }
+  Action action = 1;
+  PolicyStatus policy_status = 2;
+  bool hide_status = 3;
+  string reason = 4;
+  uint64 elapsed_us = 5;
+}

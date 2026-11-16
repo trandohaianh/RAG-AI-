@@ -47,11 +47,13 @@ async def judge_answer(question: str, context: str, answer: str) -> dict | None:
     prompt = _JUDGE_PROMPT.format(context=context[:6000], question=question, answer=answer[:3000])
 
     def _call() -> str:
-        return generate_text(prompt, json_mode=True, temperature=0.0, max_tokens=1024)
+        return generate_text(prompt, json_mode=True, temperature=0.0, max_tokens=1024, feature="judge")
 
     try:
         loop = asyncio.get_running_loop()
-        raw = await loop.run_in_executor(None, _call)
+        from costs.context import bind_context
+
+        raw = await loop.run_in_executor(None, bind_context(_call))
         match = _JSON_RE.search(raw)
         if not match:
             print(f"[judge] không tìm thấy JSON trong phản hồi: {raw!r}")

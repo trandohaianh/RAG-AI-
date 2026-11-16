@@ -58,3 +58,51 @@ def embed_texts_with_retry(
             time.sleep(EMBED_BATCH_DELAY_SEC)
 
     return all_embeddings
+
+
+class MeteredEmbeddings:
+    """Bọc một LangChain Embeddings để ghi số token (ước lượng) và chi phí.
+
+    Gemini embedding API không trả usage qua LangChain nên token được ước lượng
+    (≈ 4 ký tự/token) và đánh dấu `estimated`. Chỉ ghi khi gọi thành công.
+    """
+
+    def __init__(self, inner, model: str):
+        self._inner = inner
+        self._model = model
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def _record(self, texts: list[str], feature: str, start: float) -> None:
+        from costs.recorder import estimate_tokens, record_usage
+
+        record_usage(
+            provider="gemini", model=self._model,
+            input_tokens=sum(estimate_tokens(t) for t in texts), estimated=True,
+            latency_ms=int((time.perf_counter() - start) * 1000), feature=feature,
+        )
+
+    def embed_documents(self, texts: list[str], *args, **kwargs) -> list[list[float]]:
+        start = time.perf_counter()
+        vectors = self._inner.embed_documents(texts, *args, **kwargs)
+        self._record(list(texts), "embed_ingest", start)
+        return vectors
+
+    def embed_query(self, text: str, *args, **kwargs) -> list[float]:
+        start = time.perf_counter()
+        vector = self._inner.embed_query(text, *args, **kwargs)
+        self._record([text], "embed_query", start)
+        return vector
+
+    async def aembed_documents(self, texts: list[str], *args, **kwargs):
+        start = time.perf_counter()
+        vectors = await self._inner.aembed_documents(texts, *args, **kwargs)
+        self._record(list(texts), "embed_ingest", start)
+        return vectors
+
+    async def aembed_query(self, text: str, *args, **kwargs):
+        start = time.perf_counter()
+        vector = await self._inner.aembed_query(text, *args, **kwargs)
+        self._record([text], "embed_query", start)
+        return vector

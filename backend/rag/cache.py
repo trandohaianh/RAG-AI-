@@ -3,30 +3,71 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
+import time
 from typing import TYPE_CHECKING
 
 from config import REDIS_CACHE_TTL_SEC, REDIS_URL
+from rag.evidence import EvidenceChunk
 
 if TYPE_CHECKING:
     pass
 
 _client = None
+_pool = None
+_lock = threading.RLock()
+_retry_after = 0.0
+
+
+def _close_owned(client, pool):
+    try:
+        if client is not None:
+            client.close()
+    finally:
+        if pool is not None:
+            pool.disconnect()
+
+
+def close_cache() -> None:
+    """Call after request draining. This module owns both client and shared pool."""
+    global _client, _pool, _retry_after
+    with _lock:
+        client, pool = _client, _pool
+        _client = _pool = None
+        _retry_after = 0.0
+        _close_owned(client, pool)
 
 
 def _redis():
-    global _client
+    global _client, _pool, _retry_after
     if not REDIS_URL:
         return None
-    if _client is None:
-        import redis
-
-        try:
-            _client = redis.from_url(REDIS_URL, decode_responses=True)
-            _client.ping()
-        except Exception:
-            _client = None
+    with _lock:
+        if _client is not None:
+            return _client
+        if time.monotonic() < _retry_after:
             return None
-    return _client
+        import redis
+        from redis.backoff import NoBackoff
+        from redis.retry import Retry
+        pool = client = None
+        try:
+            pool = redis.ConnectionPool.from_url(
+                REDIS_URL, decode_responses=True, max_connections=32,
+                socket_connect_timeout=0.3, socket_timeout=0.3,
+                retry=Retry(NoBackoff(), 0), retry_on_timeout=False,
+                health_check_interval=0, socket_keepalive=True)
+            client = redis.Redis(connection_pool=pool)
+            client.ping()
+        except Exception:
+            try:
+                _close_owned(client, pool)
+            except Exception:
+                pass
+            _retry_after = time.monotonic() + 1.0
+            return None
+        _client, _pool = client, pool
+        return _client
 
 
 def cache_key_retrieve(
@@ -38,9 +79,9 @@ def cache_key_retrieve(
 ) -> str:
     scope = f"workspace:{workspace_id}" if workspace_id is not None else f"user:{user_id}"
     h = hashlib.sha256(
-        f"{scope}:{k}:{source or ''}:{query}".encode("utf-8")
+        json.dumps([scope, k, source, query], ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:48]
-    return f"rag:retrieve:{scope}:{h}"
+    return f"rag:retrieve:{scope}:v3:{h}"
 
 
 def get_cached_chunks(
@@ -61,7 +102,7 @@ def get_cached_chunks(
         out: list[tuple[str, str, int | None]] = []
         for row in data:
             page = row.get("page")
-            out.append((row["text"], row["source"], int(page) if page is not None else None))
+            out.append(EvidenceChunk(row["text"], row["source"], int(page) if page is not None else None, chunk_id=row.get("chunk_id"), document_version=row.get("document_version")))
         return out
     except Exception:
         return None
@@ -80,7 +121,7 @@ def set_cached_chunks(
         return
     try:
         payload = [
-            {"text": t, "source": s, "page": p} for t, s, p in chunks
+            {"text": row[0], "source": row[1], "page": row[2], "chunk_id": getattr(row, "chunk_id", None), "document_version": getattr(row, "document_version", None)} for row in chunks
         ]
         r.setex(
             cache_key_retrieve(user_id, query, k, source, workspace_id),

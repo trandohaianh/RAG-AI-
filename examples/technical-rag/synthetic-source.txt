@@ -1,0 +1,4 @@
+TÀI LIỆU GIẢ LẬP ĐỂ KIỂM THỬ PHẦN MỀM. KHÔNG DÙNG SỬA CHỮA THIẾT BỊ.
+Các chuỗi số dưới đây không phải thông số của sản phẩm nào.
+<table><tr><th>Mã mô phỏng</th><th>Chuỗi ký tự kiểm thử</th></tr><tr><td>E01</td><td>0.50 A</td></tr><tr><td>E1</td><td>5 A</td></tr><tr><td>Error 504</td><td>−48 V</td></tr><tr><td>Error 5040</td><td>48 V</td></tr></table>
+Chú thích: không được suy ra 0.50 A tương đương 5 A; giữ nguyên chuỗi nguồn.

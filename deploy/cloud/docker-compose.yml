@@ -1,0 +1,101 @@
+# FieldOps trên 1 VM free (Oracle Cloud Always Free, ARM 2 OCPU / 12 GB).
+# Một tên miền, HTTPS tự động (Caddy + Let's Encrypt):
+#   https://$APP_DOMAIN        → web (Next.js)
+#   https://$APP_DOMAIN/api/*  → API (FastAPI), Caddy bỏ tiền tố /api trước khi chuyển tiếp
+# Chạy:  cd deploy/cloud && docker compose --env-file .env up -d --build
+name: fieldops
+
+x-api-env: &api-env
+  APP_ENV: production
+  DATA_DIR: /app/data
+  APP_PUBLIC_URL: https://${APP_DOMAIN}
+  API_PUBLIC_URL: https://${APP_DOMAIN}/api
+  CORS_ORIGINS: https://${APP_DOMAIN}${EXTRA_CORS_ORIGINS:-}
+  SECRET_KEY: ${SECRET_KEY:?Thiếu SECRET_KEY trong .env}
+  METRICS_TOKEN: ${METRICS_TOKEN:?Thiếu METRICS_TOKEN trong .env}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  LLM_MODEL: ${LLM_MODEL:-gemini-2.5-flash}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-gemini-embedding-001}
+  LLM_BILLING_TIER: ${LLM_BILLING_TIER:-free}
+  LLM_DAILY_BUDGET_USD: ${LLM_DAILY_BUDGET_USD:-0}
+  LLM_USER_DAILY_BUDGET_USD: ${LLM_USER_DAILY_BUDGET_USD:-0}
+  JUDGE_SAMPLE_RATE: ${JUDGE_SAMPLE_RATE:-0.1}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-onboarding@resend.dev}
+  REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-false}
+  COHERE_API_KEY: ${COHERE_API_KEY:-}
+  FREE_PLAN_DAILY_QUERIES: ${FREE_PLAN_DAILY_QUERIES:-50}
+  MEDALLION_ENABLED: "false"
+  # Neon/Postgres tuỳ chọn cho dữ liệu app; để trống = SQLite trên volume (đã có backup hằng ngày).
+  DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/app.db}
+  BACKUP_KEEP: ${BACKUP_KEEP:-7}
+  PIPELINE_DAILY_AT: ${PIPELINE_DAILY_AT:-02:00}
+
+services:
+  api:
+    build:
+      context: ../../backend
+    image: fieldops-api:local
+    restart: unless-stopped
+    environment: *api-env
+    # 1 worker: SQLite + rate-limit trong bộ nhớ. --root-path để /api/docs chạy đúng sau proxy.
+    command: >
+      uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+      --proxy-headers --forwarded-allow-ips=* --root-path /api
+    volumes:
+      - fieldops_data:/app/data
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits: {memory: 2g}
+
+  pipeline:
+    image: fieldops-api:local
+    restart: unless-stopped
+    depends_on:
+      api: {condition: service_healthy}
+    environment: *api-env
+    command: python -m pipeline.jobs.runner --schedule
+    volumes:
+      - fieldops_data:/app/data
+    deploy:
+      resources:
+        limits: {memory: 768m}
+
+  web:
+    build:
+      context: ../../frontend
+      args:
+        NEXT_PUBLIC_API_URL: https://${APP_DOMAIN}/api
+    image: fieldops-web:local
+    restart: unless-stopped
+    expose: ["3000"]
+    depends_on: [api]
+    deploy:
+      resources:
+        limits: {memory: 512m}
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Thiếu APP_DOMAIN trong .env}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api, web]
+
+volumes:
+  fieldops_data:
+  caddy_data:
+  caddy_config:

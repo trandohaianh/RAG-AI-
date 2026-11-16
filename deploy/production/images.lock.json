@@ -1,0 +1,50 @@
+{
+  "redis:8-alpine": {
+    "id": "sha256:47b08295737773de3b711fb86f13ae802f5074e96a9a2d29f5f80164ac08c046",
+    "repo_digests": [
+      "redis@sha256:47b08295737773de3b711fb86f13ae802f5074e96a9a2d29f5f80164ac08c046"
+    ]
+  },
+  "apache/kafka:4.4.0": {
+    "id": "sha256:833b867a9585a141da455dc2b57431c65cbccb27f11c91f694444cca9f777e0f",
+    "repo_digests": [
+      "apache/kafka@sha256:833b867a9585a141da455dc2b57431c65cbccb27f11c91f694444cca9f777e0f"
+    ]
+  },
+  "postgres:16-alpine": {
+    "id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "repo_digests": [
+      "postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea"
+    ]
+  },
+  "ai-systems-gateway:audited": {
+    "id": "sha256:ea970e4dcfe6264f8d80abfd001b94053d6609ecf776aa438a6c9086232a78d6",
+    "repo_digests": [
+      "ai-systems-gateway@sha256:ea970e4dcfe6264f8d80abfd001b94053d6609ecf776aa438a6c9086232a78d6"
+    ]
+  },
+  "ai-systems-telecom:audited": {
+    "id": "sha256:3d1547520770b1e279aefd01bc257ec2b179f45cff6b5bf2b1463beba8b06b37",
+    "repo_digests": [
+      "ai-systems-telecom@sha256:3d1547520770b1e279aefd01bc257ec2b179f45cff6b5bf2b1463beba8b06b37"
+    ]
+  },
+  "ai-systems-edu:audited": {
+    "id": "sha256:6e42c91188d146701d7857b402eae5fa12a1ab0dfbb577491034110b918a5af8",
+    "repo_digests": [
+      "ai-systems-edu@sha256:6e42c91188d146701d7857b402eae5fa12a1ab0dfbb577491034110b918a5af8"
+    ]
+  },
+  "ai-systems-rag:audited": {
+    "id": "sha256:cfbebe129c29f788d47ac07d8a18dc98882718f6c94861fe5a3795f025e7fb9e",
+    "repo_digests": [
+      "ai-systems-rag@sha256:cfbebe129c29f788d47ac07d8a18dc98882718f6c94861fe5a3795f025e7fb9e"
+    ]
+  },
+  "ai-systems-rag-web:audited": {
+    "id": "sha256:6a15a903ed6db4c0722adbbe4d28349efdfff0f123b8b993a3c23fdd14c4ef58",
+    "repo_digests": [
+      "ai-systems-rag-web@sha256:6a15a903ed6db4c0722adbbe4d28349efdfff0f123b8b993a3c23fdd14c4ef58"
+    ]
+  }
+}

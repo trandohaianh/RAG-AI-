@@ -2,6 +2,7 @@
 from datetime import datetime
 
 from pydantic import BaseModel, Field
+from rag.evidence import EvidenceOut, CitationAudit
 
 
 class ConversationCreate(BaseModel):
@@ -21,6 +22,8 @@ class MessageOut(BaseModel):
     role: str
     content: str
     sources: list[str] = []
+    evidence: list[EvidenceOut] = Field(default_factory=list)
+    citation_audit: CitationAudit | None = None
     rating: int | None = None
     eval_faithfulness: float | None = None
     eval_relevancy: float | None = None

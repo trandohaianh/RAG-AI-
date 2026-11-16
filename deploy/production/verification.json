@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-28",
+  "docker_acceptance": {
+    "project": "ai-final-audit-c39d8ded",
+    "checks": {
+      "stack_started": true,
+      "real_api_and_web_health": true,
+      "http_redirect": true,
+      "sni_host_mismatch_rejected": true,
+      "unknown_sni_rejected": true,
+      "metrics_not_public": true,
+      "telecom_known_policy": true,
+      "redis_outage_fail_open_hidden": true,
+      "redis_persistence_recovery": true,
+      "kafka_mtls_to_lua_sink": true,
+      "kafka_requires_client_cert_and_private_controller": true,
+      "celery_workers_running": {
+        "workers": 2,
+        "prefork": true,
+        "max_tasks": [
+          50,
+          50
+        ]
+      },
+      "forwarded_headers_overwritten": true,
+      "sse_unbuffered": {
+        "first_frame_seconds": 0.0,
+        "second_frame_seconds": 1.203
+      },
+      "normal_gzip_enabled": true,
+      "docker_dns_recreate_recovery": true,
+      "nginx_config_and_log_rotation": true,
+      "nginx_hup_and_worker_signals": true
+    },
+    "paid_ai_calls": false,
+    "status": "passed",
+    "cleanup": {
+      "owned_project_removed": true
+    }
+  },
+  "rag_backend": {
+    "passed": 415,
+    "skipped_postgres_optional": 10,
+    "junit": "backend/.pytest_production_audit_tmp/rag-all.xml"
+  },
+  "production_hardening": {
+    "passed": 21,
+    "junit": "backend/.pytest_production_audit_tmp/hardening-final.xml"
+  },
+  "edu": {
+    "full_suite_passed": 95,
+    "latest_lifecycle_suite_passed": 8,
+    "note": "8 lifecycle cases overlap the full suite; one was added afterwards"
+  },
+  "telecom_contracts": {
+    "passed": 9,
+    "deselected_network_cases": 8,
+    "redis_client": "8.1.0"
+  },
+  "limitations": [
+    "No public domain or real ACME issuance",
+    "No OS/browser CA trust installation",
+    "No paid AI calls",
+    "No high-availability or peak-capacity certification",
+    "Prior Chroma upstream advisory finding remains; no new full dependency scan claimed"
+  ],
+  "application_db_untouched": {
+    "size_bytes": 208896,
+    "last_write_local": "2026-10-11 23:56:40"
+  }
+}

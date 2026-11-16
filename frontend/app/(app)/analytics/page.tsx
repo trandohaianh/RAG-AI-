@@ -74,17 +74,17 @@ export default function AnalyticsPage() {
 
       {overview && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:shadow-md transition-shadow">
             <p className="text-sm text-muted-foreground">Gói</p>
             <p className="text-lg font-semibold capitalize">{overview.subscription_plan}</p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:shadow-md transition-shadow">
             <p className="text-sm text-muted-foreground">Hạn mức hôm nay</p>
             <p className="text-lg font-semibold">
               {overview.queries_today} / {overview.daily_limit}
             </p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:shadow-md transition-shadow">
             <p className="text-sm text-muted-foreground">Tổng chunks</p>
             <p className="text-lg font-semibold">{overview.total_chunks}</p>
           </div>
@@ -92,7 +92,7 @@ export default function AnalyticsPage() {
       )}
 
       {overview && (overview.feedback_up > 0 || overview.feedback_down > 0) && (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:shadow-md transition-shadow">
           <p className="text-sm text-muted-foreground mb-1">Mức độ hài lòng câu trả lời (người dùng đánh giá)</p>
           <div className="flex items-center gap-4">
             <span className="text-lg font-semibold text-primary">
@@ -115,7 +115,7 @@ export default function AnalyticsPage() {
       )}
 
       {overview && (overview.avg_faithfulness != null || overview.avg_relevancy != null) && (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:shadow-md transition-shadow">
           <p className="text-sm text-muted-foreground mb-1">
             Chất lượng RAG trung bình (AI tự chấm mỗi câu trả lời)
           </p>
@@ -136,16 +136,16 @@ export default function AnalyticsPage() {
 
       <div>
         <h2 className="font-medium mb-3">Truy vấn 14 ngày gần nhất</h2>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs space-y-2">
           {daily.length === 0 && (
             <p className="text-sm text-muted-foreground">Chưa có dữ liệu truy vấn.</p>
           )}
           {daily.map((d) => (
             <div key={d.date} className="flex items-center gap-3 text-sm">
               <span className="w-24 text-muted-foreground shrink-0">{d.date.slice(5)}</span>
-              <div className="flex-1 h-6 bg-muted rounded overflow-hidden">
+              <div className="flex-1 h-6 bg-muted rounded-[0.25rem] overflow-hidden">
                 <div
-                  className="h-full bg-primary rounded"
+                  className="h-full bg-primary rounded-[0.25rem]"
                   style={{ width: `${(d.queries / maxQ) * 100}%` }}
                 />
               </div>

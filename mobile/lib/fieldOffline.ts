@@ -1,6 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import * as api from "./api";
+import { assertOfflineApiOrigin } from "./offlineOrigin";
 
 const STORAGE_PREFIX = "fieldops.offline.v1";
 const CHUNK_BYTE_LIMIT = 1200;
@@ -89,6 +90,7 @@ async function ensureSecureStorage(): Promise<void> {
   if (Platform.OS === "web" || !(await SecureStore.isAvailableAsync())) {
     throw new Error("Bộ nhớ offline an toàn chỉ khả dụng trên thiết bị iOS/Android.");
   }
+  await assertOfflineApiOrigin(await api.getApiUrl());
 }
 
 async function removeGeneration(key: string, generation: string, count: number) {
@@ -185,8 +187,14 @@ async function removeRecord(key: string): Promise<void> {
 }
 
 export async function isSecureOfflineStorageAvailable(): Promise<boolean> {
-  if (Platform.OS === "web") return false;
-  return SecureStore.isAvailableAsync();
+  if (Platform.OS === "web" || !(await SecureStore.isAvailableAsync())) return false;
+  try {
+    await assertOfflineApiOrigin(await api.getApiUrl());
+    return true;
+  } catch {
+    // Keep the original server's data private and intact on another backend.
+    return false;
+  }
 }
 
 export async function cacheFieldOverview(
@@ -288,10 +296,15 @@ async function removeCachedFieldCaseUnlocked(
     indexKey,
     cachedRefs.filter((cached) => cached.id !== caseId)
   );
-  if (entry) {
-    const overviewKey = recordKey(userId, entry.workspace_id, "overview");
+  // A case can exist only in the overview before its detail is ever opened.
+  const activeWorkspace = await readRecord<number>(recordKey(userId, "active_workspace"));
+  const workspaceIds = new Set(cachedRefs.map((cached) => cached.workspace_id));
+  if (entry) workspaceIds.add(entry.workspace_id);
+  if (activeWorkspace) workspaceIds.add(activeWorkspace);
+  for (const workspaceId of workspaceIds) {
+    const overviewKey = recordKey(userId, workspaceId, "overview");
     const overview = await readRecord<CachedFieldOverview>(overviewKey);
-    if (overview) {
+    if (overview?.cases.some((fieldCase) => fieldCase.id === caseId)) {
       overview.cases = overview.cases.filter((fieldCase) => fieldCase.id !== caseId);
       await writeRecord(overviewKey, overview);
     }
@@ -354,20 +367,20 @@ function isPermanentRejection(error: unknown): boolean {
   );
 }
 
-async function sendFieldAction(action: PendingFieldAction): Promise<void> {
+async function sendFieldAction(action: PendingFieldAction, session: api.ApiSession): Promise<void> {
   if (action.kind === "status") {
     await api.updateFieldCase(action.case_id, {
       status: action.status,
       client_action_id: action.id,
-    });
+    }, session);
   } else if (action.kind === "step_update") {
     await api.updateFieldCaseStep(action.case_id, action.step_id, {
       status: action.status,
       result_note: action.result_note,
       client_action_id: action.id,
-    });
+    }, session);
   } else {
-    await api.addFieldCaseNote(action.case_id, action.detail, action.id);
+    await api.addFieldCaseNote(action.case_id, action.detail, action.id, session);
   }
 }
 
@@ -410,18 +423,20 @@ export function retryRejectedFieldAction(
 
 type SyncResult = { pending: number; rejected: number; offline: boolean; errors: string[] };
 
-const syncInFlight = new Map<number, Promise<SyncResult>>();
+const syncInFlight = new Map<string, Promise<SyncResult>>();
 
-// Several screens sync on focus; share one run instead of sending twice.
-export function syncPendingFieldActions(userId: number): Promise<SyncResult> {
-  const running = syncInFlight.get(userId);
+// Share one run only for the same server and owner.
+export async function syncPendingFieldActions(userId: number): Promise<SyncResult> {
+  const key = `${await api.getApiUrl()}:${userId}`;
+  const running = syncInFlight.get(key);
   if (running) return running;
-  const run = runFieldSync(userId).finally(() => syncInFlight.delete(userId));
-  syncInFlight.set(userId, run);
+  const run = runFieldSync(userId).finally(() => syncInFlight.delete(key));
+  syncInFlight.set(key, run);
   return run;
 }
 
 async function runFieldSync(userId: number): Promise<SyncResult> {
+  const session = await api.captureSession(userId);
   const key = recordKey(userId, "actions");
   const rejectedKey = recordKey(userId, "rejected_actions");
   // Snapshot only; actions queued meanwhile are picked up by the next sync.
@@ -440,12 +455,16 @@ async function runFieldSync(userId: number): Promise<SyncResult> {
       await writeRecord(key, queue.filter((queued) => queued.id !== action.id));
     });
 
-  for (const caseId of caseIds) {
+  cases: for (const caseId of caseIds) {
     const group = snapshot.filter((action) => action.case_id === caseId);
     let delivered = false;
     for (const action of group) {
+      if (!(await api.isSessionCurrent(session))) {
+        errors.push("Phiên đăng nhập đã thay đổi; thao tác vẫn được giữ trên thiết bị.");
+        break cases;
+      }
       try {
-        await sendFieldAction(action);
+        await sendFieldAction(action, session);
       } catch (error) {
         if (api.isNetworkError(error)) {
           offline = true;
@@ -472,7 +491,7 @@ async function runFieldSync(userId: number): Promise<SyncResult> {
 
     let refreshed: api.FieldCase;
     try {
-      refreshed = await api.getFieldCase(caseId);
+      refreshed = await api.getFieldCase(caseId, session);
     } catch (error) {
       if (api.isNetworkError(error)) {
         offline = true;

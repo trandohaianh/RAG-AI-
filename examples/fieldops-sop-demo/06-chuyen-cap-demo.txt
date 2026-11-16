@@ -1,0 +1,13 @@
+TÀI LIỆU MẪU GIẢ LẬP — chỉ dùng thử RAG. Không phải quy trình của hãng và chưa được duyệt để dùng ngoài hiện trường.
+
+Chuyển cấp và thiếu bằng chứng mẫu
+
+Mã tài liệu: SOP-DEMO-06. Phiên bản: DEMO-1.0.
+1. Điều kiện chuyển cấp
+Chuyển cấp khi thiếu tài liệu phù hợp, model chưa xác định, nguồn mâu thuẫn hoặc yêu cầu vượt thẩm quyền. Không tự chọn một quy trình không rõ phiên bản để áp dụng.
+2. Nội dung bàn giao
+Gói chuyển cấp gồm mã ca, model đã biết, triệu chứng quan sát, bằng chứng, nguồn đã tra, việc còn thiếu và người nhận. Đánh dấu lý do CẦN XÁC NHẬN TÀI LIỆU khi chưa đủ nguồn.
+3. Vai trò trợ lý
+Gợi ý của trợ lý cần người phụ trách đối chiếu với tài liệu đã được duyệt. Khi tài liệu không nêu câu trả lời, ghi rõ chưa có đủ bằng chứng; không tạo thông số hoặc lệnh mới.
+4. Theo dõi
+Lưu thời điểm chuyển cấp và xác nhận người nhận. Ca chuyển cấp chưa được coi là đã hoàn tất xử lý.

@@ -1,0 +1,80 @@
+# Luật cảnh báo Prometheus cho FieldOps.
+# - Prometheus tự host: thêm vào `rule_files` (xem monitoring/prometheus.yml).
+# - Grafana Cloud free: Alerting → Alert rules → "Import" (Data source-managed) hoặc
+#   `mimirtool rules load monitoring/alerts/fieldops-rules.yml` với API key của stack.
+groups:
+  - name: fieldops-availability
+    rules:
+      - alert: FieldOpsApiDown
+        expr: up{job=~".*fieldops.*|.*rag.*"} == 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "API FieldOps không scrape được trong 5 phút"
+          description: "Kiểm tra VM / container backend (docker compose ps) và /health/ready."
+      - alert: FieldOpsHigh5xxRate
+        expr: |
+          sum(rate(rag_http_requests_total{status=~"5.."}[10m]))
+            / clamp_min(sum(rate(rag_http_requests_total[10m])), 1e-9) > 0.05
+        for: 10m
+        labels: {severity: critical}
+        annotations:
+          summary: "Hơn 5% request lỗi 5xx trong 10 phút"
+      - alert: FieldOpsSlowApi
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(rag_http_request_duration_seconds_bucket{route!~"/chat/.*|/embed/chat"}[10m]))) > 3
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "p95 độ trễ API > 3s trong 15 phút"
+
+  - name: fieldops-ai-cost
+    rules:
+      - alert: FieldOpsLlmCostSpike
+        # Chỉnh ngưỡng theo ngân sách: mặc định > $1/giờ là bất thường với hệ thống demo.
+        expr: sum(increase(fieldops_llm_cost_usd_total[1h])) > 1
+        labels: {severity: warning}
+        annotations:
+          summary: "Chi phí AI 1 giờ qua vượt $1"
+          description: "Xem trang Quản trị → Chi phí để biết user/tính năng nào tăng. Có thể đặt LLM_DAILY_BUDGET_USD để tự chặn."
+      - alert: FieldOpsLlmErrors
+        expr: sum(rate(fieldops_llm_requests_total{status="error"}[10m])) * 60 > 2
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Gọi model lỗi > 2 lần/phút (quota Gemini hoặc mạng)"
+
+  - name: fieldops-security
+    rules:
+      - alert: FieldOpsLoginBruteForce
+        expr: sum(increase(fieldops_auth_events_total{event="rate_limited"}[15m])) > 20
+        labels: {severity: warning}
+        annotations:
+          summary: "Nhiều yêu cầu đăng nhập bị chặn do rate limit (có thể đang bị dò mật khẩu)"
+
+  - name: fieldops-pipeline
+    rules:
+      - alert: FieldOpsPipelineStale
+        expr: time() - max(fieldops_pipeline_last_success_timestamp_seconds{task="daily_kpis"}) > 26 * 3600
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "Pipeline KPI không chạy thành công hơn 26 giờ"
+          description: "Kiểm tra container pipeline: docker compose logs pipeline"
+      - alert: FieldOpsBackupStale
+        expr: time() - max(fieldops_pipeline_last_success_timestamp_seconds{task="backup"}) > 26 * 3600
+        for: 30m
+        labels: {severity: critical}
+        annotations:
+          summary: "Không có bản backup mới hơn 26 giờ"
+      - alert: FieldOpsDataQualityFailed
+        expr: max(fieldops_data_quality_violations{severity="fail"}) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "Kiểm tra chất lượng dữ liệu phát hiện vi phạm nghiêm trọng"
+      - alert: FieldOpsDiskAlmostFull
+        expr: max(fieldops_data_disk_bytes{kind="free"}) / max(fieldops_data_disk_bytes{kind="total"}) < 0.1
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "Ổ dữ liệu còn < 10% (backup/Chroma/uploads)"

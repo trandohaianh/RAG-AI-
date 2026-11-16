@@ -8,10 +8,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from rag.evidence import EvidenceOut, CitationAudit, public_bundle
 from auth.models import User
 from auth.schemas import CurrentUser
 from database import get_db
 from dependencies import get_current_user
+from saas.limits import enforce_query_quota
 from field.models import (
     FieldClientAction,
     FieldWorkspace,
@@ -87,6 +89,8 @@ class AssistRequest(BaseModel):
 
 
 class EventOut(BaseModel):
+    evidence: list[EvidenceOut] = Field(default_factory=list)
+    citation_audit: CitationAudit | None = None
     id: int
     actor_id: int
     event_type: str
@@ -166,7 +170,7 @@ def _case_for_user(db: Session, case_id: int, user_id: int) -> ServiceCase:
 
 
 def _add_event(
-    db: Session, case_id: int, actor_id: int, event_type: str, detail: str
+    db: Session, case_id: int, actor_id: int, event_type: str, detail: str, *, evidence: dict | None = None
 ) -> None:
     db.add(
         ServiceCaseEvent(
@@ -174,6 +178,7 @@ def _add_event(
             actor_id=actor_id,
             event_type=event_type,
             detail=detail,
+            evidence_json=json.dumps(evidence, ensure_ascii=False) if evidence else None,
         )
     )
 
@@ -322,7 +327,11 @@ def add_member(
     )
     if not actor_membership or actor_membership.role != "owner":
         raise HTTPException(status_code=403, detail="Chỉ trưởng đội được thêm thành viên")
-    account = db.scalar(select(User).where(User.email == body.email.strip().lower()))
+    account = db.scalar(
+        select(User).where(
+            User.email == body.email.strip().lower(), User.deleted_at.is_(None)
+        )
+    )
     if not account:
         raise HTTPException(
             status_code=404,
@@ -585,7 +594,7 @@ async def assist_case(
     case = _case_for_user(db, case_id, user.id)
     if case.status == "resolved":
         raise HTTPException(status_code=409, detail="Ca đã đóng; không thể tạo hướng dẫn mới")
-    from rag.chain import answer_rag_once
+    from rag.chain import RagGenerationError, answer_rag_once
 
     question = (
         "Bối cảnh ca sửa hiện trường:\n"
@@ -597,9 +606,20 @@ async def assist_case(
         "nêu rõ khi cần chuyển cấp cho kỹ thuật viên chuyên trách.\n\n"
         f"Câu hỏi kỹ thuật viên: {body.question}"
     )
-    answer, sources = await answer_rag_once(
-        user.id, question, workspace_id=case.workspace_id
-    )
+    from costs.budget import enforce_budget
+    from costs.context import set_request_usage
+
+    enforce_budget(db, user.id)
+    set_request_usage(user_id=user.id, workspace_id=case.workspace_id, feature="field_assistant")
+    enforce_query_quota(db, user.id, user.subscription_plan)
+    evidence_bundle = {}
+    try:
+        answer, sources = await answer_rag_once(
+            user.id, question, workspace_id=case.workspace_id, evidence_out=evidence_bundle
+        )
+    except RagGenerationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    _case_for_user(db, case_id, user.id)  # Recheck membership after generation.
     source_text = ", ".join(sources) if sources else "không có nguồn truy xuất"
     _add_event(
         db,
@@ -607,6 +627,23 @@ async def assist_case(
         user.id,
         "assistant_recommendation",
         f"Câu hỏi: {body.question.strip()}\nGợi ý: {answer}\nNguồn: {source_text}",
+        evidence=evidence_bundle,
     )
     db.commit()
-    return {"answer": answer, "sources": sources}
+    return {"answer": answer, "sources": sources, **public_bundle(evidence_bundle)}
+
+
+@router.get("/cases/{case_id}/events/{event_id}/evidence/{reference_id}")
+def get_case_evidence(case_id: int, event_id: int, reference_id: str,
+                      user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    from rag.evidence import read_bundle, evidence_status
+    case = _case_for_user(db, case_id, user.id)
+    event = next((event for event in case.events if event.id == event_id), None)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bằng chứng")
+    bundle = read_bundle(event.evidence_json)
+    item = next((item for item in bundle['evidence'] if item['reference_id'] == reference_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bằng chứng")
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"evidence": item, "document_status": evidence_status(bundle, f"workspace_{case.workspace_id}")}, headers={"Cache-Control": "no-store"})

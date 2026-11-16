@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "dataset_id": "fieldops-synthetic-v1",
+  "description": "Synthetic regression fixture for lexical retrieval only; these are fictitious examples, not manufacturer procedures or validated field instructions.",
+  "documents": [
+    {
+      "id": "err-e204",
+      "source": "synthetic-errors.pdf",
+      "page": 4,
+      "text": "Mã lỗi E-204: lỗi đồng bộ quang. Trong ví dụ huấn luyện, kiểm tra dây nhảy quang và ghi nhận đèn ONU trước khi bàn giao."
+    },
+    {
+      "id": "err-e205",
+      "source": "synthetic-errors.pdf",
+      "page": 5,
+      "text": "Mã lỗi E-205: cảnh báo nhiệt độ nguồn. Ví dụ xử lý yêu cầu ghi kết quả đo nhiệt độ và kiểm tra quạt tản nhiệt."
+    },
+    {
+      "id": "model-gpon",
+      "source": "synthetic-models.pdf",
+      "page": 2,
+      "text": "Model GPON-2412B có nguồn định mức 12V và 24 cổng theo thông số giả lập. Không thay nguồn khác điện áp định mức."
+    },
+    {
+      "id": "model-alt",
+      "source": "synthetic-models.pdf",
+      "page": 3,
+      "text": "Model GPON-4816C có nguồn định mức 48V và 16 cổng theo thông số giả lập."
+    },
+    {
+      "id": "los",
+      "source": "synthetic-optical.pdf",
+      "page": 7,
+      "text": "Đèn LOS đỏ trong tình huống mô phỏng: kiểm tra đầu nối quang, dây nhảy và lưu ảnh hiện trạng. Không nhìn trực tiếp đầu sợi quang."
+    },
+    {
+      "id": "isolation",
+      "source": "synthetic-safety.pdf",
+      "page": 1,
+      "text": "Không được đóng điện khi chưa xác nhận tháo khóa cô lập. Ca thao tác điện phải có xác nhận của người phụ trách theo quy trình giả lập."
+    },
+    {
+      "id": "voltage",
+      "source": "synthetic-safety.pdf",
+      "page": 2,
+      "text": "Kết quả đo điện áp phải ghi giá trị, đơn vị, vị trí đo và thời điểm. Kiểm tra nguồn đo trước khi lưu biên bản."
+    },
+    {
+      "id": "handover",
+      "source": "synthetic-handover.pdf",
+      "page": 6,
+      "text": "Bàn giao ca phải lưu mã thiết bị, người nhận, trạng thái công việc và ảnh hiện trường. Ca chưa hoàn tất phải ghi việc còn tồn đọng."
+    },
+    {
+      "id": "offline",
+      "source": "synthetic-mobile.pdf",
+      "page": 3,
+      "text": "Khi mất mạng, ghi nhận ca được lưu trong hàng đợi offline. Trạng thái chờ đồng bộ chưa có nghĩa là máy chủ đã xác nhận."
+    },
+    {
+      "id": "restore",
+      "source": "synthetic-operations.pdf",
+      "page": 8,
+      "text": "Diễn tập phục hồi bản sao lưu: xác minh số lượng ca, ảnh đính kèm và quyền thành viên sau khi khôi phục dữ liệu."
+    }
+  ],
+  "cases": [
+    {
+      "id": "code-single",
+      "query": "E-204",
+      "expected_evidence": [
+        "err-e204"
+      ]
+    },
+    {
+      "id": "code-natural",
+      "query": "Mã lỗi E-204 cần kiểm tra gì?",
+      "expected_evidence": [
+        "err-e204"
+      ]
+    },
+    {
+      "id": "code-numeric",
+      "query": "204",
+      "expected_evidence": [
+        "err-e204"
+      ]
+    },
+    {
+      "id": "code-neighbour",
+      "query": "Mã lỗi E-205 xử lý nhiệt độ thế nào?",
+      "expected_evidence": [
+        "err-e205"
+      ]
+    },
+    {
+      "id": "model-exact",
+      "query": "GPON-2412B dùng nguồn điện áp bao nhiêu?",
+      "expected_evidence": [
+        "model-gpon"
+      ]
+    },
+    {
+      "id": "model-other",
+      "query": "GPON-4816C có bao nhiêu cổng?",
+      "expected_evidence": [
+        "model-alt"
+      ]
+    },
+    {
+      "id": "los",
+      "query": "Đèn LOS đỏ kiểm tra dây nhảy quang thế nào?",
+      "expected_evidence": [
+        "los"
+      ]
+    },
+    {
+      "id": "safety-negative",
+      "query": "Khi chưa tháo khóa cô lập có được đóng điện không?",
+      "expected_evidence": [
+        "isolation"
+      ]
+    },
+    {
+      "id": "measurement",
+      "query": "Kết quả đo điện áp phải ghi giá trị và đơn vị nào?",
+      "expected_evidence": [
+        "voltage"
+      ]
+    },
+    {
+      "id": "handover",
+      "query": "Bàn giao ca cần lưu người nhận và ảnh hiện trường?",
+      "expected_evidence": [
+        "handover"
+      ]
+    },
+    {
+      "id": "offline",
+      "query": "Mất mạng hàng đợi offline chờ đồng bộ đã có xác nhận máy chủ chưa?",
+      "expected_evidence": [
+        "offline"
+      ]
+    },
+    {
+      "id": "recovery",
+      "query": "Diễn tập phục hồi bản sao lưu cần xác minh những gì?",
+      "expected_evidence": [
+        "restore"
+      ]
+    },
+    {
+      "id": "multiple",
+      "query": "Kiểm tra nguồn đo và xác nhận tháo khóa cô lập trước khi đóng điện",
+      "expected_evidence": [
+        "isolation",
+        "voltage"
+      ]
+    },
+    {
+      "id": "unknown-error",
+      "query": "Mã lỗi E-999 cần kiểm tra gì?",
+      "expected_evidence": [],
+      "expect_no_evidence": true
+    },
+    {
+      "id": "unknown-model",
+      "query": "Model GPON-9999Z dùng nguồn bao nhiêu?",
+      "expected_evidence": [],
+      "expect_no_evidence": true
+    },
+    {
+      "id": "outside-domain",
+      "query": "Thiên hà Andromeda",
+      "expected_evidence": [],
+      "expect_no_evidence": true
+    }
+  ]
+}

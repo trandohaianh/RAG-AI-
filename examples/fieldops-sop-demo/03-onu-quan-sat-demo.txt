@@ -1,0 +1,12 @@
+TÀI LIỆU MẪU GIẢ LẬP — chỉ dùng thử RAG. Không phải quy trình của hãng và chưa được duyệt để dùng ngoài hiện trường.
+
+Manual quan sát ONU giả lập
+
+Mã tài liệu: SOP-DEMO-03. Model hoàn toàn giả lập: DEMO-ONU-A. Phiên bản: DEMO-1.0.
+1. Trạng thái mô phỏng
+Giao diện mô phỏng có hai nhãn LOS và PON. Bản ghi phải lưu chính xác tên nhãn, màu nhìn thấy và thời điểm; không suy ra thông số quang từ màu đèn.
+2. Mã mẫu
+E-204 là nhãn tình huống đồng bộ trong bộ thử. Hồ sơ E-204 cần trạng thái LOS, trạng thái PON và ảnh màn hình mô phỏng.
+E-205 là nhãn tình huống nhiệt trong bộ thử. Hồ sơ E-205 cần ảnh thông báo và thời điểm; bộ mẫu không nêu ngưỡng nhiệt độ hoặc cách can thiệp thiết bị.
+3. Phạm vi manual
+Manual này chỉ hướng dẫn ghi nhận. Không có lệnh quản trị, mật khẩu, thông số điện/quang hay quy trình sửa phần cứng. Thao tác vật lý hoặc cấu hình cần quy trình chính thức và người đủ thẩm quyền.

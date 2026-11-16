@@ -1,0 +1,66 @@
+{
+  "source_id": "synthetic-exact-anchor-fixture",
+  "source_name": "synthetic-source.txt",
+  "raw_sha256": "fc5585940898791f2d39c941788a017b3bf2f9e1803e644b2ee3f1cb429215ed",
+  "parser": "human-authored-synthetic:1",
+  "scope": {
+    "tenant": "DEMO",
+    "workspace": "FieldOps-training",
+    "vendor": "SYNTHETIC-NOT-A-MANUFACTURER",
+    "model": "LAB-X01",
+    "hardware_revision": "demo-r1",
+    "manual_revision": "training-2026-01"
+  },
+  "blocks": [
+    {
+      "kind": "text",
+      "text": "TÀI LIỆU GIẢ LẬP ĐỂ KIỂM THỬ PHẦN MỀM. KHÔNG DÙNG SỬA CHỮA THIẾT BỊ.\nCác chuỗi số dưới đây không phải thông số của sản phẩm nào.\n",
+      "section": "fixture-1",
+      "pages": [],
+      "row_spans": [],
+      "header_rows": 0,
+      "single_equipment": false
+    },
+    {
+      "kind": "table",
+      "text": "<table><tr><th>Mã mô phỏng</th><th>Chuỗi ký tự kiểm thử</th></tr><tr><td>E01</td><td>0.50 A</td></tr><tr><td>E1</td><td>5 A</td></tr><tr><td>Error 504</td><td>−48 V</td></tr><tr><td>Error 5040</td><td>48 V</td></tr></table>",
+      "section": "fixture-1",
+      "pages": [],
+      "row_spans": [
+        [
+          7,
+          65
+        ],
+        [
+          65,
+          101
+        ],
+        [
+          101,
+          133
+        ],
+        [
+          133,
+          174
+        ],
+        [
+          174,
+          215
+        ]
+      ],
+      "header_rows": 1,
+      "single_equipment": false
+    },
+    {
+      "kind": "text",
+      "text": "\nChú thích: không được suy ra 0.50 A tương đương 5 A; giữ nguyên chuỗi nguồn.\n",
+      "section": "fixture-1",
+      "pages": [],
+      "row_spans": [],
+      "header_rows": 0,
+      "single_equipment": false
+    }
+  ],
+  "scope_reviewed": false,
+  "approval": null
+}

@@ -1,0 +1,38 @@
+{
+  "origin": "synthetic",
+  "human_review_status": "pending",
+  "files": [
+    {
+      "file": "01-tiep-nhan-ca-demo.txt",
+      "sha256": "623efd8df35bde99560ec27b0421083111551dc82c620b2eb7cef55e94e2e2a9"
+    },
+    {
+      "file": "02-bang-chung-hien-truong-demo.txt",
+      "sha256": "d54ff4c589194522256be0d68947d87a26ce777a1245f9f19b1c3018648cd078"
+    },
+    {
+      "file": "03-onu-quan-sat-demo.txt",
+      "sha256": "9948a729536ed1339ef2acd175e1082d3f51a5e6fbb90b16e02b2676b554b48b"
+    },
+    {
+      "file": "04-router-trang-thai-demo.txt",
+      "sha256": "9ef40339322af0fb92a9a27807682488973eae7642626e45c50df19347de1f09"
+    },
+    {
+      "file": "05-offline-dong-bo-demo.txt",
+      "sha256": "635256d97893771cdf12af4d52082126a39cc40da927821a7d7c4474af948452"
+    },
+    {
+      "file": "06-chuyen-cap-demo.txt",
+      "sha256": "a6ea0c2d09bd3c4d668a810e3bfac7afe57a9cfa65472991cb70a8c23372b83f"
+    },
+    {
+      "file": "07-nghiem-thu-ban-giao-demo.txt",
+      "sha256": "694f298300f89c2de79ac23a39011c72afba02218959ad845f8c18c54812bf22"
+    },
+    {
+      "file": "08-quan-ly-phien-ban-demo.txt",
+      "sha256": "1b7ec8d35678dd7fb3dd87eb700073cbd658e888369d2852adff9c675ceb2c4b"
+    }
+  ]
+}

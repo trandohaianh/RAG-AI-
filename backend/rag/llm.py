@@ -4,6 +4,7 @@ Sinh văn bản (chat, gợi ý câu hỏi, chấm điểm) chạy trên Gemini 
 Ollama chạy local, chọn bằng LLM_PROVIDER. OCR ảnh luôn dùng Gemini vì cần model vision.
 """
 import json
+import time
 from collections.abc import Iterator
 from functools import lru_cache
 
@@ -11,16 +12,17 @@ import httpx
 from google import genai
 from google.genai import types
 
-from config import GEMINI_API_KEY, LLM_MODEL, LLM_PROVIDER, OLLAMA_MODEL, OLLAMA_URL
+from config import GEMINI_API_KEY, LLM_MODEL, LLM_PROVIDER, LLM_REQUEST_TIMEOUT_SEC, OLLAMA_MODEL, OLLAMA_URL
+from costs.recorder import estimate_tokens, gemini_usage, record_usage
 
-_OLLAMA_TIMEOUT = httpx.Timeout(300.0, connect=5.0)
+_OLLAMA_TIMEOUT = httpx.Timeout(LLM_REQUEST_TIMEOUT_SEC, connect=min(5.0, LLM_REQUEST_TIMEOUT_SEC))
 
 
 @lru_cache(maxsize=1)
 def client() -> genai.Client:
     if not GEMINI_API_KEY:
         raise ValueError("Thiếu GEMINI_API_KEY")
-    return genai.Client(api_key=GEMINI_API_KEY)
+    return genai.Client(api_key=GEMINI_API_KEY, http_options=types.HttpOptions(timeout=int(LLM_REQUEST_TIMEOUT_SEC * 1000)))
 
 
 def _ollama_body(prompt: str, stream: bool, json_mode: bool, temperature, max_tokens) -> dict:
@@ -35,13 +37,41 @@ def _ollama_body(prompt: str, stream: bool, json_mode: bool, temperature, max_to
     return body
 
 
+def _elapsed_ms(start: float) -> int:
+    return int((time.perf_counter() - start) * 1000)
+
+
+def _record_ollama(payload: dict, prompt: str, text: str, start: float, feature: str | None) -> None:
+    record_usage(
+        provider="ollama", model=f"ollama:{OLLAMA_MODEL}",
+        input_tokens=payload.get("prompt_eval_count") or estimate_tokens(prompt),
+        output_tokens=payload.get("eval_count") or estimate_tokens(text),
+        estimated=not payload.get("eval_count"), latency_ms=_elapsed_ms(start), feature=feature,
+    )
+
+
+def _record_gemini(response, prompt_text: str, text: str, start: float, feature: str | None,
+                   status: str = "ok") -> None:
+    inp, out, thinking = gemini_usage(response) if response is not None else (0, 0, 0)
+    estimated = not (inp or out)
+    if estimated:
+        inp, out = estimate_tokens(prompt_text), estimate_tokens(text)
+    record_usage(
+        provider="gemini", model=LLM_MODEL, input_tokens=inp, output_tokens=out,
+        thinking_tokens=thinking, estimated=estimated, latency_ms=_elapsed_ms(start),
+        status=status, feature=feature,
+    )
+
+
 def generate_text(
     prompt: str,
     *,
     json_mode: bool = False,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    feature: str | None = None,
 ) -> str:
+    start = time.perf_counter()
     if LLM_PROVIDER == "ollama":
         resp = httpx.post(
             f"{OLLAMA_URL}/api/generate",
@@ -49,19 +79,32 @@ def generate_text(
             timeout=_OLLAMA_TIMEOUT,
         )
         resp.raise_for_status()
-        return resp.json().get("response", "")
+        payload = resp.json()
+        if not isinstance(payload, dict) or "error" in payload:
+            raise RuntimeError("Ollama generation failed")
+        text = payload.get("response", "")
+        _record_ollama(payload, prompt, text, start, feature)
+        return text
 
     config = types.GenerateContentConfig(
         temperature=temperature,
         max_output_tokens=max_tokens,
         response_mime_type="application/json" if json_mode else None,
     )
-    resp = client().models.generate_content(model=LLM_MODEL, contents=prompt, config=config)
-    return resp.text or ""
+    try:
+        resp = client().models.generate_content(model=LLM_MODEL, contents=prompt, config=config)
+    except Exception:
+        _record_gemini(None, "", "", start, feature, status="error")
+        raise
+    text = resp.text or ""
+    _record_gemini(resp, prompt, text, start, feature)
+    return text
 
 
-def stream_text(prompt: str) -> Iterator[str]:
+def stream_text(prompt: str, *, feature: str | None = None) -> Iterator[str]:
+    start = time.perf_counter()
     if LLM_PROVIDER == "ollama":
+        produced: list[str] = []
         with httpx.stream(
             "POST",
             f"{OLLAMA_URL}/api/generate",
@@ -72,20 +115,57 @@ def stream_text(prompt: str) -> Iterator[str]:
             for line in resp.iter_lines():
                 if not line:
                     continue
-                piece = json.loads(line).get("response", "")
+                payload = json.loads(line)
+                if not isinstance(payload, dict) or "error" in payload:
+                    raise RuntimeError("Ollama stream failed")
+                piece = payload.get("response", "")
+                if not isinstance(piece, str):
+                    raise RuntimeError("Invalid Ollama response")
                 if piece:
+                    produced.append(piece)
                     yield piece
-        return
+                if payload.get("done") is True:
+                    _record_ollama(payload, prompt, "".join(produced), start, feature)
+                    return
+            raise RuntimeError("Ollama stream ended before completion")
 
-    for chunk in client().models.generate_content_stream(model=LLM_MODEL, contents=prompt):
-        if chunk.text:
-            yield chunk.text
+    stream = client().models.generate_content_stream(model=LLM_MODEL, contents=prompt)
+    completed = False
+    last_with_usage = None
+    produced_chars: list[str] = []
+    try:
+        for chunk in stream:
+            if getattr(chunk, "usage_metadata", None) is not None:
+                # Gemini gửi usage tích luỹ; chunk cuối có số đầy đủ.
+                last_with_usage = chunk
+            for candidate in chunk.candidates or []:
+                reason = candidate.finish_reason
+                if reason is not None:
+                    if getattr(reason, "value", reason) != "STOP":
+                        raise RuntimeError("Gemini response did not complete normally")
+                    completed = True
+            if chunk.text:
+                produced_chars.append(chunk.text)
+                yield chunk.text
+        if not completed:
+            raise RuntimeError("Gemini stream ended before completion")
+    finally:
+        # Ghi cả khi client ngắt giữa chừng: token đã sinh vẫn bị tính tiền.
+        _record_gemini(last_with_usage, prompt, "".join(produced_chars), start, feature,
+                       status="ok" if completed else "partial")
+        close = getattr(stream, "close", None)
+        if close is not None:
+            close()
 
 
 def read_image_text(data: bytes, mime: str, prompt: str) -> str:
     """OCR qua Gemini multimodal (Ollama model nhỏ không đọc ảnh đủ tốt)."""
+    start = time.perf_counter()
     resp = client().models.generate_content(
         model=LLM_MODEL,
         contents=[types.Part.from_bytes(data=data, mime_type=mime), prompt],
     )
-    return resp.text or ""
+    text = resp.text or ""
+    # Ảnh ≈ 258 token/ô 768px theo tài liệu Gemini; chỉ dùng khi API không trả usage.
+    _record_gemini(resp, prompt + " " * (258 * 4), text, start, "ocr")
+    return text

@@ -1,4 +1,6 @@
 "use client";
+import EvidencePanel from "@/components/EvidencePanel";
+import type { EvidenceBundle } from "@/lib/api";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -22,7 +24,8 @@ import {
   Wrench,
 } from "lucide-react";
 import MarkdownContent from "@/components/MarkdownContent";
-import { flush, pending, send } from "@/lib/offlineQueue";
+import { createQueueScope, discardRejected, flush, legacyPendingCount, pending, rejected, retryRejected, send, type QueuedAction } from "@/lib/offlineQueue";
+import { useAuth } from "@/lib/auth";
 import api, {
   getApiErrorMessage,
   type DocItem,
@@ -57,6 +60,7 @@ const EMPTY_FORM = {
 };
 
 export default function FieldOperationsPage() {
+  const { user } = useAuth();
   const [workspaces, setWorkspaces] = useState<FieldWorkspace[]>([]);
   const [workspaceId, setWorkspaceId] = useState<number | null>(null);
   const [cases, setCases] = useState<FieldCase[]>([]);
@@ -69,13 +73,18 @@ export default function FieldOperationsPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   // Hàng đợi khi mất sóng: số thao tác đang chờ gửi, và dòng báo cho người dùng.
-  const [queued, setQueued] = useState<Awaited<ReturnType<typeof pending>>>([]);
+  const [queued, setQueued] = useState<QueuedAction[]>([]);
+  const [rejectedActions, setRejectedActions] = useState<QueuedAction[]>([]);
+  const [legacyCount, setLegacyCount] = useState(0);
+  const queueScope = useMemo(() => user && workspaceId
+    ? createQueueScope(api.defaults.baseURL!, user.id, workspaceId) : null, [user?.id, workspaceId]);
   const [notice, setNotice] = useState("");
   const [online, setOnline] = useState(true);
   const [note, setNote] = useState("");
   const [stepTitle, setStepTitle] = useState("");
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
+  const [answerEvidence, setAnswerEvidence] = useState<EvidenceBundle>({});
   const [memberEmail, setMemberEmail] = useState("");
 
   const selectedCase = useMemo(
@@ -124,37 +133,76 @@ export default function FieldOperationsPage() {
     void load();
   }, [load]);
 
-  // Khi mạng trở lại: gửi lại hàng đợi theo đúng thứ tự rồi nạp lại dữ liệu, để
-  // màn hình khớp với những gì máy chủ đã ghi.
-  useEffect(() => {
-    const sender = (m: "post" | "patch", u: string, b: Record<string, unknown>) =>
-      m === "post" ? api.post(u, b) : api.patch(u, b);
+  const refreshQueue = useCallback(async () => {
+    if (!queueScope) return;
+    const [waiting, failed, legacy] = await Promise.all([
+      pending(queueScope), rejected(queueScope), legacyPendingCount(),
+    ]);
+    setQueued(waiting);
+    setRejectedActions(failed);
+    setLegacyCount(legacy);
+  }, [queueScope]);
 
-    const sync = async () => {
-      const { sent, left } = await flush(sender);
-      setQueued(await pending());
-      if (sent > 0) {
-        setNotice(`Đã gửi ${sent} thao tác lưu khi mất sóng.`);
-        await load();
+  // Capture the session token and validate ownership again for every replay.
+  // Explicit headers prevent an account switch from reusing axios's new token.
+  const queueSender = useCallback(() => {
+    const token = localStorage.getItem("rag_token");
+    return (method: "post" | "patch", url: string, body: Record<string, unknown>) => {
+      const current = JSON.parse(localStorage.getItem("rag_user") || "null");
+      if (!queueScope || !token || current?.id !== queueScope.userId ||
+          localStorage.getItem("rag_token") !== token) {
+        return Promise.reject(new Error("Hàng đợi đang chờ đăng nhập lại đúng tài khoản."));
       }
-      if (left === 0 && sent === 0 && !notice) setNotice("");
+      return api.request({ method, url, data: body, headers: { Authorization: `Bearer ${token}` } });
     };
+  }, [queueScope]);
 
-    const goOnline = () => { setOnline(true); void sync(); };
+  const syncQueue = useCallback(async () => {
+    if (!queueScope) return;
+    try {
+      const { sent } = await flush(queueScope, queueSender());
+      await refreshQueue();
+      if (sent > 0) {
+        setNotice(`Đã gửi ${sent} thao tác đã lưu.`);
+        await load(queueScope.workspaceId);
+      }
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    }
+  }, [queueScope, queueSender, refreshQueue, load]);
+
+  useEffect(() => {
+    setQueued([]);
+    setRejectedActions([]);
+    const goOnline = () => { setOnline(true); void syncQueue(); };
     const goOffline = () => setOnline(false);
-
-    setOnline(typeof navigator === "undefined" ? true : navigator.onLine);
-    void pending().then(setQueued);
-    void sync();
+    setOnline(navigator.onLine);
+    void syncQueue();
     window.addEventListener("online", goOnline);
     window.addEventListener("offline", goOffline);
-    const timer = window.setInterval(() => { if (navigator.onLine) void sync(); }, 20000);
+    const timer = window.setInterval(() => { if (navigator.onLine) void syncQueue(); }, 20000);
     return () => {
       window.removeEventListener("online", goOnline);
       window.removeEventListener("offline", goOffline);
       window.clearInterval(timer);
     };
-  }, [load, notice]);
+  }, [syncQueue]);
+
+  async function reviewAction(action: QueuedAction, retry: boolean) {
+    if (!queueScope) return;
+    if (!retry && !window.confirm("Xóa thao tác bị từ chối khỏi thiết bị?")) return;
+    try {
+      if (retry) {
+        await retryRejected(queueScope, action.id);
+        await syncQueue();
+      } else {
+        await discardRejected(queueScope, action.id);
+      }
+      await refreshQueue();
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    }
+  }
 
   // Dòng thông báo tự tắt sau vài giây; nếu tắt ngay khi đồng bộ xong thì người
   // dùng không kịp thấy là thao tác của mình đã lên.
@@ -209,26 +257,30 @@ export default function FieldOperationsPage() {
     body: Record<string, unknown>,
     label: string
   ) {
-    if (!workspaceId) return;
+    if (!queueScope) return false;
     setBusy(true);
     setError("");
     try {
       const { queued } = await send(
-        (m, u, b) => (m === "post" ? api.post(u, b) : api.patch(u, b)),
+        queueScope,
+        queueSender(),
         method,
         url,
         body,
         label
       );
+      await refreshQueue();
       if (queued) {
-        setQueued(await pending());
-        setNotice(`Mất mạng — "${label}" đã lưu trong máy, sẽ tự gửi khi có sóng lại.`);
+        setNotice(`"${label}" đã lưu trong máy, đang chờ gửi khi kết nối và phiên đăng nhập hoạt động.`);
       } else {
         setNotice("");
         await load(workspaceId);
       }
+      return true;
     } catch (err) {
       setError(getApiErrorMessage(err));
+      await refreshQueue().catch(() => undefined);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -252,18 +304,16 @@ export default function FieldOperationsPage() {
     event.preventDefault();
     if (!selectedCase || !note.trim()) return;
     const detail = note.trim();
-    await queueCase("post", `/field/cases/${selectedCase.id}/events`, { detail },
-      "Ghi nhận kết quả");
-    setNote("");
+    if (await queueCase("post", `/field/cases/${selectedCase.id}/events`, { detail },
+      "Ghi nhận kết quả")) setNote("");
   }
 
   async function addStep(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedCase || !stepTitle.trim()) return;
     const title = stepTitle.trim();
-    await queueCase("post", `/field/cases/${selectedCase.id}/steps`, { title },
-      `Thêm bước: ${title}`);
-    setStepTitle("");
+    if (await queueCase("post", `/field/cases/${selectedCase.id}/steps`, { title },
+      `Thêm bước: ${title}`)) setStepTitle("");
   }
 
   async function askAssistant(event: FormEvent<HTMLFormElement>) {
@@ -271,14 +321,15 @@ export default function FieldOperationsPage() {
     if (!selectedCase || !question.trim()) return;
     setBusy(true);
     setError("");
-    setAnswer("");
+    setAnswer(""); setAnswerEvidence({});
     try {
-      const response = await api.post<{ answer: string; sources: string[] }>(
+      const response = await api.post<{ answer: string; sources: string[] } & EvidenceBundle>(
         `/field/cases/${selectedCase.id}/assist`,
         { question: question.trim() },
         // Ollama chạy CPU có thể mất cả phút; mặc định 15s của axios là quá ngắn.
         { timeout: 180000 }
       );
+      setAnswerEvidence(response.data);
       setAnswer(
         `${response.data.answer}${
           response.data.sources.length
@@ -401,7 +452,7 @@ export default function FieldOperationsPage() {
             <button
               type="button"
               onClick={() => setFormOpen(true)}
-              className="flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
+              className="flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-xs hover:bg-indigo-700"
             >
               <Plus className="h-4 w-4" /> Tạo ca sửa
             </button>
@@ -417,7 +468,7 @@ export default function FieldOperationsPage() {
         {(!online || queued.length > 0 || notice) && (
           <div
             role="status"
-            className={`sticky top-0 z-20 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm shadow-sm backdrop-blur ${
+            className={`sticky top-0 z-20 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm shadow-xs backdrop-blur-sm ${
               !online || queued.length > 0
                 ? "border-amber-300 bg-amber-50/95 text-amber-900"
                 : "border-emerald-300 bg-emerald-50/95 text-emerald-900"
@@ -438,6 +489,28 @@ export default function FieldOperationsPage() {
           </div>
         )}
 
+        {legacyCount > 0 && (
+          <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            Có {legacyCount} thao tác từ phiên bản cũ chưa xác định được tài khoản gốc. Dữ liệu vẫn được giữ trên máy; cần đối chiếu trước khi gửi lại.
+          </p>
+        )}
+        {rejectedActions.length > 0 && (
+          <section aria-label="Thao tác cần xem lại" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+            <p className="font-semibold">{rejectedActions.length} thao tác chưa được máy chủ chấp nhận</p>
+            {rejectedActions.map((action) => (
+              <div key={action.id} className="mt-3 border-t border-rose-200 pt-3">
+                <p className="font-medium">{action.label}</p>
+                <p className="mt-1 whitespace-pre-wrap">{typeof action.body.detail === "string" ? action.body.detail : JSON.stringify(action.body)}</p>
+                <p className="mt-1">{action.error}</p>
+                <div className="mt-2 flex gap-4">
+                  <button type="button" className="font-semibold underline" onClick={() => void reviewAction(action, true)}>Thử lại</button>
+                  <button type="button" className="underline" onClick={() => void reviewAction(action, false)}>Bỏ thao tác</button>
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
+
         <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <Metric icon={Radio} label="Ca đang hoạt động" value={activeCount} tone="indigo" />
           <Metric icon={Activity} label="Chờ khách hàng" value={waitingCount} tone="amber" />
@@ -446,7 +519,7 @@ export default function FieldOperationsPage() {
         </section>
 
         {formOpen && (
-          <form onSubmit={createCase} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <form onSubmit={createCase} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="font-semibold text-slate-900">Tạo ca sửa / bàn giao hiện trường</h2>
@@ -461,7 +534,7 @@ export default function FieldOperationsPage() {
               <Input label="Địa chỉ" value={form.address} onChange={(value) => setForm({ ...form, address: value })} placeholder="Địa chỉ xử lý" />
               <label className="text-xs font-semibold text-slate-600 md:col-span-2 xl:col-span-2">
                 Triệu chứng và thông tin tổng đài bàn giao *
-                <textarea required value={form.symptom} onChange={(event) => setForm({ ...form, symptom: event.target.value })} className="mt-1.5 min-h-20 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal outline-none focus:border-indigo-400" placeholder="Triệu chứng, bước đã thử, kết quả đo..." />
+                <textarea required value={form.symptom} onChange={(event) => setForm({ ...form, symptom: event.target.value })} className="mt-1.5 min-h-20 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal outline-hidden focus:border-indigo-400" placeholder="Triệu chứng, bước đã thử, kết quả đo..." />
               </label>
             </div>
             <button disabled={busy} className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
@@ -471,7 +544,7 @@ export default function FieldOperationsPage() {
         )}
 
         <div className="grid min-h-[560px] gap-5 xl:grid-cols-[minmax(360px,0.9fr)_minmax(520px,1.5fr)]">
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
               <div>
                 <h2 className="font-semibold text-slate-900">Hàng đợi ca sửa</h2>
@@ -488,7 +561,7 @@ export default function FieldOperationsPage() {
                 <button
                   type="button"
                   key={item.id}
-                  onClick={() => { setSelectedId(item.id); setAnswer(""); }}
+                  onClick={() => { setSelectedId(item.id); setAnswer(""); setAnswerEvidence({}); }}
                   className={`w-full border-b border-slate-100 p-4 text-left transition hover:bg-slate-50 ${selectedId === item.id ? "bg-indigo-50/70" : ""}`}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -519,7 +592,7 @@ export default function FieldOperationsPage() {
 
           <div className="space-y-5">
             {selectedCase ? (
-              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
                 <div className="bg-slate-900 p-5 text-white">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <span className="rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-bold tracking-wide">CA #{selectedCase.id}</span>
@@ -577,12 +650,13 @@ export default function FieldOperationsPage() {
                       <div className="flex items-center gap-2 text-sm font-semibold text-indigo-950"><BookOpen className="h-4 w-4" /> Trợ lý theo tri thức đội</div>
                       <p className="mt-1 text-xs leading-5 text-indigo-900/70">Tra cứu tài liệu kỹ thuật gắn với model và triệu chứng của ca này. Trợ lý chỉ đưa gợi ý có căn cứ.</p>
                       <form onSubmit={askAssistant} className="mt-3 flex gap-2">
-                        <input value={question} onChange={(event) => setQuestion(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-indigo-100 bg-white px-3 py-2 text-xs outline-none focus:border-indigo-400" placeholder="Hỏi về bước kiểm tra tiếp theo..." />
+                        <input value={question} onChange={(event) => setQuestion(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-indigo-100 bg-white px-3 py-2 text-xs outline-hidden focus:border-indigo-400" placeholder="Hỏi về bước kiểm tra tiếp theo..." />
                         <button disabled={busy} className="rounded-lg bg-indigo-600 px-3 text-white disabled:opacity-50" aria-label="Hỏi trợ lý"><Send className="h-4 w-4" /></button>
                       </form>
                       {answer && (
                         <div className="mt-3 rounded-lg bg-white p-3 text-[13px] leading-6 text-slate-700">
                           <MarkdownContent content={answer} />
+                      <EvidencePanel evidence={answerEvidence.evidence} audit={answerEvidence.citation_audit} />
                         </div>
                       )}
                       <p className="mt-2 flex items-center gap-1 text-[10px] text-indigo-900/60"><ShieldAlert className="h-3 w-3" /> Không tự động thao tác thiết bị; kỹ thuật viên xác nhận trước khi thực hiện.</p>
@@ -600,6 +674,7 @@ export default function FieldOperationsPage() {
                             <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-indigo-400" />
                             <div>
                               <p className="text-xs text-slate-700">{event.detail}</p>
+                              <EvidencePanel evidence={event.evidence} audit={event.citation_audit} checkVersion={async reference => (await api.get(`/field/cases/${selectedCase.id}/events/${event.id}/evidence/${encodeURIComponent(reference)}`)).data.document_status} />
                               <p className="mt-1 text-[10px] text-slate-400">{new Date(event.created_at).toLocaleString("vi-VN")}</p>
                             </div>
                           </div>
@@ -617,7 +692,7 @@ export default function FieldOperationsPage() {
               </div>
             )}
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900"><FileText className="h-4 w-4 text-indigo-600" /> Tri thức dùng chung</h2>
@@ -637,7 +712,7 @@ export default function FieldOperationsPage() {
               ) : <p className="mt-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-500">Nạp tài liệu thao tác để trợ lý tìm đúng hướng dẫn. Nội dung sẽ được chia sẻ với các thành viên trong đội.</p>}
             </section>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900"><Users className="h-4 w-4 text-indigo-600" /> Đội kỹ thuật</h2>
@@ -676,7 +751,7 @@ function Metric({ icon: Icon, label, value, tone }: { icon: typeof Activity; lab
     blue: "bg-sky-50 text-sky-700",
   };
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-slate-500">{label}</span>
         <span className={`rounded-lg p-2 ${tones[tone]}`}><Icon className="h-4 w-4" /></span>
@@ -690,7 +765,7 @@ function Input({ label, value, onChange, placeholder, required }: { label: strin
   return (
     <label className="text-xs font-semibold text-slate-600">
       {label}
-      <input required={required} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal outline-none focus:border-indigo-400" placeholder={placeholder} />
+      <input required={required} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal outline-hidden focus:border-indigo-400" placeholder={placeholder} />
     </label>
   );
 }

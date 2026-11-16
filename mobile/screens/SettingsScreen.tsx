@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Alert, StyleSheet, Text, TextInput, View } from "react-native";
 import { useAuth } from "../lib/auth";
-import { getApiUrl, setApiUrl } from "../lib/api";
+import { getApiUrl, setApiUrl, getErrorMessage } from "../lib/api";
 import GradientButton from "../components/GradientButton";
 import { colors, radius } from "../lib/theme";
 
@@ -15,9 +15,13 @@ export default function SettingsScreen() {
   }, []);
 
   async function onSave() {
-    await setApiUrl(url.trim());
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    try {
+      await setApiUrl(url.trim());
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (error) {
+      Alert.alert("Không lưu được máy chủ", getErrorMessage(error));
+    }
   }
 
   return (
@@ -34,7 +38,7 @@ export default function SettingsScreen() {
         <Text style={styles.label}>Địa chỉ Backend API</Text>
         <Text style={styles.hint}>
           Điện thoại và máy tính phải chung mạng Wi-Fi. Dùng địa chỉ IP LAN của máy tính, ví dụ:
-          http://192.168.1.140:8000
+          http://192.168.1.140:8000. Đổi máy chủ sẽ đăng xuất; dữ liệu offline cũ được giữ và chỉ đồng bộ khi chọn lại máy chủ gốc.
         </Text>
         <TextInput
           style={styles.input}

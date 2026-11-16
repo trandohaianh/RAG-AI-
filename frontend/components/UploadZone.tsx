@@ -144,7 +144,7 @@ export default function UploadZone({
       )}
 
       {docs.length > 0 && !toast && (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
             Bạn có {docs.length} tài liệu đã lập chỉ mục. Sang Chat để hỏi về nội dung.
           </p>
@@ -190,7 +190,7 @@ export default function UploadZone({
       {rows.length > 0 && (
         <ul className="space-y-3">
           {rows.map((r) => (
-            <li key={r.name} className="rounded-xl border border-slate-200 bg-white p-4 space-y-2 shadow-sm">
+            <li key={r.name} className="rounded-xl border border-slate-200 bg-white p-4 space-y-2 shadow-xs">
               <div className="flex items-center gap-2 text-sm">
                 <FileText className="h-4 w-4 shrink-0" />
                 <span className="flex-1 truncate">{r.name}</span>
@@ -213,7 +213,7 @@ export default function UploadZone({
 
       <div>
         <h3 className="font-medium mb-3">Tài liệu của bạn</h3>
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-xs">
           <table className="w-full text-sm">
             <thead className="bg-slate-50">
               <tr>

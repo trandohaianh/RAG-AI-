@@ -1,0 +1,13 @@
+TÀI LIỆU MẪU GIẢ LẬP — chỉ dùng thử RAG. Không phải quy trình của hãng và chưa được duyệt để dùng ngoài hiện trường.
+
+Quy trình ghi nhận offline mẫu
+
+Mã tài liệu: SOP-DEMO-05. Phiên bản: DEMO-1.0.
+1. Khi mất mạng
+Ghi nhận vào hàng đợi cục bộ với mã thao tác client_action_id. Nhãn CHỜ ĐỒNG BỘ chưa có nghĩa máy chủ đã nhận.
+2. Gửi lại
+Gửi lại phải giữ nguyên client_action_id của thao tác. Chỉ xóa mục chờ khi máy chủ xác nhận; lỗi timeout, 408, 429 hoặc 5xx giữ lại để thử sau.
+3. Quyền và lỗi nghiệp vụ
+401 cần xác thực lại. 403 hoặc 404 không được coi là quyền tiếp tục xem dữ liệu cũ; cần kiểm tra quyền hoặc ca còn tồn tại. Lỗi nghiệp vụ được đưa vào danh sách cần xử lý, không xóa âm thầm.
+4. Phạm vi hàng đợi
+Hàng đợi được tách theo API, tài khoản và workspace. Không gửi thao tác của tài khoản hoặc backend cũ dưới phiên đăng nhập mới.

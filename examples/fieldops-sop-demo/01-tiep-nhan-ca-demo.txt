@@ -1,0 +1,11 @@
+TÀI LIỆU MẪU GIẢ LẬP — chỉ dùng thử RAG. Không phải quy trình của hãng và chưa được duyệt để dùng ngoài hiện trường.
+
+Tiếp nhận ca mẫu
+
+Mã tài liệu: SOP-DEMO-01. Phiên bản: DEMO-1.0. Đội giả lập: DEMO-FIELD.
+1. Phiếu tiếp nhận
+Phiếu tiếp nhận phải có mã ca, đội sở hữu, model thiết bị, triệu chứng quan sát được, phạm vi ảnh hưởng, người phụ trách và thời điểm ghi nhận. Thông tin chưa biết phải ghi CHƯA XÁC ĐỊNH; không tự suy đoán.
+2. Phân loại trong môi trường mẫu
+Nhãn DEMO-P1 chỉ ca ảnh hưởng nhiều điểm, DEMO-P2 chỉ một điểm, DEMO-P3 chỉ yêu cầu bổ sung hồ sơ. Đây là nhãn thử nghiệm, không phải SLA dịch vụ.
+3. Bàn giao đầu vào
+Người tiếp nhận ghi nguồn thông tin là khách báo, ảnh hoặc màn hình trạng thái. Trước khi chuyển ca, xác nhận người nhận và việc còn tồn đọng. Ca mẫu dùng mã CA-DEMO-001; không dùng tên hoặc địa chỉ khách hàng thật.

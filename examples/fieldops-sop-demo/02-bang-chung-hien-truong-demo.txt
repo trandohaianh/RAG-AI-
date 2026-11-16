@@ -1,0 +1,13 @@
+TÀI LIỆU MẪU GIẢ LẬP — chỉ dùng thử RAG. Không phải quy trình của hãng và chưa được duyệt để dùng ngoài hiện trường.
+
+Ghi nhận bằng chứng mẫu
+
+Mã tài liệu: SOP-DEMO-02. Phiên bản: DEMO-1.0.
+1. Hồ sơ bằng chứng
+Mỗi ảnh hoặc bản ghi cần mã ca, thời điểm, vị trí quan sát và mô tả ngắn. Ảnh phải đọc được nhãn trạng thái cần đối chiếu; ảnh mờ được đánh dấu CẦN BỔ SUNG.
+2. Dữ liệu riêng tư
+Không ghi mật khẩu, token, khóa API hoặc thông tin đăng nhập. Ảnh chứa thông tin cá nhân phải che phần không cần thiết trước khi đưa vào bộ thử.
+3. Nội dung quan sát
+Tách quan sát trực tiếp khỏi lời khách báo. Bản ghi quan sát dùng mẫu: thời điểm — trạng thái hiển thị — nguồn bằng chứng. Không kết luận nguyên nhân chỉ từ một ảnh.
+4. Xác nhận
+Người tiếp nhận kiểm tra ảnh mở được và đúng mã ca. Bằng chứng chưa tải lên thành công phải được giữ nhãn CHỜ ĐỒNG BỘ.
