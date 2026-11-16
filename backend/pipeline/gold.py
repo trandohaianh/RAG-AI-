@@ -31,38 +31,49 @@ def refresh_document_summary(user_id: int, source: str) -> None:
         )
 
 
-def upsert_daily_stats(
-    files_processed: int,
-    chunks_created: int,
-    validation_failures: int,
-    users_active: int,
-) -> None:
-    today = date.today()
+def upsert_daily_stats(metric_date: date | None = None) -> dict:
+    """Tính lại số liệu của MỘT ngày từ bronze/silver rồi ghi đè dòng của ngày đó.
+
+    Idempotent: chạy lại cùng tệp, Airflow thử lại (retries) hay chạy bù đều cho cùng kết quả.
+    Bản cũ cộng dồn (files_processed = cũ + mới) nên mỗi lần thử lại làm số tệp trong ngày tăng gấp đôi,
+    trong khi bronze không nhân đôi nhờ ON CONFLICT (user_id, filename, content_hash).
+
+    - files_processed: số tệp bronze được nạp (hoặc nạp lại) trong ngày; nạp lại cùng nội dung vẫn là 1 dòng.
+    - chunks_created: số chunk silver tạo trong ngày (silver xoá rồi ghi lại theo nguồn, nên chỉ đếm bản hiện hành).
+    - validation_failures: số tệp có chunk không đạt kiểm tra chất lượng.
+    - users_active: số người dùng có tệp được nạp trong ngày.
+    """
+    day = metric_date or date.today()
     with session_scope() as db:
-        db.execute(
+        row = db.execute(
             text(
                 """
                 INSERT INTO gold.daily_ingest_stats (
                     metric_date, files_processed, chunks_created,
                     validation_failures, users_active, updated_at
-                ) VALUES (
-                    :metric_date, :files_processed, :chunks_created,
-                    :validation_failures, :users_active, :updated_at
                 )
+                SELECT
+                    CAST(:metric_date AS DATE),
+                    (SELECT COUNT(*) FROM bronze.raw_documents
+                      WHERE CAST(ingested_at AS DATE) = CAST(:metric_date AS DATE)),
+                    (SELECT COUNT(*) FROM silver.document_chunks
+                      WHERE CAST(created_at AS DATE) = CAST(:metric_date AS DATE)),
+                    (SELECT COUNT(DISTINCT bronze_id) FROM silver.document_chunks
+                      WHERE CAST(created_at AS DATE) = CAST(:metric_date AS DATE)
+                        AND validation_passed = FALSE),
+                    (SELECT COUNT(DISTINCT user_id) FROM bronze.raw_documents
+                      WHERE CAST(ingested_at AS DATE) = CAST(:metric_date AS DATE)),
+                    :updated_at
                 ON CONFLICT (metric_date) DO UPDATE SET
-                    files_processed = gold.daily_ingest_stats.files_processed + EXCLUDED.files_processed,
-                    chunks_created = gold.daily_ingest_stats.chunks_created + EXCLUDED.chunks_created,
-                    validation_failures = gold.daily_ingest_stats.validation_failures + EXCLUDED.validation_failures,
-                    users_active = GREATEST(gold.daily_ingest_stats.users_active, EXCLUDED.users_active),
+                    files_processed = EXCLUDED.files_processed,
+                    chunks_created = EXCLUDED.chunks_created,
+                    validation_failures = EXCLUDED.validation_failures,
+                    users_active = EXCLUDED.users_active,
                     updated_at = EXCLUDED.updated_at
+                RETURNING files_processed, chunks_created, validation_failures, users_active
                 """
             ),
-            {
-                "metric_date": today,
-                "files_processed": files_processed,
-                "chunks_created": chunks_created,
-                "validation_failures": validation_failures,
-                "users_active": users_active,
-                "updated_at": datetime.now(timezone.utc),
-            },
-        )
+            {"metric_date": day, "updated_at": datetime.now(timezone.utc)},
+        ).one()
+        return {"metric_date": day.isoformat(), "files_processed": row[0], "chunks_created": row[1],
+                "validation_failures": row[2], "users_active": row[3]}

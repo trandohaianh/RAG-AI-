@@ -52,12 +52,7 @@ def run_medallion_for_file(
     if validation.success:
         refresh_document_summary(user_id, file_path.name)
 
-    upsert_daily_stats(
-        files_processed=1,
-        chunks_created=silver_count,
-        validation_failures=0 if validation.success else 1,
-        users_active=1,
-    )
+    upsert_daily_stats()   # tính lại cả ngày từ bronze/silver: chạy lại không đếm trùng
 
     return {
         "bronze_id": bronze_id,
