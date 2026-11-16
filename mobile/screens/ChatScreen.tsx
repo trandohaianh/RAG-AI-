@@ -230,7 +230,7 @@ export default function ChatScreen({ route, navigation }: any) {
                   testID="thumbs-up"
                   onPress={() => rate(item.id!, item.rating === 1 ? 0 : 1)}
                   hitSlop={8}
-                  style={[styles.feedbackBtn, item.rating === 1 && { backgroundColor: "#ECFDF5" }]}
+                  style={[styles.feedbackBtn, item.rating === 1 && { backgroundColor: colors.successSoft }]}
                 >
                   <Ionicons
                     name="thumbs-up-outline"
@@ -241,7 +241,7 @@ export default function ChatScreen({ route, navigation }: any) {
                 <TouchableOpacity
                   onPress={() => rate(item.id!, item.rating === -1 ? 0 : -1)}
                   hitSlop={8}
-                  style={[styles.feedbackBtn, item.rating === -1 && { backgroundColor: "#FEF2F2" }]}
+                  style={[styles.feedbackBtn, item.rating === -1 && { backgroundColor: colors.dangerSoft }]}
                 >
                   <Ionicons
                     name="thumbs-down-outline"

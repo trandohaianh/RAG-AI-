@@ -1,5 +1,6 @@
 "use client";
 
+import ThemeToggle from "./ThemeToggle";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -224,6 +225,7 @@ function UserFooter({ user, onLogout }: { user: User | null; onLogout: () => voi
           {user.role}
         </Badge>
       </div>
+      <ThemeToggle compact />
       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onLogout} title="Đăng xuất">
         <LogOut className="h-4 w-4" />
       </Button>

@@ -436,7 +436,7 @@ export default function FieldOperationsPage() {
   const completedCount = cases.filter((item) => item.status === "resolved").length;
 
   return (
-    <div className="h-full overflow-y-auto bg-[#f5f7fb]">
+    <div className="h-full overflow-y-auto bg-background">
       <div className="mx-auto max-w-[1500px] space-y-5 p-4 md:p-7">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>

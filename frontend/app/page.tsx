@@ -1,5 +1,6 @@
 "use client";
 
+import ThemeToggle from "@/components/ThemeToggle";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -113,6 +114,7 @@ export default function HomePage() {
             <a href="#tech" className="transition-colors hover:text-slate-900">Công nghệ</a>
           </nav>
           <div className="flex items-center gap-1.5">
+            <ThemeToggle compact />
             <Button variant="ghost" size="sm" asChild>
               <Link href="/login">Đăng nhập</Link>
             </Button>

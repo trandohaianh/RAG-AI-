@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @config "../tailwind.config.ts";
 @custom-variant dark (&:where(.dark, .dark *));
+@import "./theme-dark.css";
 
 /* Preserve the v3 defaults used by the existing components. */
 @theme {
@@ -23,55 +24,56 @@
 
 @layer base {
   :root {
-    /* Bảng màu slate trung tính — đồng bộ với trang chủ (bento/SaaS sáng) */
-    --background: 0 0% 100%;
+    /* Bảng màu FieldOps — "cam an toàn + xám thép": màu áo phản quang/biển báo công trường,
+       nổi bật và dễ đọc ngoài trời; xám thép trung tính cho nội dung. Đỏ/vàng/xanh lá chỉ dùng cho trạng thái. */
+    --background: 220 14% 97%;
     --foreground: 222 47% 11%;
     --card: 0 0% 100%;
     --card-foreground: 222 47% 11%;
-    --primary: 243 75% 59%;
+    --primary: 21 88% 40%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 40% 96%;
+    --secondary: 216 20% 95%;
     --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 97%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 243 60% 96%;
-    --accent-foreground: 243 60% 30%;
-    --success: 158 64% 40%;
+    --muted: 216 20% 96%;
+    --muted-foreground: 215 16% 42%;
+    --accent: 25 100% 96%;
+    --accent-foreground: 17 79% 30%;
+    --success: 152 61% 31%;
     --success-foreground: 0 0% 100%;
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 72% 42%;
     --destructive-foreground: 0 0% 98%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 243 75% 59%;
+    --border: 216 18% 89%;
+    --input: 216 18% 89%;
+    --ring: 21 88% 40%;
     --radius: 1rem;
     --sidebar: 0 0% 100%;
-    --brand-from: 224 20% 14%;
-    --brand-to: 240 10% 4%;
+    --brand-from: 21 88% 40%;
+    --brand-to: 15 79% 32%;
   }
-
   .dark {
-    --background: 240 15% 6%;
-    --foreground: 0 0% 98%;
-    --card: 240 14% 9%;
-    --card-foreground: 0 0% 98%;
-    --primary: 243 85% 70%;
-    --primary-foreground: 240 15% 6%;
-    --secondary: 240 10% 16%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 10% 15%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 243 35% 20%;
-    --accent-foreground: 243 90% 88%;
-    --success: 158 55% 48%;
-    --success-foreground: 240 15% 6%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 10% 18%;
-    --input: 240 10% 18%;
-    --ring: 243 85% 70%;
-    --sidebar: 240 16% 8%;
-    --brand-from: 220 15% 22%;
-    --brand-to: 240 12% 8%;
+    --background: 225 15% 8%;
+    --foreground: 220 20% 94%;
+    --card: 223 15% 12%;
+    --card-foreground: 220 20% 94%;
+    --primary: 21 100% 65%;
+    --primary-foreground: 225 15% 8%;
+    --secondary: 222 13% 17%;
+    --secondary-foreground: 220 20% 94%;
+    --muted: 222 13% 15%;
+    --muted-foreground: 218 12% 65%;
+    --accent: 20 40% 16%;
+    --accent-foreground: 25 100% 80%;
+    --success: 147 55% 63%;
+    --success-foreground: 225 15% 8%;
+    --destructive: 4 100% 75%;
+    --destructive-foreground: 225 15% 8%;
+    --border: 222 13% 20%;
+    --input: 222 13% 20%;
+    --ring: 21 100% 65%;
+    --sidebar: 225 15% 10%;
+    --brand-from: 21 88% 40%;
+    --brand-to: 15 79% 32%;
+    color-scheme: dark;
   }
 }
 
@@ -100,3 +102,22 @@
   background-clip: text;
   color: transparent;
 }
+
+/* Dải "indigo/violet/blue" trong mã là màu thương hiệu -> ánh xạ sang cam an toàn (sáng/tối riêng). */
+:root {
+  --color-indigo-50: #fff4ec; --color-indigo-100: #ffe6d4; --color-indigo-200: #ffc9a6; --color-indigo-300: #ffa56e;
+  --color-indigo-400: #ff8a4c; --color-indigo-500: #e8590c; --color-indigo-600: #c2410c; --color-indigo-700: #9a3412;
+  --color-indigo-800: #7c2d12; --color-indigo-900: #5a210d; --color-indigo-950: #3a1508;
+  --color-violet-500: #e8590c; --color-violet-600: #c2410c; --color-blue-500: #e8590c; --color-blue-600: #c2410c;
+}
+.dark {
+  --color-indigo-50: #2a1a10; --color-indigo-100: #3a2216; --color-indigo-200: #4f2c18; --color-indigo-300: #7a3e1c;
+  --color-indigo-400: #ff9b63; --color-indigo-500: #ff8a4c; --color-indigo-600: #ff8a4c; --color-indigo-700: #ffa56e;
+  --color-indigo-800: #ffc9a6; --color-indigo-900: #ffe6d4; --color-indigo-950: #fff4ec;
+  --color-violet-500: #ff8a4c; --color-violet-600: #ff8a4c; --color-blue-500: #ff8a4c; --color-blue-600: #ff8a4c;
+  --color-gray-200: #2c313c; --color-gray-400: #6b7383;
+}
+/* Nút nền thương hiệu: ở chế độ tối nền cam sáng -> chữ tối để đủ tương phản (8:1). */
+.dark .bg-indigo-600.text-white, .dark .bg-indigo-700.text-white, .dark .hover\:bg-indigo-700:hover.text-white,
+.dark .bg-indigo-500.text-white { color: #111318; }
+.dark .brand-gradient-text { background-image: linear-gradient(135deg, #ff8a4c, #ffb37a); }

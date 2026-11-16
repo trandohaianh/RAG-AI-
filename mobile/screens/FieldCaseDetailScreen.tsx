@@ -348,7 +348,7 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
             <Ionicons
               name={offline ? "cloud-offline-outline" : "cloud-upload-outline"}
               size={18}
-              color={offline ? "#9A3412" : colors.primary}
+              color={offline ? colors.warningText : colors.primary}
             />
             <View style={{ flex: 1 }}>
               <Text style={styles.syncTitle}>
@@ -360,7 +360,7 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
                   : "Chạm để thử đồng bộ lại.")}
               </Text>
             </View>
-            <Ionicons name="sync" size={18} color={offline ? "#9A3412" : colors.primary} />
+            <Ionicons name="sync" size={18} color={offline ? colors.warningText : colors.primary} />
           </TouchableOpacity>
         ) : null}
         {rejectedSection}
@@ -371,14 +371,14 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
           </View>
           <Text style={styles.title}>{item.title}</Text>
           <Text style={styles.customer}>{item.customer_label || "Khách hàng"} · {item.device_model || "Chưa rõ thiết bị"}</Text>
-          {item.address ? <View style={styles.infoRow}><Ionicons name="location-outline" size={15} color="#D3DDF0" /><Text style={styles.infoText}>{item.address}</Text></View> : null}
+          {item.address ? <View style={styles.infoRow}><Ionicons name="location-outline" size={15} color={colors.heroMuted} /><Text style={styles.infoText}>{item.address}</Text></View> : null}
           {item.scheduled_start ? (
-            <View style={styles.infoRow}><Ionicons name="time-outline" size={15} color="#D3DDF0" />
+            <View style={styles.infoRow}><Ionicons name="time-outline" size={15} color={colors.heroMuted} />
               <Text style={styles.infoText}>Lịch: {new Date(item.scheduled_start).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" })}{item.route_order ? ` · điểm thứ ${item.route_order}` : ""}</Text></View>
           ) : null}
           {item.latitude != null && item.longitude != null ? (
             <TouchableOpacity style={styles.infoRow} onPress={() => void Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${item.latitude},${item.longitude}`)}>
-              <Ionicons name="navigate-outline" size={15} color="#9FC3FF" /><Text style={[styles.infoText, { color: "#9FC3FF" }]}>Chỉ đường tới khách hàng</Text>
+              <Ionicons name="navigate-outline" size={15} color={colors.heroAccent} /><Text style={[styles.infoText, { color: colors.heroAccent }]}>Chỉ đường tới khách hàng</Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -539,27 +539,27 @@ const styles = StyleSheet.create({
   retryText: { color: "#fff", fontWeight: "700" },
   pendingWarning: { color: colors.warning, textAlign: "center", paddingHorizontal: 24, marginTop: 12, lineHeight: 18 },
   content: { padding: 16, paddingBottom: 34 },
-  syncBanner: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#EEF2FF", borderRadius: 12, padding: 12, marginBottom: 12 },
-  offlineBanner: { backgroundColor: "#FFF7ED" },
+  syncBanner: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.primarySoft, borderRadius: 12, padding: 12, marginBottom: 12 },
+  offlineBanner: { backgroundColor: colors.warningSoft },
   syncTitle: { color: colors.text, fontSize: 12, fontWeight: "800" },
   syncHint: { color: colors.textMuted, fontSize: 10, lineHeight: 15, marginTop: 3 },
-  rejectedCard: { backgroundColor: "#FEF2F2", borderRadius: 12, padding: 12, marginBottom: 12 },
+  rejectedCard: { backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 12, marginBottom: 12 },
   rejectedWrap: { alignSelf: "stretch", paddingHorizontal: 16, marginTop: 12 },
   rejectedTitle: { color: colors.destructive, fontSize: 12, fontWeight: "800" },
-  rejectedRow: { borderTopWidth: 1, borderTopColor: "#FECACA", paddingTop: 9, marginTop: 9 },
+  rejectedRow: { borderTopWidth: 1, borderTopColor: colors.dangerBorder, paddingTop: 9, marginTop: 9 },
   rejectedError: { color: colors.destructive, fontSize: 10, marginTop: 3 },
   rejectedButtons: { flexDirection: "row", gap: 18, marginTop: 7 },
   rejectedRetry: { color: colors.primary, fontSize: 12, fontWeight: "700" },
   rejectedDiscard: { color: colors.destructive, fontSize: 12, fontWeight: "700" },
-  hero: { backgroundColor: "#16243A", borderRadius: 18, padding: 18, marginBottom: 12 },
+  hero: { backgroundColor: colors.heroBg, borderRadius: 18, padding: 18, marginBottom: 12 },
   heroTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  caseId: { backgroundColor: "#33445F", borderRadius: 20, paddingHorizontal: 9, paddingVertical: 5 },
-  caseIdText: { color: "#E6ECF5", fontWeight: "800", fontSize: 10 },
-  status: { color: "#C5D0E4", fontSize: 11, fontWeight: "700" },
+  caseId: { backgroundColor: colors.heroLine, borderRadius: 20, paddingHorizontal: 9, paddingVertical: 5 },
+  caseIdText: { color: colors.heroText, fontWeight: "800", fontSize: 10 },
+  status: { color: colors.heroMuted, fontSize: 11, fontWeight: "700" },
   title: { color: "#fff", fontSize: 22, fontWeight: "800", lineHeight: 28, marginTop: 16 },
-  customer: { color: "#C2CDE0", fontSize: 12, marginTop: 7 },
+  customer: { color: colors.heroMuted, fontSize: 12, marginTop: 7 },
   infoRow: { flexDirection: "row", gap: 6, alignItems: "center", marginTop: 10 },
-  infoText: { color: "#D3DDF0", fontSize: 11, flex: 1 },
+  infoText: { color: colors.heroMuted, fontSize: 11, flex: 1 },
   sectionCard: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 15, marginBottom: 11 },
   sectionTitle: { color: colors.text, fontWeight: "800", fontSize: 15 },
   bodyText: { color: colors.text, fontSize: 13, lineHeight: 20, marginTop: 8 },
@@ -569,7 +569,7 @@ const styles = StyleSheet.create({
   actionText: { color: colors.text, fontWeight: "700", fontSize: 10, marginTop: 6 },
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 9 },
   stepCard: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 13, flexDirection: "row", gap: 11, marginBottom: 8 },
-  stepNumber: { width: 26, height: 26, borderRadius: 13, backgroundColor: "#EEF2FF", alignItems: "center", justifyContent: "center" },
+  stepNumber: { width: 26, height: 26, borderRadius: 13, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
   stepDone: { backgroundColor: colors.success },
   stepNumberText: { color: colors.primary, fontSize: 11, fontWeight: "800" },
   stepTitle: { color: colors.text, fontSize: 13, fontWeight: "700", lineHeight: 18 },
