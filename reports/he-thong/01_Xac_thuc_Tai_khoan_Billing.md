@@ -66,6 +66,30 @@ Billing quyết định gói (`free` hoặc `pro`), và gói quyết định quo
 
 Đổi mật khẩu, đặt lại mật khẩu, vô hiệu hoá tài khoản hay liên kết Google vào một tài khoản chưa xác minh đều tăng `token_version`, nên mọi token cũ mất hiệu lực ngay.
 
+### 2.1b Phiên web bằng cookie httpOnly và chống CSRF (vòng 3)
+
+**Phát hành phiên** (`auth/session_cookie.py`, `auth/router.py:_issue`)
+
+- **Request có `X-Auth-Mode: cookie`** (web gửi): server đặt cookie `AUTH_COOKIE_NAME` (mặc định `fieldops_session`) với httpOnly, `SameSite=AUTH_COOKIE_SAMESITE` (mặc định lax) và `Secure` ngoài môi trường dev hoặc khi SameSite=none. Thời hạn cookie bằng thời hạn JWT (7 ngày). Body trả `access_token: ""`.
+- **Request không có header đó** (mobile, script API): nhận token trong body như trước.
+
+**Đọc phiên** (`dependencies.request_token`)
+
+1. Ưu tiên header `Authorization: Bearer`.
+2. Không có thì đọc cookie.
+3. Khi xác thực **bằng cookie** với phương thức ghi (khác GET/HEAD/OPTIONS), bắt buộc header `X-Requested-With: fieldops`; thiếu thì trả 403.
+
+Lý do: trình duyệt tự gửi cookie, nhưng một site khác không đặt được header tuỳ ý mà không qua CORS preflight, và CORS chỉ cho các origin đã cấu hình. Thêm `SameSite=Lax` là lớp thứ hai.
+
+**Endpoint mới**
+
+| Endpoint | Tác dụng |
+|---|---|
+| `POST /auth/logout` | Xoá cookie |
+| `POST /auth/session` | Cần Bearer; đổi token cũ trong `localStorage` sang cookie một lần |
+
+`token_version` vẫn được kiểm ở mỗi request, nên đổi mật khẩu vẫn thu hồi cả phiên cookie.
+
 ### 2.2 Đăng nhập Google (`auth/google.py`, `login_with_google`)
 
 **Bước 1: xác minh ID token**
@@ -167,7 +191,9 @@ Hai lần bấm đồng thời luôn dùng chung một customer.
 | U19 | Thấp | `config.py` | `ALGORITHM=none` hoặc `CHUNK_OVERLAP ≥ CHUNK_SIZE` chỉ lộ ra lúc xác thực hoặc lúc ingest. | Kiểm tra khi import `config`. | `round2::test_invalid_signing_or_chunking_config_fails_at_startup` |
 | F11 | Thấp–TB | `auth/lifecycle.py` | Người bị vô hiệu hoá vẫn là `default_assignee` của tích hợp CRM, nên ca mới được giao cho người ngoài đội. | Đặt `default_assignee = NULL`. | `test_deactivated_member_is_removed_as_integration_default_assignee` |
 
-Tiền tố `round2::` là tệp `tests/test_audit_regressions_round2.py`. Các tên không có tiền tố nằm trong `tests/test_audit_regressions.py`, trừ khi có ghi tên tệp khác.
+| V2 | TB | `auth/session_cookie.py`, `auth/router.py`, `dependencies.py`, `config.py` | Web chỉ có Bearer token, buộc lưu ở `localStorage`, nơi XSS đọc được. | `round3::test_web_login_sets_httponly_cookie_…`, `round3::test_cookie_authenticated_writes_require_the_csrf_header`, `round3::test_logout_clears_the_cookie_and_bearer_clients_are_unchanged`, `round3::test_legacy_local_storage_token_is_exchanged_for_a_cookie` |
+
+Tiền tố `round2::` là tệp `tests/test_audit_regressions_round2.py`, và `round3::` là `tests/test_audit_regressions_round3.py`. Các tên không có tiền tố nằm trong `tests/test_audit_regressions.py`, trừ khi có ghi tên tệp khác.
 
 ---
 

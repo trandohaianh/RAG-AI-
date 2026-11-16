@@ -47,17 +47,37 @@ def format_history(history: list[dict[str, Any]] | None) -> str:
     return "\n".join(lines)
 
 
+class RagPrompt(str):
+    """Phần nội dung người dùng của prompt (context + lịch sử + câu hỏi), kèm `.system`.
+
+    Quy tắc trả lời đi riêng qua kênh system của provider (Gemini `system_instruction`,
+    Ollama `system`), không nằm chung chuỗi với tài liệu: nội dung tài liệu hay câu hỏi chứa
+    "bỏ qua các quy tắc trên..." không còn đứng cùng cấp với chính các quy tắc đó.
+    Là `str` để mọi chỗ gọi cũ (fake provider, script) vẫn chạy như trước.
+    """
+
+    system: str
+
+    def __new__(cls, content: str, system: str):
+        obj = super().__new__(cls, content)
+        obj.system = system
+        return obj
+
+    def __getnewargs__(self):
+        return (str(self), self.system)
+
+
 def build_gemini_prompt(
     context: str,
     question: str,
     history: list[dict[str, Any]] | None = None,
-) -> str:
+) -> RagPrompt:
     history_text = format_history(history)
     history_block = f"\n\nLịch sử hội thoại:\n{history_text}" if history_text else ""
-    return (
-        f"{SYSTEM_PROMPT}\n\n"
+    return RagPrompt(
         f"Context tài liệu:\n{context}"
         f"{history_block}\n\n"
         f"Câu hỏi: {question}\n\n"
-        f"Trả lời (tiếng Việt):"
+        f"Trả lời (tiếng Việt):",
+        SYSTEM_PROMPT,
     )

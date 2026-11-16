@@ -438,33 +438,68 @@ test("captured mobile session rejects account changes and sync preserves remaini
   assert.equal(await offline.getPendingFieldActionCount(1), 1);
 });
 
-test("web Axios and streaming 401s only clear their own session", async () => {
-  const local = new Map([["rag_token", "current"], ["rag_user", JSON.stringify(user)]]);
+function webHarness(fetcher) {
+  const local = new Map([["rag_session", "current"], ["rag_user", JSON.stringify(user)]]);
   const location = { pathname: "/field", href: "" };
-  let rejectResponse;
+  const hooks = {};
+  const fetches = [];
   const instance = {
     defaults: { headers: { common: {} } },
-    interceptors: { response: { use(_ok, fail) { rejectResponse = fail; } } },
+    interceptors: {
+      request: { use(ok) { hooks.request = ok; } },
+      response: { use(_ok, fail) { hooks.reject = fail; } },
+    },
   };
-  const axios = { create: () => instance, isAxiosError: () => false };
+  let created;
+  const axios = { create: (options) => { created = options; return instance; }, isAxiosError: () => false };
   const web = load("frontend/lib/api.ts", { axios: { __esModule: true, default: axios } }, {
     window: { location },
-    localStorage: { getItem: (key) => local.get(key) ?? null, removeItem: (key) => local.delete(key) },
-    process: { env: { NEXT_PUBLIC_API_URL: "https://api.example.test" } },
-    fetch: async () => {
-      // The login changes while this streaming request is in flight.
-      local.set("rag_token", "next");
-      return { ok: false, status: 401, json: async () => ({ detail: "expired" }) };
+    localStorage: {
+      getItem: (key) => local.get(key) ?? null,
+      setItem: (key, value) => local.set(key, value),
+      removeItem: (key) => local.delete(key),
     },
+    process: { env: { NEXT_PUBLIC_API_URL: "https://api.example.test" } },
+    fetch: async (url, options) => { fetches.push([url, options]); return fetcher(url, options, local); },
   });
-  await assert.rejects(rejectResponse({ response: { status: 401 }, config: { url: "/field/cases", headers: { Authorization: "Bearer previous" } } }));
-  assert.equal(local.get("rag_token"), "current");
+  return { web, local, location, hooks, fetches, created: () => created };
+}
+
+test("web Axios and streaming 401s only clear their own session", async () => {
+  const h = webHarness(async (url, _options, local) => {
+    if (url.endsWith("/auth/logout")) return { ok: true, status: 200, json: async () => ({}) };
+    // The login changes while this streaming request is in flight.
+    local.set("rag_session", "next");
+    return { ok: false, status: 401, json: async () => ({ detail: "expired" }) };
+  });
+  await assert.rejects(h.hooks.reject({ response: { status: 401 }, config: { url: "/field/cases", sessionEpoch: "previous" } }));
+  assert.equal(h.local.get("rag_session"), "current");
   const events = [];
-  await web.streamChat(1, "question", callbacks(events));
-  assert.equal(local.get("rag_token"), "next", "stale streaming 401 must leave the next session intact");
-  await assert.rejects(rejectResponse({ response: { status: 401 }, config: { url: "/field/cases", headers: { Authorization: "Bearer next" } } }));
-  assert.equal(local.has("rag_token"), false);
-  assert.equal(location.href, "/login");
+  await h.web.streamChat(1, "question", callbacks(events));
+  assert.equal(h.local.get("rag_session"), "next", "stale streaming 401 must leave the next session intact");
+  await assert.rejects(h.hooks.reject({ response: { status: 401 }, config: { url: "/field/cases", sessionEpoch: "next" } }));
+  assert.equal(h.local.has("rag_session"), false);
+  assert.equal(h.local.has("rag_user"), false);
+  assert.equal(h.location.href, "/login");
+  assert.ok(h.fetches.some(([url]) => url.endsWith("/auth/logout")), "an expired session also clears its cookie");
+});
+
+test("web session lives in an httpOnly cookie: no bearer token is stored or sent", async () => {
+  const h = webHarness(async () => ({ ok: false, status: 500, json: async () => ({ detail: "x" }) }));
+  const options = h.created();
+  assert.equal(options.withCredentials, true, "axios sends the session cookie");
+  assert.equal(options.headers["X-Requested-With"], "fieldops", "CSRF header on every request");
+  assert.equal(options.headers["X-Auth-Mode"], "cookie", "login responses set a cookie instead of returning a token");
+  const config = h.hooks.request({ headers: {} });
+  assert.equal(config.sessionEpoch, "current");
+  await h.web.streamChat(1, "question", callbacks([]));
+  const [, streamOptions] = h.fetches[0];
+  assert.equal(streamOptions.credentials, "include");
+  assert.equal(streamOptions.headers.Authorization, undefined);
+  assert.equal(streamOptions.headers["X-Requested-With"], "fieldops");
+  h.local.set("rag_token", "legacy-token");
+  assert.equal(h.web.takeLegacyToken(), "legacy-token");
+  assert.equal(h.local.has("rag_token"), false, "the legacy localStorage token is removed after migration");
 });
 
 // ---------------------------------------------------------------- audit 2026-11-16 regressions
@@ -477,6 +512,24 @@ test("fresh install that switches to the real server keeps offline mode (no bind
   assert.equal(await offline.isSecureOfflineStorageAvailable(), true);
   await offline.enqueueFieldAction(1, offline.prepareFieldAction({ kind: "note", case_id: 8, detail: "on site" }));
   assert.equal(await offline.getPendingFieldActionCount(1), 1);
+});
+
+test("device locked to the dev server by an old version recovers offline mode unless it holds that user's data", async () => {
+  const legacyOrigin = "fieldops.offline.v1.api_origin";
+  // Old version bound the default dev origin on a mere read; this user never stored anything.
+  const empty = mobileHarness();
+  empty.secure.set(legacyOrigin, "http://100.121.99.57:8001");
+  await empty.api.setApiUrl("https://fieldops.example.test");
+  await empty.api.saveAuth("real", user);
+  assert.equal(await offlineHarness(empty).isSecureOfflineStorageAvailable(), true);
+
+  // Same legacy binding, but this user has queued edits there: they stay isolated.
+  const holding = mobileHarness();
+  holding.secure.set(legacyOrigin, "http://100.121.99.57:8001");
+  holding.secure.set("fieldops.offline.v1.1.actions.manifest", JSON.stringify({ generation: "g", chunks: 1 }));
+  await holding.api.setApiUrl("https://fieldops.example.test");
+  await holding.api.saveAuth("real", user);
+  assert.equal(await offlineHarness(holding).isSecureOfflineStorageAvailable(), false);
 });
 
 test("web outbox moves an action that keeps failing with 5xx to rejected and unblocks later ones", async () => {

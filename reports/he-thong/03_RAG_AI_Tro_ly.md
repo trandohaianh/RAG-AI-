@@ -110,7 +110,15 @@ Ví dụ: `gemini-2.5-flash`, 3000 token vào và 400 token ra cho 0,0009 + 0,00
 - **Stream bị ngắt:**
   - Gemini: ghi `partial`; khi chưa có số token đầu ra thì ước lượng $\lceil len/4\rceil$ (F16).
   - Ollama: giờ cũng ghi đúng một bản ghi `partial` (F17).
-- **Ngân sách ngày:** áp dụng cho chat, embed, `/v1/ask`, gợi ý câu hỏi (F5) và upload (U7). Đây là **trần mềm**: N request đồng thời cùng qua cổng kiểm tra trước khi chi phí kịp được ghi.
+- **Ngân sách ngày (trần cứng, vòng 3):** áp dụng cho chat, embed, `/v1/ask`, trợ lý ca, gợi ý câu hỏi (F5) và upload (U7). Mỗi request **đặt trước** một khoản $r$ (`LLM_BUDGET_RESERVE_USD`, mặc định ≈ chi phí 16k token vào + 2k token ra của model đang dùng) trong một giao dịch có khoá. SQLite dùng khoá ghi lấy bởi `INSERT`; PostgreSQL dùng `pg_advisory_xact_lock`.
+
+  $$\text{chấp nhận} \iff \text{đã\_chi} + \sum \text{đặt\_chỗ còn hạn (gồm } r) \le \text{trần}$$
+
+  Request kết thúc (kể cả lỗi, hoặc khi client ngắt kết nối) thì trả đặt chỗ, vì chi phí thật lúc đó đã nằm trong bảng usage. Tiến trình chết thì đặt chỗ hết hạn sau 15 phút.
+
+  **Ví dụ:** trần 0,015 USD, $r$ = 0,01 USD. Request A được nhận (0 + 0,01 ≤ 0,015). Request B đến khi A đang chạy bị từ chối (0,02 > 0,015). Sau khi A xong và ghi chi phí thật 0,003 USD, B được nhận (0,003 + 0,01 = 0,013 ≤ 0,015).
+
+  Vượt trần chỉ còn xảy ra khi chi phí thật của **một** request lớn hơn $r$ của chính nó.
 
 ### 2.4 Bộ đánh giá offline và live (`evals/`)
 
@@ -148,10 +156,20 @@ Ví dụ: `gemini-2.5-flash`, 3000 token vào và 400 token ra cho 0,0009 + 0,00
 
 - **D4:** quota bị trừ khi provider lỗi, để chống lạm dụng.
 - **D5:** `rag/technical` từ chối trả lời khi có hơn 4 parent đạt ngưỡng, thay vì cắt bớt (ưu tiên an toàn kỹ thuật).
-- **Prompt chưa tách vai trò:** rule, context và câu hỏi vẫn nằm chung một chuỗi `contents`, chưa dùng `system_instruction` của Gemini. Phòng thủ prompt injection gồm câu dặn trong system prompt và việc vô hiệu nhãn (F8).
+- **System prompt đã tách (vòng 3):** `build_gemini_prompt` trả về `RagPrompt`, một `str` chứa context, lịch sử và câu hỏi, kèm thuộc tính `.system` chứa quy tắc. Gemini nhận quy tắc qua `GenerateContentConfig.system_instruction`; Ollama nhận qua trường `system`. Tài liệu có câu "bỏ qua các quy tắc trên…" không còn đứng cùng cấp với quy tắc. Eval offline cho kết quả giống hệt. **Eval live chưa chạy** vì cần `GEMINI_API_KEY` trong `.env` cục bộ; lệnh chạy nằm ở báo cáo 01 §9.
 - **Audit chỉ kiểm danh tính nhãn:** `audit_citations` không kiểm tra nội dung có đúng nghĩa với đoạn trích (`semantic_support_verified = False`).
 - **Nhãn quá dài:** nhãn dài hơn 64 ký tự có thể đã được phát một phần trước khi đóng ngoặc. Audit cuối vẫn chặn việc lưu câu trả lời đó.
-- **Ngân sách là trần mềm** (§2.3).
+- **Ngân sách:** trần cứng theo đặt chỗ (§2.3). Phần vượt còn lại tối đa bằng mức chênh giữa chi phí thật và khoản đặt trước của một request.
+
+**Test vòng 3:**
+
+- `round3::test_requests_in_flight_hold_budget_so_concurrent_calls_cannot_overshoot`
+- `round3::test_reservation_of_a_crashed_request_expires`
+- `round3::test_chat_stream_returns_its_reservation`
+- `round3::test_rules_travel_as_system_instruction_not_inside_the_document_prompt`
+- `round3::test_ollama_request_carries_the_system_field`
+
+Cả 5 test FAIL trên `7f0955a` và PASS sau khi sửa.
 
 ---
 

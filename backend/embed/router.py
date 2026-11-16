@@ -242,8 +242,12 @@ async def embed_chat(
         conv_id, session_token = _guest_conversation(db, row, body)
     from costs.budget import enforce_budget
 
-    enforce_budget(db, row.user_id)
-    reservation = enforce_query_quota(db, row.user_id, plan)
+    budget = enforce_budget(db, row.user_id)
+    try:
+        reservation = enforce_query_quota(db, row.user_id, plan)
+    except Exception:
+        budget.release()
+        raise
     try:
         if conv_id is None:
             conv_id, session_token = _guest_conversation(db, row, body)
@@ -251,6 +255,7 @@ async def embed_chat(
         history = chat_service.get_history_for_rag(db, conv_id)
     except Exception:
         release_query_quota(db, reservation)
+        budget.release()
         raise
     user_id = row.user_id
     question = body.question
@@ -297,6 +302,8 @@ async def embed_chat(
             logging.getLogger(__name__).warning("RAG request failed (%s)", type(exc).__name__)
             yield f"data: {json.dumps({'error': RAG_ERROR_MESSAGE, 'code': 'rag_unavailable'}, ensure_ascii=False)}\n\n"
             return
+        finally:
+            budget.release()   # chi phí thật đã được ghi; trả khoản đặt trước
 
     return StreamingResponse(
         event_generator(),

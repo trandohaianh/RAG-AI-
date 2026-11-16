@@ -1,7 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import * as api from "./api";
-import { assertOfflineApiOrigin, bindOfflineApiOriginForWrite } from "./offlineOrigin";
+import { assertOfflineApiOrigin, bindOfflineApiOriginForWrite, releaseUnusedLegacyBinding } from "./offlineOrigin";
 
 const STORAGE_PREFIX = "fieldops.offline.v1";
 const CHUNK_BYTE_LIMIT = 1200;
@@ -194,12 +194,30 @@ async function removeRecord(key: string): Promise<void> {
   await SecureStore.deleteItemAsync(manifestKey);
 }
 
+// Các bản ghi gốc của một người dùng: hàng đợi, thao tác bị từ chối, chỉ mục ca đã cache và
+// workspace đang mở (tổng quan workspace được tìm qua khoá này).
+const USER_ROOT_RECORDS = ["actions", "rejected_actions", "case_index", "active_workspace"];
+
+async function userHasOfflineRecords(userId: number): Promise<boolean> {
+  for (const name of USER_ROOT_RECORDS) {
+    if (await SecureStore.getItemAsync(`${recordKey(userId, name)}.manifest`)) return true;
+  }
+  return false;
+}
+
 export async function isSecureOfflineStorageAvailable(): Promise<boolean> {
   if (Platform.OS === "web" || !(await SecureStore.isAvailableAsync())) return false;
+  const apiUrl = await api.getApiUrl();
   try {
-    await assertOfflineApiOrigin(await api.getApiUrl());
+    await assertOfflineApiOrigin(apiUrl);
     return true;
   } catch {
+    // Máy bị bản cũ khoá nhầm vào máy chủ khác mà người dùng này chưa từng có dữ liệu:
+    // gỡ ràng buộc đó thay vì tắt hẳn chế độ offline.
+    const user = await api.loadUser();
+    if (user && await releaseUnusedLegacyBinding(apiUrl, () => userHasOfflineRecords(user.id))) {
+      return true;
+    }
     // Keep the original server's data private and intact on another backend.
     return false;
   }

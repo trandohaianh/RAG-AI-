@@ -25,6 +25,7 @@ from auth.models import User
 from auth.schemas import CurrentUser, UserCreate
 from auth.service import register_user
 from chat import models as chat_models  # noqa: F401
+from costs import models as cost_models  # noqa: F401  (llm_budget_reservations)
 from database import Base, _enable_sqlite_foreign_keys, get_db
 from dependencies import get_current_user
 from field import integrations, models as field_models, photos
@@ -84,7 +85,7 @@ def test_concurrent_checkout_reuses_the_stored_customer(sessions, monkeypatch):
 
 
 # ----------------------------------------------------------------------------- AI cost boundaries
-def test_suggested_questions_respect_the_daily_ai_budget(monkeypatch):
+def test_suggested_questions_respect_the_daily_ai_budget(monkeypatch, sessions):
     calls = []
 
     async def fake_suggest(user_id, limit=5):
@@ -96,7 +97,12 @@ def test_suggested_questions_respect_the_daily_ai_budget(monkeypatch):
     monkeypatch.setattr("costs.budget.spent_today", lambda db, user_id=None: 5.0)
     app = FastAPI()
     app.include_router(docs_router.router)
-    app.dependency_overrides[get_db] = lambda: iter([None])
+
+    def override_db():
+        with sessions() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(id=3, email="u@example.com", role="user")
     with TestClient(app) as client:
         assert client.get("/documents/suggested-questions").status_code == 429

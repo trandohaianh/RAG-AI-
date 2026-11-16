@@ -46,6 +46,12 @@ Có bốn loại client:
 - Xác minh JWKS, `aud`, `iss` và `email_verified`.
 - Liên kết vào một tài khoản mật khẩu **chưa xác minh** thì vô hiệu mật khẩu cũ và tăng `token_version` (chống pre-hijack).
 
+**Phiên web bằng cookie httpOnly (vòng 3)**
+
+- Web gửi `X-Auth-Mode: cookie`. Server đặt JWT vào cookie httpOnly (SameSite=Lax) và không trả token trong body.
+- Request ghi dùng cookie phải có `X-Requested-With: fieldops` (chống CSRF).
+- Mobile và Public API giữ Bearer.
+
 **Quên mật khẩu**
 
 - Email gửi ở nền, nên thời gian phản hồi không lộ email nào tồn tại.
@@ -158,15 +164,16 @@ Thứ tự xử lý:
 | Ranh giới | Thứ được tin | Cơ chế | Còn hở |
 |---|---|---|---|
 | Internet → edge | Không gì | TLS, HSTS, body ≤ 30 MB. XFO SAMEORIGIN, riêng `/embed` có `frame-ancestors *`. Edge ghi đè `X-Forwarded-For`. | Hai cấu hình edge phải đồng bộ bằng tay |
-| Trình duyệt → console | Mã do `'self'` phục vụ | CSP: `connect-src` chỉ tới API đã cấu hình, `object-src 'none'`, `frame-ancestors 'self'` | Cần `'unsafe-inline'` cho script (chưa dùng nonce); token nằm ở `localStorage` |
-| Bearer JWT | Chữ ký và `token_version` trong DB | §2.1 | — |
+| Trình duyệt → console | Script mang nonce của request | CSP có nonce và `'strict-dynamic'` (`proxy.ts`): HTML chèn vào không chạy được script; `connect-src` chỉ tới API đã cấu hình; `object-src 'none'`; `frame-ancestors 'self'` | `style-src` vẫn có `'unsafe-inline'` (CSS không thực thi mã) |
+| Cookie phiên web | Chữ ký, `token_version`, và header CSRF với phương thức ghi | httpOnly, nên JS (kể cả XSS) không đọc được token | Nếu API và web khác site thì cần `AUTH_COOKIE_SAMESITE=none` cộng CORS |
+| Bearer JWT (mobile, API) | Chữ ký và `token_version` trong DB | §2.1 | — |
 | Google ID token | JWKS, `aud`, `iss`, email đã xác minh | Chống pre-hijack | — |
 | API key | SHA-256 của key | Phạm vi theo user | — |
 | Embed token | **Công khai** | `allowed_origins` so với origin của trang cha (`ancestorOrigins`/`referrer`) | Client không phải trình duyệt giả được header |
 | Vai trò trong workspace | Membership trong DB | Owner và kỹ thuật viên (§2.4) | — |
 | CRM/NMS → API | Secret HMAC của từng tích hợp | §2.5 | — |
 | API → URL webhook của owner | Không tin | https, IP `is_global`, ghim IP, không theo redirect | Dev có `FIELD_WEBHOOK_ALLOW_PRIVATE` thì tắt các kiểm tra này |
-| Tài liệu → prompt | Là dữ liệu | Vô hiệu `【】`, `［］` và `---`; system prompt dặn mô hình | Chưa dùng `system_instruction` |
+| Tài liệu → prompt | Là dữ liệu | Vô hiệu `【】`, `［］` và `---`; quy tắc đi qua kênh system riêng (Gemini `system_instruction`, Ollama `system`) | Mô hình vẫn có thể bị dẫn dắt; audit nhãn là lớp chặn cuối |
 | LLM → người dùng | Không tin | Audit nhãn **trong lúc stream**; nhãn sai thì dừng và không lưu | Chỉ kiểm danh tính nhãn, không kiểm nội dung đúng nghĩa |
 | Ảnh upload | Không tin | Nhận dạng bằng nội dung tệp; chặn > 40 MP trước khi giải nén; mã hoá lại bỏ EXIF/GPS; kiểm hạn mức lại dưới khoá ghi | — |
 | Thiết bị mobile → máy chủ | Origin đã gắn cho dữ liệu offline | Chỉ gắn khi ghi; đọc chỉ kiểm tra | Máy đã bị khoá nhầm ở bản cũ |
@@ -183,6 +190,7 @@ Thứ tự xử lý:
 | Rerank lexical | $4|Q\cap H|+2|Q\cap B|+|C\cap H|$ (`rag/rerank.py`) | Từ "pon" ở tiêu đề, "pon" và "đỏ" ở thân: **8** |
 | Giữ nhãn khi stream | Phát phần văn bản tới trước ngoặc mở chưa đóng; giữ tối đa 64 ký tự, không qua xuống dòng; audit phần đã phát trước mỗi lần phát (`rag/chain.py:_safe_release_point`) | `"Đúng 【E9"` chỉ phát `"Đúng "`; `"99】"` đóng nhãn E999, audit báo `invalid`, stream dừng |
 | Quota | $used'=used+1$ khi $used<limit$; Free 50, Pro 1000 câu/ngày UTC | — |
+| Trần ngân sách cứng | Chấp nhận khi $\text{đã\_chi}+\sum\text{đặt\_chỗ còn hạn (gồm } r) \le \text{trần}$, kiểm trong giao dịch có khoá; trả đặt chỗ khi request xong; hết hạn sau 15 phút (`costs/budget.py`) | Trần 0,015, $r$ = 0,01: A nhận; B (khi A đang chạy) cần 0,02 nên bị từ chối; A xong với chi phí 0,003 thì B nhận (0,013) |
 | Chi phí | $\frac{in\cdot p_{in}+(out+thinking)\cdot p_{out}}{10^6}+units\cdot p_{unit}$; ước lượng $\lceil len/4\rceil$ khi thiếu số token | 3000 token vào, 400 ra, flash: **0,0019 USD** |
 | Lập tuyến | $travel=\lceil 1{,}35\,d/v\cdot60\rceil$; $cost=\sum(travel+w(start-shift))$, w = {0,5; 0,2; 0,05; 0}; chèn rẻ nhất với điểm $\Delta cost+3|seq|$, rồi 2-opt | 4 km cho **11 phút**; ca khẩn chờ 1 giờ "đắt" bằng 30 phút lái xe |
 | Retry webhook | $\min(30\cdot2^a, 21600)$ s; lease claim 5 phút; tối đa 8 lần | a = 3 cho 240 s |
@@ -200,10 +208,10 @@ Thứ tự xử lý:
 |---|---|---|
 | FastAPI + SQLAlchemy 2 | Async và SSE; migration có ledger, chạy trên SQLite và PostgreSQL | SQLite chỉ cho một writer; các khoá ghi trong code (ảnh, vô hiệu hoá tài khoản) dùng `UPDATE` không đổi gì để lấy khoá |
 | Chroma + rank_bm25 | Không cần server riêng; bắt đúng mã lỗi chính xác | Index BM25 nằm trong RAM; phải dựng lại khi revision đổi |
-| Gemini / Ollama | Chất lượng và OCR / chạy cục bộ | Chưa dùng `system_instruction`; OCR luôn cần Gemini |
+| Gemini / Ollama | Chất lượng và OCR / chạy cục bộ | Quy tắc đi qua `system_instruction` / `system`; OCR luôn cần Gemini |
 | Stripe | Checkout, Portal, webhook | Cần idempotency key (đã thêm) |
 | Pillow | Kiểm tra, mã hoá lại, bỏ metadata | Chỉ tự raise ở 2× giới hạn, nên phải tự chặn số pixel (đã thêm) |
-| Next.js 15 | App Router; CSP qua `headers()` | Cần `'unsafe-inline'` khi chưa dùng nonce |
+| Next.js 16 | App Router; CSP có nonce qua `proxy.ts` | Mọi trang render theo từng request (đánh đổi một chút hiệu năng lấy nonce) |
 | Expo SecureStore | Lưu trữ được mã hoá | Giới hạn kích thước mỗi khoá nên phải chia chunk; không có transaction nên phải tự khoá |
 | Caddy / nginx | TLS tự động / cấu hình chi tiết | Hai biến thể phải đồng bộ |
 | Prometheus | Metric và alert | Metric của tiến trình không được scrape thì phải xuất qua API (đã thêm gauge từ DB) |
@@ -215,14 +223,14 @@ Thứ tự xử lý:
 
 | Thành phần | Cách kiểm | Kết quả |
 |---|---|---|
-| Backend (mọi hệ thống) | pytest trên WSL | **517 passed, 12 skipped** (baseline 468/12) |
-| Các bản sửa backend | 48 regression test trên `git archive HEAD` | Đều FAIL đúng lỗi, PASS sau khi sửa; trừ 1 test chống hồi quy pass ở cả hai |
-| Web và mobile | `node --test` | 17/17; 3 test mới FAIL trên mã gốc |
-| Typecheck, build | `npm ci`, `tsc`, `next build` | PASS |
-| CSP, embed | `next start` cùng built-in browser | Render bình thường, không vi phạm CSP; request tới domain lạ bị chặn hoặc bị bỏ qua |
+| Backend (mọi hệ thống) | pytest trên WSL | **527 passed, 12 skipped** (baseline 468/12) |
+| Các bản sửa backend | 58 regression test (16 + 32 + 10), mỗi vòng chạy trên mã trước vòng đó | Đều FAIL đúng lỗi, PASS sau khi sửa; trừ 1 test chống hồi quy pass ở cả hai |
+| Web và mobile | `node --test` | 19/19; các test mới của từng vòng FAIL trên mã trước vòng đó |
+| Typecheck, build | `npm ci`, `tsc`, `next build` | PASS; mọi trang render theo từng request; nhận diện Proxy |
+| End-to-end web | API WSL (DB tạm), `next start`, built-in browser | Đăng ký, đăng nhập, reload, tạo hội thoại, đăng xuất qua cookie httpOnly; token cũ tự đổi sang cookie; HTML chèn vào bị CSP chặn |
 | Eval offline | 3 script của CI | Giống hệt trước khi sửa |
 | Compose | `docker compose config` | PASS; thiếu `ACME_EMAIL` thì báo lỗi rõ ràng |
-| PostgreSQL, Caddy, promtool, thiết bị mobile, provider thật | — | **Chưa chạy** (giới hạn môi trường; CI chạy PostgreSQL và promtool) |
+| PostgreSQL, Caddy, promtool, thiết bị mobile, provider thật, **eval live** | — | **Chưa chạy** (giới hạn môi trường; CI chạy PostgreSQL và promtool; eval live cần `GEMINI_API_KEY` trong `.env`) |
 
 **Tái lập trên Windows**
 

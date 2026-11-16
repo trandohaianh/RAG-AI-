@@ -27,7 +27,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       const res = await api.post("/auth/login", { email, password });
-      login(res.data.access_token, res.data.user);
+      login(res.data.user);
       router.replace("/chat");
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));

@@ -73,10 +73,10 @@ export default function GoogleSignInButton({ onError }: { onError?: (message: st
             if (!response.credential) return;
             setBusy(true);
             try {
-              const res = await api.post<{ access_token: string; user: User }>("/auth/google", {
+              const res = await api.post<{ user: User }>("/auth/google", {
                 credential: response.credential,
               });
-              login(res.data.access_token, res.data.user);
+              login(res.data.user);
               router.replace("/chat");
             } catch (err) {
               onError?.(getApiErrorMessage(err));

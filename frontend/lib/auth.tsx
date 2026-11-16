@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import api, { setAuthToken } from "./api";
+import api, { SESSION_KEY, USER_KEY, currentSession, takeLegacyToken } from "./api";
 
 export type User = {
   id: number;
@@ -23,34 +23,31 @@ export type User = {
   created_at: string;
 };
 
-const TOKEN_KEY = "rag_token";
-const USER_KEY = "rag_user";
-
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
-  login: (token: string, user: User) => void;
+  /** Gọi sau khi API đăng nhập thành công: phiên đã nằm trong cookie httpOnly. */
+  login: (user: User) => void;
   logout: () => void;
   refreshUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function saveAuth(token: string, user: User) {
-  localStorage.setItem(TOKEN_KEY, token);
+function newSessionEpoch(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `s-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/** Lưu hồ sơ người dùng (không phải bí mật) và đánh dấu phiên mới cho các tab khác. */
+export function saveAuth(user: User) {
   localStorage.setItem(USER_KEY, JSON.stringify(user));
-  setAuthToken(token);
+  localStorage.setItem(SESSION_KEY, newSessionEpoch());
 }
 
 export function clearAuth() {
-  localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
-  setAuthToken(null);
-}
-
-export function loadToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  localStorage.removeItem(SESSION_KEY);
 }
 
 export function loadUser(): User | null {
@@ -64,31 +61,56 @@ export function loadUser(): User | null {
   }
 }
 
+/** Phiên cũ lưu token trong localStorage: đổi sang cookie httpOnly một lần rồi xoá token.
+ * Dùng chung một promise: AuthProvider có thể mount lại (Providers bọc thêm ThemeProvider sau
+ * khi mount) và lượt chạy thứ hai không được kết luận "chưa đăng nhập" khi lượt đầu chưa xong. */
+let legacyMigration: Promise<void> | null = null;
+
+function migrateLegacyToken(): Promise<void> {
+  if (!legacyMigration) {
+    legacyMigration = (async () => {
+      const token = takeLegacyToken();
+      if (!token) return;
+      try {
+        const res = await api.post<User>("/auth/session", {}, { headers: { Authorization: `Bearer ${token}` } });
+        saveAuth(res.data);
+      } catch {
+        clearAuth();
+      }
+    })();
+  }
+  return legacyMigration;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refreshUser = useCallback(async () => {
-    const token = loadToken();
-    if (!token) {
+    await migrateLegacyToken();
+    const epoch = currentSession();
+    if (!epoch) {
+      // Trình duyệt này chưa đăng nhập: không hỏi server (tránh 401 cho khách vãng lai).
       setUser(null);
       setLoading(false);
       return;
     }
-    setAuthToken(token);
     const cached = loadUser();
     if (cached) {
       setUser(cached);
       setLoading(false);
     }
     try {
+      // Cookie httpOnly là nguồn sự thật: hỏi server phiên hiện tại là ai.
       const res = await api.get<User>("/auth/me", { timeout: 8000 });
-      if (loadToken() !== token) return;
+      if (currentSession() !== epoch) return;
       setUser(res.data);
       localStorage.setItem(USER_KEY, JSON.stringify(res.data));
-    } catch {
-      if (!cached && loadToken() === token) {
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      // Mất mạng: giữ hồ sơ đã lưu để vẫn dùng được outbox offline.
+      if ((status === 401 || !cached) && currentSession() === epoch) {
         clearAuth();
         setUser(null);
       }
@@ -100,8 +122,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refreshUser();
     const onStorage = (event: StorageEvent) => {
-      if (event.key === TOKEN_KEY || event.key === USER_KEY || event.key === null) {
-        setUser(loadToken() ? loadUser() : null);
+      if (event.key === SESSION_KEY || event.key === USER_KEY || event.key === null) {
+        setUser(currentSession() ? loadUser() : null);
         void refreshUser();
       }
     };
@@ -109,8 +131,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("storage", onStorage);
   }, [refreshUser]);
 
-  const login = useCallback((token: string, u: User) => {
-    saveAuth(token, u);
+  const login = useCallback((u: User) => {
+    saveAuth(u);
     setUser(u);
     setLoading(false);
   }, []);
@@ -119,6 +141,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void import("@/lib/caseCache").then((m) => m.clearSnapshots());
     clearAuth();
     setUser(null);
+    // Xoá cookie phiên ở server (JS không tự xoá được cookie httpOnly).
+    void api.post("/auth/logout").catch(() => undefined);
     router.push("/login");
   }, [router]);
 

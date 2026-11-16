@@ -8,10 +8,33 @@ function resolveApiUrl(): string {
 
 const API_URL = resolveApiUrl();
 
+/**
+ * Phiên web nằm trong cookie httpOnly do API đặt (JS không đọc được token → XSS không lấy
+ * được phiên). Mọi request gửi kèm cookie, cùng hai header:
+ * - X-Auth-Mode: cookie   → khi đăng nhập, server đặt cookie thay vì trả token trong body;
+ * - X-Requested-With      → bắt buộc với phương thức ghi khi xác thực bằng cookie (chống CSRF).
+ */
+export const SESSION_HEADERS = { "X-Requested-With": "fieldops", "X-Auth-Mode": "cookie" } as const;
+/** Mã phiên ngẫu nhiên đặt lúc đăng nhập: không phải bí mật, chỉ để biết một phản hồi 401
+ * thuộc phiên nào (phiên mới hơn không bị phản hồi trễ của phiên cũ đăng xuất nhầm). */
+export const SESSION_KEY = "rag_session";
+export const USER_KEY = "rag_user";
+const LEGACY_TOKEN_KEY = "rag_token";
+
 const api = axios.create({
   baseURL: API_URL,
-  headers: { "Content-Type": "application/json" },
+  headers: { "Content-Type": "application/json", ...SESSION_HEADERS },
   timeout: 15000,
+  withCredentials: true,
+});
+
+export function currentSession(): string | null {
+  return typeof window === "undefined" ? null : localStorage.getItem(SESSION_KEY);
+}
+
+api.interceptors.request.use((config) => {
+  (config as typeof config & { sessionEpoch?: string | null }).sessionEpoch = currentSession();
+  return config;
 });
 
 /** Thông báo lỗi dễ hiểu khi không kết nối được backend */
@@ -27,42 +50,33 @@ export function getApiErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Lỗi không xác định";
 }
 
-export function setAuthToken(token: string | null) {
-  if (token) {
-    api.defaults.headers.common.Authorization = `Bearer ${token}`;
-  } else {
-    delete api.defaults.headers.common.Authorization;
-  }
+/** Token cũ từng nằm trong localStorage (trước khi chuyển sang cookie). Trả về rồi xoá. */
+export function takeLegacyToken(): string | null {
+  if (typeof window === "undefined") return null;
+  const token = localStorage.getItem(LEGACY_TOKEN_KEY);
+  if (token) localStorage.removeItem(LEGACY_TOKEN_KEY);
+  return token;
 }
 
-// Khôi phục token khi import (client)
-if (typeof window !== "undefined") {
-  const t = localStorage.getItem("rag_token");
-  if (t) setAuthToken(t);
-}
-
-function expireSession(token: string | null) {
-  if (typeof window === "undefined" || !token || localStorage.getItem("rag_token") !== token) return;
-  localStorage.removeItem("rag_token");
-  localStorage.removeItem("rag_user");
-  setAuthToken(null);
+function expireSession(epoch: string | null | undefined) {
+  if (typeof window === "undefined" || !epoch || currentSession() !== epoch) return;
+  localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(USER_KEY);
+  // Cookie không còn hợp lệ: xoá nó luôn (không cần chờ kết quả).
+  void fetch(`${API_URL}/auth/logout`, { method: "POST", credentials: "include", headers: SESSION_HEADERS })
+    .catch(() => undefined);
   if (!window.location.pathname.startsWith("/login")) window.location.href = "/login";
 }
 
-// Token hết hạn/không hợp lệ (401) trên API cần đăng nhập → tự đăng xuất thay vì
-// hiện lỗi "token không hợp lệ" mãi trong khi UI vẫn tưởng đang đăng nhập.
+// Phiên hết hạn/không hợp lệ (401) → tự đăng xuất thay vì báo lỗi mãi trong khi UI vẫn tưởng
+// đang đăng nhập. Chỉ đăng xuất phiên đã gửi request đó, không phải phiên mới hơn.
 api.interceptors.response.use(
   (res) => res,
   (err) => {
     const status = err.response?.status;
     const url: string = err.config?.url ?? "";
     const isAuthEndpoint = url.includes("/auth/login") || url.includes("/auth/register");
-    const currentToken = typeof window !== "undefined" ? localStorage.getItem("rag_token") : null;
-    const sentAuthorization = err.config?.headers?.Authorization ?? err.config?.headers?.authorization;
-    if (status === 401 && !isAuthEndpoint && currentToken &&
-        sentAuthorization === `Bearer ${currentToken}` && typeof window !== "undefined") {
-      expireSession(currentToken);
-    }
+    if (status === 401 && !isAuthEndpoint) expireSession(err.config?.sessionEpoch);
     return Promise.reject(err);
   }
 );
@@ -249,18 +263,16 @@ export async function streamChat(
   },
   source?: string | null
 ) {
-  const token = localStorage.getItem("rag_token");
+  const epoch = currentSession();
   const res = await fetch(`${API_URL}/chat/${convId}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...SESSION_HEADERS },
     body: JSON.stringify({ question, source: source || null }),
   });
 
   if (!res.ok || !res.body) {
-    if (res.status === 401) expireSession(token);
+    if (res.status === 401) expireSession(epoch);
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     callbacks.onError(err.detail ?? "Lỗi chat");
     return;

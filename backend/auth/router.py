@@ -1,8 +1,10 @@
 """Đăng ký, đăng nhập (mật khẩu + Google), xác thực email và khôi phục mật khẩu."""
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
+
+from auth.session_cookie import clear_session_cookie, set_session_cookie, wants_cookie
 
 from auth import google as google_auth
 from auth import ratelimit
@@ -36,6 +38,16 @@ from dependencies import email_verification_required, get_current_user_allow_unv
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 _background: set = set()
+
+
+def _issue(request: Request, response: Response, user: User, *, is_new_user: bool = False) -> AuthResponse:
+    """Cấp phiên: web (X-Auth-Mode: cookie) nhận cookie httpOnly và body KHÔNG chứa token;
+    mobile/API nhận token trong body như trước."""
+    token = create_access_token(user)
+    if wants_cookie(request):
+        set_session_cookie(response, token)
+        token = ""
+    return AuthResponse(user=UserOut.from_user(user), access_token=token, is_new_user=is_new_user)
 
 
 def _auth_event(event: str, result: str) -> None:
@@ -74,7 +86,7 @@ def auth_config():
 
 
 @router.post("/register", response_model=AuthResponse)
-async def register(data: UserCreate, request: Request, db: Session = Depends(get_db)):
+async def register(data: UserCreate, request: Request, response: Response, db: Session = Depends(get_db)):
     ratelimit.hit("register:ip", ratelimit.client_ip(request))
     try:
         user = register_user(db, data)
@@ -83,13 +95,11 @@ async def register(data: UserCreate, request: Request, db: Session = Depends(get
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     _auth_event("register", "ok")
     _queue_verification(user)
-    return AuthResponse(
-        user=UserOut.from_user(user), access_token=create_access_token(user), is_new_user=True
-    )
+    return _issue(request, response, user, is_new_user=True)
 
 
 @router.post("/login", response_model=AuthResponse)
-def login(data: UserLogin, request: Request, db: Session = Depends(get_db)):
+def login(data: UserLogin, request: Request, response: Response, db: Session = Depends(get_db)):
     ratelimit.hit("login:ip", ratelimit.client_ip(request))
     ratelimit.hit("login:email", data.email)
     user = authenticate_user(db, data.email, data.password)
@@ -99,11 +109,12 @@ def login(data: UserLogin, request: Request, db: Session = Depends(get_db)):
     # Đăng nhập đúng → xoá bộ đếm theo email để người dùng thật không bị khoá oan.
     ratelimit.reset("login:email", data.email)
     _auth_event("login", "ok")
-    return AuthResponse(user=UserOut.from_user(user), access_token=create_access_token(user))
+    return _issue(request, response, user)
 
 
 @router.post("/google", response_model=AuthResponse)
-async def google_login(data: GoogleLoginRequest, request: Request, db: Session = Depends(get_db)):
+async def google_login(data: GoogleLoginRequest, request: Request, response: Response,
+                       db: Session = Depends(get_db)):
     ratelimit.hit("google:ip", ratelimit.client_ip(request))
     if not google_auth.is_enabled():
         raise HTTPException(status_code=404, detail="Đăng nhập Google chưa được bật")
@@ -119,9 +130,28 @@ async def google_login(data: GoogleLoginRequest, request: Request, db: Session =
         _auth_event("google", "rejected")
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     _auth_event("google", "created" if created else "ok")
-    return AuthResponse(
-        user=UserOut.from_user(user), access_token=create_access_token(user), is_new_user=created
-    )
+    return _issue(request, response, user, is_new_user=created)
+
+
+@router.post("/session", response_model=UserOut)
+def upgrade_to_cookie_session(
+    response: Response,
+    user: CurrentUser = Depends(get_current_user_allow_unverified),
+    db: Session = Depends(get_db),
+):
+    """Chuyển phiên web cũ (token trong localStorage) sang cookie httpOnly một lần."""
+    row = db.query(User).filter(User.id == user.id, User.deleted_at.is_(None)).first()
+    if not row:
+        raise HTTPException(status_code=401, detail="Người dùng không tồn tại")
+    set_session_cookie(response, create_access_token(row))
+    return UserOut.from_user(row)
+
+
+@router.post("/logout")
+def logout(response: Response):
+    """Xoá cookie phiên của trình duyệt. Không cần xác thực: xoá cookie của chính mình là vô hại."""
+    clear_session_cookie(response)
+    return {"message": "Đã đăng xuất"}
 
 
 @router.get("/me", response_model=UserOut)

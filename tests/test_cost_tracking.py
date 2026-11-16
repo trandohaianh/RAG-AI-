@@ -235,6 +235,8 @@ def test_infra_costs_feed_monthly_projection(client, cost_db):
 
 def test_daily_budget_blocks_new_requests(cost_db, monkeypatch):
     _seed(cost_db)
+    # Trần cứng: mỗi request đặt trước một khoản; ở đây đặt nhỏ để kiểm ngưỡng của phần đã chi.
+    monkeypatch.setenv("LLM_BUDGET_RESERVE_USD", "0.001")
     monkeypatch.setenv("LLM_USER_DAILY_BUDGET_USD", "0.005")
     with cost_db() as db:
         with pytest.raises(HTTPException) as exc:

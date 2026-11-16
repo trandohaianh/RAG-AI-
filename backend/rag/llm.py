@@ -31,10 +31,25 @@ def _ollama_body(prompt: str, stream: bool, json_mode: bool, temperature, max_to
         options["temperature"] = temperature
     if max_tokens is not None:
         options["num_predict"] = max_tokens
-    body = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": stream, "options": options}
+    body = {"model": OLLAMA_MODEL, "prompt": str(prompt), "stream": stream, "options": options}
+    system = _system_of(prompt)
+    if system:
+        body["system"] = system
     if json_mode:
         body["format"] = "json"
     return body
+
+
+def _system_of(prompt) -> str | None:
+    """Quy tắc hệ thống đi kèm prompt (rag.prompt.RagPrompt), nếu có."""
+    system = getattr(prompt, "system", None)
+    return system if isinstance(system, str) and system else None
+
+
+def _metered_text(prompt) -> str:
+    """Văn bản dùng để ước lượng token đầu vào: gồm cả phần system."""
+    system = _system_of(prompt)
+    return f"{system}\n\n{prompt}" if system else str(prompt)
 
 
 def _elapsed_ms(start: float) -> int:
@@ -89,21 +104,22 @@ def generate_text(
         if not isinstance(payload, dict) or "error" in payload:
             raise RuntimeError("Ollama generation failed")
         text = payload.get("response", "")
-        _record_ollama(payload, prompt, text, start, feature)
+        _record_ollama(payload, _metered_text(prompt), text, start, feature)
         return text
 
     config = types.GenerateContentConfig(
         temperature=temperature,
         max_output_tokens=max_tokens,
         response_mime_type="application/json" if json_mode else None,
+        system_instruction=_system_of(prompt),
     )
     try:
-        resp = client().models.generate_content(model=LLM_MODEL, contents=prompt, config=config)
+        resp = client().models.generate_content(model=LLM_MODEL, contents=str(prompt), config=config)
     except Exception:
         _record_gemini(None, "", "", start, feature, status="error")
         raise
     text = resp.text or ""
-    _record_gemini(resp, prompt, text, start, feature)
+    _record_gemini(resp, _metered_text(prompt), text, start, feature)
     return text
 
 
@@ -135,15 +151,18 @@ def stream_text(prompt: str, *, feature: str | None = None) -> Iterator[str]:
                         yield piece
                     if payload.get("done") is True:
                         recorded = True
-                        _record_ollama(payload, prompt, "".join(produced), start, feature)
+                        _record_ollama(payload, _metered_text(prompt), "".join(produced), start, feature)
                         return
                 raise RuntimeError("Ollama stream ended before completion")
         finally:
             # Giống nhánh Gemini: client ngắt hoặc lỗi giữa stream vẫn phải để lại đúng một bản ghi.
             if started and not recorded:
-                _record_ollama({}, prompt, "".join(produced), start, feature, status="partial")
+                _record_ollama({}, _metered_text(prompt), "".join(produced), start, feature, status="partial")
 
-    stream = client().models.generate_content_stream(model=LLM_MODEL, contents=prompt)
+    stream = client().models.generate_content_stream(
+        model=LLM_MODEL, contents=str(prompt),
+        config=types.GenerateContentConfig(system_instruction=_system_of(prompt)),
+    )
     completed = False
     last_with_usage = None
     produced_chars: list[str] = []
@@ -165,7 +184,7 @@ def stream_text(prompt: str, *, feature: str | None = None) -> Iterator[str]:
             raise RuntimeError("Gemini stream ended before completion")
     finally:
         # Ghi cả khi client ngắt giữa chừng: token đã sinh vẫn bị tính tiền.
-        _record_gemini(last_with_usage, prompt, "".join(produced_chars), start, feature,
+        _record_gemini(last_with_usage, _metered_text(prompt), "".join(produced_chars), start, feature,
                        status="ok" if completed else "partial")
         close = getattr(stream, "close", None)
         if close is not None:

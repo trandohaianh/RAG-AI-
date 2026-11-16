@@ -32,6 +32,18 @@ class LlmUsageEvent(Base):
     status: Mapped[str] = mapped_column(String(12), default="ok")
 
 
+class LlmBudgetReservation(Base):
+    """Khoản ngân sách đặt trước cho một request AI đang chạy (xem costs/budget.py)."""
+
+    __tablename__ = "llm_budget_reservations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    amount_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class InfraCost(Base):
     """Chi phí hạ tầng nhập tay theo tháng (VPS, domain, dịch vụ ngoài)."""
 

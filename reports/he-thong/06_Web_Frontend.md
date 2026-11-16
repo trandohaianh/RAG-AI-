@@ -16,35 +16,47 @@
 
 ## 2. Luồng và cơ chế
 
-### 2.1 Phiên đăng nhập
+### 2.1 Phiên đăng nhập: cookie httpOnly (vòng 3, `lib/api.ts`, `lib/auth.tsx`)
 
-- **Lưu trữ:** JWT nằm trong `localStorage`; axios gắn header `Authorization`.
-- **Xử lý 401:** một phản hồi 401 chỉ xoá đúng token đã gửi request đó, không xoá phiên mới hơn (test `web Axios and streaming 401s…`).
+**Đăng nhập**
 
-### 2.2 Content-Security-Policy (U16, đã sửa, `next.config.js`)
+- Request đăng nhập (mật khẩu, đăng ký, Google) gửi kèm `X-Auth-Mode: cookie`.
+- API đặt cookie `fieldops_session` với httpOnly, SameSite=Lax, và Secure ngoài môi trường dev. Body trả về `access_token: ""`.
+- **JavaScript không bao giờ thấy token.**
 
-CSP chỉ bật ở bản build production; chế độ dev cần eval và websocket cho hot reload.
+**Mọi request sau đó**
+
+- axios dùng `withCredentials: true`; fetch SSE dùng `credentials: "include"`; upload qua XHR dùng `withCredentials`.
+- Header `X-Requested-With: fieldops` luôn được gửi. Backend bắt buộc header này cho phương thức ghi khi xác thực bằng cookie (chống CSRF).
+
+**`localStorage` chỉ còn hai khoá**
+
+- `rag_user`: hồ sơ hiển thị, không phải bí mật.
+- `rag_session`: mã phiên ngẫu nhiên đặt lúc đăng nhập. Mỗi request ghi lại mã phiên tại thời điểm gửi; một phản hồi 401 chỉ đăng xuất **đúng phiên đó**, nên phản hồi trễ của phiên cũ không đăng xuất phiên mới (test `web Axios and streaming 401s…`).
+
+**Đăng xuất:** gọi `POST /auth/logout` để server xoá cookie (JS không tự xoá được cookie httpOnly).
+
+**Chuyển phiên cũ:** nếu còn token cũ `rag_token` trong `localStorage`, app gọi `POST /auth/session` với Bearer để đổi sang cookie rồi xoá token. Lần chuyển dùng **một promise chung**: `Providers` mount `AuthProvider` hai lần, và lần chạy thứ hai từng kết luận nhầm "chưa đăng nhập". Lỗi này phát hiện được khi chạy end-to-end và đã sửa.
+
+**Triển khai khác site:** nếu API và web khác tên miền gốc, đặt `AUTH_COOKIE_SAMESITE=none` (tự bật Secure) và `CORS_ORIGINS`.
+
+### 2.2 Content-Security-Policy có nonce (vòng 3, `proxy.ts`)
+
+Mỗi request trang sinh một nonce 128 bit (Next 16 "proxy"). Toàn bộ trang render theo từng request (`await connection()` trong `app/layout.tsx`) để Next gắn nonce vào script của nó.
 
 ```
-default-src 'self'
-script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client
+script-src 'self' 'nonce-<ngẫu nhiên>' 'strict-dynamic' https://accounts.google.com/gsi/client
 style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style
-img-src 'self' data: blob: https:
-font-src 'self' data:
+img-src 'self' data: blob: https:;  font-src 'self' data:
 connect-src 'self' <origin của NEXT_PUBLIC_API_URL> https://accounts.google.com/gsi/
-frame-src https://accounts.google.com/gsi/
-object-src 'none'; base-uri 'self'; form-action 'self'
+frame-src https://accounts.google.com/gsi/;  object-src 'none';  base-uri 'self';  form-action 'self'
 frame-ancestors 'self'      (trang /embed: frame-ancestors *)
 ```
 
-**Phần CSP chặn được:**
-
-- script từ domain lạ;
-- gửi dữ liệu (kể cả token) ra domain lạ;
-- `<object>` và `<base>`;
-- nhúng console vào site khác.
-
-**Giới hạn:** App Router chèn script inline khi hydrate, nên `script-src` vẫn cần `'unsafe-inline'` vì chưa dùng nonce. Một XSS chèn được script inline vẫn chạy được, nhưng không gửi được token ra ngoài qua `fetch` hay XHR tới domain lạ.
+- **Không còn `'unsafe-inline'` cho script.** Script inline, event handler như `onerror=` và `<iframe srcdoc><script>` do XSS chèn vào đều bị chặn. Đã kiểm trên trình duyệt (§4).
+- `'strict-dynamic'` cho phép các chunk do script hợp lệ nạp, kể cả script Google Sign-In.
+- `style-src` vẫn cần `'unsafe-inline'` vì thuộc tính `style` của React và Leaflet không mang nonce được; CSS không thực thi mã.
+- Chế độ dev thêm `'unsafe-eval'` và `ws:` cho hot reload.
 
 ### 2.3 Widget nhúng (`app/embed/page.tsx`, đã sửa)
 
@@ -89,13 +101,20 @@ Khối "Điều phối" (toạ độ, khung giờ, ưu tiên) của một ca ch�
 
 ---
 
+### Vòng 3
+
+| ID | Mức | Vị trí | Trước | Test |
+|---|---|---|---|---|
+| V2a | TB | `lib/api.ts`, `lib/auth.tsx`, trang đăng nhập/đăng ký, Google, `UploadZone`, `field/page.tsx` | Token trong `localStorage`: XSS bất kỳ đọc được phiên | `client_state: web session lives in an httpOnly cookie…`, test 401 viết lại theo mã phiên; end-to-end trên trình duyệt |
+| V2b | TB | `proxy.ts`, `app/layout.tsx`, `next.config.js` | CSP phải mở `'unsafe-inline'` cho script | Trình duyệt: nonce có trên 17/21 script; HTML chèn vào bị chặn |
+
 ## 4. Kiểm thử
 
 | Kiểm tra | Kết quả |
 |---|---|
 | `npm ci` → `npm run typecheck` | PASS |
 | `npm run build` | PASS, 19 route |
-| `node --test tests/client_state.test.cjs` | **17/17** (14 cũ + 3 mới). 3 test mới FAIL trên mã gốc |
+| `node --test tests/client_state.test.cjs` | **19/19**. Các test mới của từng vòng đều FAIL trên mã trước vòng đó |
 | `next start` (build có `NEXT_PUBLIC_API_URL`) và built-in browser | Xem dưới |
 
 Chi tiết kiểm tra trên trình duyệt:
@@ -105,7 +124,15 @@ Chi tiết kiểm tra trên trình duyệt:
 - `/embed?api=https://evil.example`: câu hỏi đi tới API đã cấu hình.
 - Ở bản build không có biến môi trường, CSP chặn kết nối tới `evil.example`.
 
-**Chưa kiểm:** đăng nhập Google thật dưới CSP (cần client ID thật), và trang `/field/schedule` với tile OpenStreetMap (cần đăng nhập và API).
+**End-to-end vòng 3** (API thật trên WSL với DB tạm, `next start` bản production, built-in browser):
+
+1. Đăng ký tài khoản test rồi vào `/chat`. `localStorage` chỉ còn `rag_user` và `rag_session`; `document.cookie` rỗng.
+2. Reload vẫn giữ phiên. POST tạo hội thoại qua cookie thành công.
+3. Đăng xuất làm `/auth/me` trả 401.
+4. Đặt token cũ vào `localStorage` rồi mở `/chat`: app tự đổi sang cookie, người dùng ở lại `/chat/1`, token cũ bị xoá.
+5. Chèn `<img onerror>` và `<iframe srcdoc><script>`: **bị CSP chặn**. Console không có vi phạm CSP nào khác.
+
+**Chưa kiểm:** đăng nhập Google thật dưới CSP (cần client ID thật), và trang `/field/schedule` với tile OpenStreetMap.
 
 ---
 

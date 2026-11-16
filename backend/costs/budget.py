@@ -1,17 +1,32 @@
 """Chặn gọi AI khi vượt ngân sách ngày (toàn hệ thống hoặc từng người dùng).
 
 LLM_DAILY_BUDGET_USD=0 / LLM_USER_DAILY_BUDGET_USD=0 nghĩa là không giới hạn.
+
+Trần CỨNG theo đặt chỗ: chi phí thật chỉ được ghi SAU khi model trả lời, nên nếu chỉ so với
+chi phí đã ghi thì N request đồng thời ở sát trần đều lọt qua. Mỗi request vì vậy phải đặt
+trước một khoản ước tính (`LLM_BUDGET_RESERVE_USD`) trong cùng giao dịch có khoá với phép
+kiểm tra:
+
+    chấp nhận  ⇔  đã_chi + đặt_chỗ_đang_hiệu_lực (kể cả của request này) ≤ trần
+
+Đặt chỗ được trả lại khi request kết thúc (chi phí thật lúc đó đã nằm trong bảng usage), và
+tự hết hạn sau `LLM_BUDGET_RESERVATION_TTL_SEC` nếu tiến trình chết giữa chừng. Vượt trần chỉ
+còn có thể xảy ra khi chi phí thật của MỘT request lớn hơn khoản đặt trước của chính nó.
 """
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import delete, func, text
+from sqlalchemy.orm import Session, sessionmaker
 
-from costs.models import LlmUsageEvent
+from costs.models import LlmBudgetReservation, LlmUsageEvent
+
+logger = logging.getLogger(__name__)
+_PG_LOCK_KEY = 0x46_4F_42_55  # "FOBU": khoá advisory dùng chung cho mọi lượt đặt chỗ
 
 
 def _limit(name: str) -> float:
@@ -24,6 +39,25 @@ def _limit(name: str) -> float:
 
 def daily_limits() -> tuple[float, float]:
     return _limit("LLM_DAILY_BUDGET_USD"), _limit("LLM_USER_DAILY_BUDGET_USD")
+
+
+def reserve_amount() -> float:
+    """Khoản đặt trước cho một request: mặc định ≈ chi phí của 16k token vào + 2k token ra."""
+    configured = _limit("LLM_BUDGET_RESERVE_USD")
+    if configured:
+        return configured
+    from config import LLM_MODEL
+    from costs.pricing import compute_cost
+
+    return max(compute_cost(LLM_MODEL, 16_000, 2_048), 0.001)
+
+
+def _ttl() -> timedelta:
+    try:
+        seconds = int(os.getenv("LLM_BUDGET_RESERVATION_TTL_SEC", "900"))
+    except ValueError:
+        seconds = 900
+    return timedelta(seconds=max(seconds, 60))
 
 
 def _day_start() -> datetime:
@@ -42,20 +76,78 @@ def spent_today(db: Session, user_id: int | None = None) -> float:
     return float(query.scalar() or 0.0)
 
 
-def enforce_budget(db: Session, user_id: int | None) -> None:
-    """Raise 429 nếu đã chạm ngân sách ngày."""
+def reserved_now(db: Session, user_id: int | None = None) -> float:
+    query = db.query(func.coalesce(func.sum(LlmBudgetReservation.amount_usd), 0.0)).filter(
+        LlmBudgetReservation.expires_at > datetime.now(timezone.utc))
+    if user_id is not None:
+        query = query.filter(LlmBudgetReservation.user_id == user_id)
+    return float(query.scalar() or 0.0)
+
+
+class BudgetReservation:
+    """Khoản đặt trước của một request. `release()` an toàn khi gọi nhiều lần."""
+
+    def __init__(self, reservation_id: int | None = None, factory: sessionmaker | None = None):
+        self.id = reservation_id
+        self._factory = factory
+
+    def release(self) -> None:
+        if self.id is None or self._factory is None:
+            return
+        reservation_id, self.id = self.id, None
+        try:
+            with self._factory() as db:
+                db.execute(delete(LlmBudgetReservation).where(LlmBudgetReservation.id == reservation_id))
+                db.commit()
+        except Exception as exc:  # hết hạn tự nhiên theo TTL nếu không xoá được
+            logger.warning("Could not release budget reservation (%s)", type(exc).__name__)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.release()
+
+
+def enforce_budget(db: Session, user_id: int | None) -> BudgetReservation:
+    """Đặt chỗ ngân sách cho một request AI, hoặc raise 429 nếu không còn đủ.
+
+    Gọi trước mọi thay đổi chưa commit của request: hàm tự commit giao dịch đặt chỗ.
+    """
     global_limit, user_limit = daily_limits()
     if not global_limit and not user_limit:
-        return
-    if global_limit and spent_today(db) >= global_limit:
-        raise HTTPException(
-            status_code=429,
-            detail="Hệ thống đã dùng hết ngân sách AI hôm nay. Vui lòng thử lại vào ngày mai.",
-            headers={"Retry-After": "3600"},
-        )
-    if user_limit and user_id is not None and spent_today(db, user_id) >= user_limit:
-        raise HTTPException(
-            status_code=429,
-            detail="Bạn đã dùng hết hạn mức AI hôm nay.",
-            headers={"Retry-After": "3600"},
-        )
+        return BudgetReservation()
+    now = datetime.now(timezone.utc)
+    amount = reserve_amount()
+    bind = db.get_bind()
+    try:
+        if bind.dialect.name == "postgresql":
+            # READ COMMITTED: hai giao dịch không thấy đặt chỗ chưa commit của nhau -> tuần tự hoá.
+            db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _PG_LOCK_KEY})
+        # Trên SQLite, INSERT lấy khoá ghi của cả DB trước khi đọc tổng bên dưới.
+        db.execute(delete(LlmBudgetReservation).where(LlmBudgetReservation.expires_at <= now))
+        row = LlmBudgetReservation(user_id=user_id, amount_usd=amount, created_at=now, expires_at=now + _ttl())
+        db.add(row)
+        db.flush()
+        if global_limit and spent_today(db) + reserved_now(db) > global_limit:
+            db.rollback()
+            raise HTTPException(
+                status_code=429,
+                detail="Hệ thống đã dùng hết ngân sách AI hôm nay. Vui lòng thử lại vào ngày mai.",
+                headers={"Retry-After": "3600"},
+            )
+        if user_limit and user_id is not None and spent_today(db, user_id) + reserved_now(db, user_id) > user_limit:
+            db.rollback()
+            raise HTTPException(
+                status_code=429,
+                detail="Bạn đã dùng hết hạn mức AI hôm nay.",
+                headers={"Retry-After": "3600"},
+            )
+        reservation_id = row.id
+        db.commit()
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    return BudgetReservation(reservation_id, sessionmaker(bind=bind, autoflush=False))

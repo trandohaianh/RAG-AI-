@@ -80,9 +80,19 @@ Kỹ thuật viên làm việc ngoài hiện trường, thường mất sóng. �
 
 ---
 
+### 2.5 Khôi phục máy bị bản cũ khoá nhầm (vòng 3, `releaseUnusedLegacyBinding`)
+
+Khi `isSecureOfflineStorageAvailable()` thấy vùng offline đang gắn với máy chủ khác, nó gỡ ràng buộc chỉ khi **cả ba** điều kiện sau đúng:
+
+1. Ràng buộc trỏ tới máy chủ khác máy chủ hiện tại.
+2. **Không có marker `has_records`.** Bản mới ghi marker kèm mọi bản ghi offline, nên thiếu marker nghĩa là ràng buộc do bản cũ tạo ra, thường chỉ vì một lần đọc.
+3. Người dùng đang đăng nhập **không có bản ghi gốc nào**. Code kiểm manifest của `actions`, `rejected_actions`, `case_index` và `active_workspace` trực tiếp trong SecureStore, không đi qua khoá ràng buộc nên không bị deadlock.
+
+Thoả cả ba thì ràng buộc bị xoá, và lần ghi tiếp theo gắn vào máy chủ hiện tại. Nếu người dùng có dữ liệu thật trên máy chủ cũ, dữ liệu đó **vẫn được cô lập** như trước.
+
 ## 4. Hạn chế còn lại
 
-- **Bản đã cài từ trước:** những máy *đã* bị khoá vào IP dev mà chưa từng có dữ liệu offline vẫn giữ ràng buộc cũ. Code không phân biệt được ràng buộc đó với dữ liệu thật của bản cũ, vì bản cũ không ghi marker; chọn phương án an toàn là không lộ dữ liệu. Cách xử lý: chọn lại máy chủ cũ một lần, hoặc cài lại ứng dụng.
+- **Trường hợp biên khi gỡ ràng buộc:** SecureStore không liệt kê được khoá, nên code chỉ kiểm được dữ liệu của người dùng **đang đăng nhập**. Nếu cùng máy còn dữ liệu của *người khác* từ máy chủ cũ, và sau này một tài khoản trùng ID trên máy chủ mới đăng nhập, dữ liệu đó có thể đọc được. Trường hợp này rất hiếm vì mỗi máy thường thuộc một kỹ thuật viên.
 - **Chưa chạy trên thiết bị thật.** Mới chạy `tsc` và các test Node mô phỏng SecureStore và `fetch`.
 
 ---
@@ -92,5 +102,7 @@ Kỹ thuật viên làm việc ngoài hiện trường, thường mất sóng. �
 | Kiểm tra | Kết quả |
 |---|---|
 | `npm ci` → `tsc --noEmit` | PASS |
-| `node --test tests/client_state.test.cjs` | 17/17 |
-| 2 test mobile mới | FAIL trên mã gốc, PASS sau khi sửa |
+| `node --test tests/client_state.test.cjs` | 19/19 |
+| Test mobile mới (2 test ở vòng 2, 1 test ở vòng 3) | FAIL trên mã trước vòng tương ứng, PASS sau khi sửa |
+
+Test vòng 3 là `device locked to the dev server by an old version recovers offline mode unless it holds that user's data`. Nó kiểm cả hai nhánh: máy không có dữ liệu thì được khôi phục; máy có dữ liệu của người dùng đó thì vẫn bị cô lập.

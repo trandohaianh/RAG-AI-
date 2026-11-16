@@ -1,8 +1,8 @@
 # Báo cáo kiểm toán mã nguồn kỹ thuật — FieldOps (`D:\self`)
 
-- **Ngày kiểm toán:** 2026-11-16, hai vòng.
+- **Ngày kiểm toán:** 2026-11-16, ba vòng. Vòng 1 và 2 đã commit trong `7f0955a`; vòng 3 là phần xử lý dứt điểm, xem §3.4.
 - **Nhánh:** `fullstack/fieldops-production`.
-- **Mốc mã nguồn:** HEAD `7569b27`, cộng các thay đổi **chưa commit** của đợt kiểm toán (49 tệp sửa và 3 tệp hoặc thư mục mới).
+- **Mốc mã nguồn:** gốc `7569b27`, sau đó các vòng sửa: `7f0955a` (vòng 1 và 2), rồi commit vòng 3.
 - **Thay thế:** báo cáo ngày 2026-11-13. Báo cáo đó không chạy được backend vì môi trường thiếu thư viện.
 
 **Báo cáo chi tiết theo hệ thống:** [`he-thong/`](he-thong/README.md), gồm 7 tệp.
@@ -167,16 +167,29 @@ U3 ("stream trước khi audit") được giải quyết bằng D3.
 
 ---
 
-## 4. Hạn chế đã xác nhận nhưng chưa xử lý triệt để
+### 3.4 Vòng 3: xử lý dứt điểm năm hạn chế còn lại
 
-| Vấn đề | Lý do để lại | Đề xuất |
+Chủ dự án yêu cầu xử lý năm hạn chế mà vòng 2 mới chỉ giảm thiểu. Test: `R3` là `tests/test_audit_regressions_round3.py`, `CS` là `tests/client_state.test.cjs`.
+
+| ID | Hệ thống | Trước | Sau | Test |
+|---|---|---|---|---|
+| V1 | 3 | Ngân sách AI chỉ so với chi phí đã ghi, nên N request đồng thời cùng vượt trần | **Trần cứng theo đặt chỗ.** Bảng `llm_budget_reservations`; mỗi request đặt trước `LLM_BUDGET_RESERVE_USD` (mặc định ≈ chi phí 16k token vào + 2k token ra). Điều kiện chấp nhận "đã chi + đặt chỗ ≤ trần" được kiểm trong giao dịch có khoá (SQLite: khoá ghi; PostgreSQL: `pg_advisory_xact_lock`). Request kết thúc thì trả đặt chỗ; tiến trình chết thì đặt chỗ tự hết hạn sau 15 phút | R3 (3 test) |
+| V2 | 1, 6 | JWT nằm trong `localStorage`; CSP phải mở `'unsafe-inline'` cho script | **Cookie httpOnly cùng CSRF.** Web gửi `X-Auth-Mode: cookie`, server đặt cookie `fieldops_session` (httpOnly, SameSite=Lax, Secure ngoài môi trường dev) và **không trả token trong body**. Mọi request ghi dùng cookie phải có `X-Requested-With: fieldops`. Có `/auth/logout` xoá cookie và `/auth/session` đổi token cũ trong localStorage sang cookie một lần. Mobile và API giữ Bearer. **CSP có nonce** (`proxy.ts`): `script-src 'nonce-…' 'strict-dynamic'`, không còn `'unsafe-inline'`; mọi trang render theo từng request | R3 (4 test), CS (2 test), trình duyệt |
+| V3 | 3 | Quy tắc trả lời nằm chung chuỗi với tài liệu | `RagPrompt` mang `.system`: Gemini nhận qua `system_instruction`, Ollama qua trường `system`. Nội dung tài liệu không còn đứng cùng cấp với quy tắc | R3 (2 test); eval offline giống hệt |
+| V4 | 7 | Máy đã bị bản cũ khoá vào IP dev thì mất chế độ offline | `releaseUnusedLegacyBinding`: gỡ ràng buộc khi nó đến từ bản cũ (không có marker) **và** người dùng hiện tại không có bản ghi offline nào | CS |
+| V5 | 2 | `create_step` dùng `len(case.steps)`, nên tạo đồng thời bị trùng vị trí | `UPDATE` không đổi gì trên dòng ca (lấy khoá), rồi `MAX(position) + 1` | R3 |
+
+---
+
+## 4. Hạn chế còn lại (sau vòng 3)
+
+| Vấn đề | Lý do | Ghi chú |
 |---|---|---|
-| Ngân sách AI là trần mềm khi có nhiều request đồng thời | Đặt trước chi phí ước tính cần thiết kế lại phần ghi chi phí | Đặt trước chi phí ước tính theo số token tối đa |
-| CSP vẫn cần `'unsafe-inline'` cho script | App Router chèn script inline; muốn bỏ thì phải dùng nonce qua middleware | Middleware sinh nonce; chuyển token sang cookie httpOnly |
-| Prompt chưa dùng `system_instruction` của Gemini | Thay đổi hành vi mô hình, cần đánh giá live | Tách system prompt, rồi chạy lại eval live |
-| Máy mobile *đã* bị khoá vào IP dev từ bản cũ | Không phân biệt được với dữ liệu thật của bản cũ, nên giữ an toàn | Hướng dẫn người dùng chọn lại máy chủ cũ hoặc cài lại |
-| `create_step` có thể trùng `position` khi tạo đồng thời | Chỉ ảnh hưởng thứ tự hiển thị | `max(position) + 1` dưới khoá dòng ca |
-| `allowed_origins` của embed không chặn được client không phải trình duyệt | Embed token vốn là công khai | Giữ nguyên; ghi rõ đây không phải lớp xác thực |
+| Trần ngân sách vẫn có thể vượt bằng phần chi phí thật của **một** request vượt quá khoản đặt trước | Không biết trước số token thật | Đặt `LLM_BUDGET_RESERVE_USD` theo request lớn nhất chấp nhận được |
+| `style-src` vẫn có `'unsafe-inline'` | Thuộc tính `style` của React/Leaflet không mang nonce được | CSS không thực thi mã |
+| Eval **live** sau khi tách system prompt chưa chạy | Cần `GEMINI_API_KEY` trong `.env` cục bộ, mà kiểm toán không đọc file này | Lệnh chạy ở §9 |
+| Gỡ ràng buộc offline cũ: nếu cùng máy có dữ liệu của **người dùng khác** từ máy chủ cũ, và sau này một tài khoản trùng ID trên máy chủ mới đăng nhập, dữ liệu đó có thể đọc được | SecureStore không liệt kê được khoá | Rất hiếm (máy thường thuộc một kỹ thuật viên) |
+| `allowed_origins` của embed không chặn được client không phải trình duyệt | Embed token vốn là công khai | Không phải lớp xác thực |
 | Hai cấu hình edge (Caddy, nginx) phải đồng bộ bằng tay | Kiến trúc triển khai | Sinh header từ một nguồn chung |
 
 ---
@@ -223,19 +236,26 @@ Môi trường:
 - **Backend:** WSL Ubuntu, Python 3.12.3, venv cài từ `backend/requirements.txt`, chạy trên bản sao đã loại `.env` cục bộ.
 - **Web và mobile:** Windows, Node 25.2.1, `npm ci` sạch.
 
-| Bộ kiểm tra | Trước (HEAD `7569b27`) | Sau vòng 1 | **Sau vòng 2** | Ghi chú |
-|---|---|---|---|---|
-| `check_dependencies.py` | PASS | PASS | PASS | 29 gói, 18 import contract |
-| Backend pytest | 468 passed, 12 skipped | 484 passed, 12 skipped | **517 passed, 12 skipped** | Không có hồi quy. 12 skip là test PostgreSQL (môi trường) |
-| Regression test trên mã gốc | — | 16/16 FAIL | **31/32 FAIL** | Test còn lại (`test_valid_label_split…`) là test chống hồi quy, không tái hiện lỗi, nên PASS trên cả hai |
-| `node --test tests/client_state.test.cjs` | 13/14 | 14/14 | **17/17** | 3 test mới FAIL trên mã gốc |
-| Frontend typecheck và build | PASS | PASS | **PASS** | `node_modules` trong repo cũ hơn `package.json` (môi trường) |
-| Mobile `tsc` | PASS | PASS | **PASS** | |
-| Eval offline: `run_evals` (68 câu) | pass 0,7206; recall@5 1,0; MRR 0,9121 | giống | **giống hệt** | Grader mới không đổi kết quả trên bộ dữ liệu hiện có |
-| `run_eval_benchmark`, `validate-only` | PASS | PASS | **PASS** | |
-| `docker compose config` (root) | **FAIL** | PASS sau bootstrap | PASS | F2 |
-| `docker compose config` (cloud) | PASS | PASS | PASS; báo lỗi rõ ràng khi thiếu `ACME_EMAIL` | |
-| Trình duyệt (`next start`) | — | — | `/`, `/login`, `/embed` render; không vi phạm CSP; `?api=` lạ bị bỏ qua hoặc bị chặn | |
+| Bộ kiểm tra | Trước (HEAD `7569b27`) | Sau vòng 1 | Sau vòng 2 | **Sau vòng 3** | Ghi chú |
+|---|---|---|---|---|---|
+| `check_dependencies.py` | PASS | PASS | PASS | PASS | 29 gói, 18 import contract |
+| Backend pytest | 468 passed, 12 skipped | 484 / 12 | 517 / 12 | **527 passed, 12 skipped** | Không có hồi quy. 12 skip là test PostgreSQL (môi trường) |
+| Regression test trên mã trước vòng | — | 16/16 FAIL | 31/32 FAIL | **10/10 FAIL** (so với `7f0955a`) | Ở vòng 2, test còn lại là test chống hồi quy |
+| `node --test tests/client_state.test.cjs` | 13/14 | 14/14 | 17/17 | **19/19** | 3 test vòng 3 FAIL trên `7f0955a` |
+| Frontend typecheck và build | PASS | PASS | PASS | **PASS**; mọi trang render theo từng request; nhận diện Proxy | |
+| Mobile `tsc` | PASS | PASS | PASS | **PASS** | |
+| Eval offline: `run_evals` (68 câu) | pass 0,7206; recall@5 1,0; MRR 0,9121 | giống | giống | **giống hệt** | Đổi grader và tách system prompt không đổi kết quả offline |
+| `run_eval_benchmark`, `validate-only` | PASS | PASS | PASS | PASS | |
+| `docker compose config` (root) | **FAIL** | PASS sau bootstrap | PASS | PASS | F2 |
+| Trình duyệt, end-to-end (API WSL + `next start`, DB tạm) | — | — | Trang render; CSP chặn domain lạ | Xem dưới | |
+
+Kiểm tra end-to-end sau vòng 3:
+
+- Đăng ký và đăng nhập rồi vào `/chat`. `localStorage` chỉ còn `rag_user` và `rag_session`; `document.cookie` rỗng (cookie là httpOnly).
+- Reload vẫn giữ phiên. POST tạo hội thoại qua cookie và header CSRF thành công.
+- Đăng xuất làm `/auth/me` trả 401.
+- Token cũ trong `localStorage` được tự đổi sang cookie, và người dùng ở lại trong app. Lần chạy đầu phát hiện một race (AuthProvider mount hai lần) và đã sửa.
+- HTML chèn vào trang (`<img onerror>`, `<iframe srcdoc><script>`) **bị CSP chặn**.
 
 ---
 
@@ -275,12 +295,12 @@ Môi trường:
 
 | Giai đoạn | Việc | Ưu tiên |
 |---|---|---|
-| Ngay | Commit và chạy CI (gồm 12 test PostgreSQL và promtool) | Cao |
-| Ngay | Sau deploy: kiểm header `/embed` và `/` bằng `curl -I` | Cao |
+| Ngay | Xem kết quả CI trên nhánh đã push (gồm 12 test PostgreSQL và promtool) | Cao |
+| Ngay | Chạy eval live (cần `GEMINI_API_KEY` trong `.env`): `cd backend` rồi `python -B scripts/run_evals.py --mode live --limit 20`. Khoảng 20 câu Gemini, chi phí vài cent | Cao |
+| Ngay | Sau deploy: kiểm header `/embed` và `/` bằng `curl -I`; đăng nhập web lại (phiên cũ tự chuyển sang cookie) | Cao |
 | Ngay | Đặt `EXPO_PUBLIC_API_URL` cho bản mobile phát hành | Cao |
-| 1 | CSP dùng nonce; chuyển token sang cookie httpOnly | TB |
-| 1 | Đặt trước chi phí để ngân sách AI thành trần cứng | TB |
-| 2 | Dùng `system_instruction` cho Gemini; chạy lại eval live | TB |
+| Triển khai | API và web khác site (khác tên miền gốc): đặt `AUTH_COOKIE_SAMESITE=none` (tự bật Secure) và cấu hình `CORS_ORIGINS` | TB |
+| 1 | Đặt `LLM_BUDGET_RESERVE_USD` theo request lớn nhất chấp nhận được | Thấp |
 | 2 | Sinh cấu hình Caddy và nginx từ một nguồn | Thấp |
 | 3 | Tách RAG/embedding ra worker; tách `deploy/production` đa dự án | Thấp |
 
@@ -337,6 +357,26 @@ Toàn bộ chưa commit.
 - `tests/test_auth_providers.py`
 - `tests/test_audit_regressions.py` (mới)
 - `tests/test_audit_regressions_round2.py` (mới)
+
+**Vòng 3**
+
+- Backend:
+  - `costs/budget.py`, `costs/models.py` (bảng `llm_budget_reservations`)
+  - `auth/session_cookie.py` (mới), `auth/router.py`, `dependencies.py`, `config.py`
+  - `rag/prompt.py`, `rag/llm.py`
+  - `field/router.py`
+  - các điểm gọi ngân sách: `chat/router.py`, `embed/router.py`, `docs/router.py`, `public_api/router.py`
+- Frontend:
+  - `proxy.ts` (mới), `next.config.js`, `app/layout.tsx`
+  - `lib/api.ts`, `lib/auth.tsx`
+  - `app/(auth)/login/page.tsx`, `app/(auth)/register/page.tsx`
+  - `components/GoogleSignInButton.tsx`, `components/UploadZone.tsx`
+  - `app/(app)/field/page.tsx`
+- Mobile: `lib/offlineOrigin.ts`, `lib/fieldOffline.ts`
+- Test:
+  - `tests/test_audit_regressions_round3.py` (mới)
+  - `tests/client_state.test.cjs`
+  - `tests/test_cost_tracking.py`: đặt `LLM_BUDGET_RESERVE_USD` để giữ đúng ý nghĩa test ngưỡng dưới trần cứng
 
 **Báo cáo**
 

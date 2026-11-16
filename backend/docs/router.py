@@ -59,9 +59,9 @@ async def suggested_questions(
     from costs.context import set_request_usage
 
     # Mỗi lần gọi là một lượt Gemini thật: phải chịu cùng trần ngân sách ngày như chat/embed/API.
-    enforce_budget(db, user.id)
-    set_request_usage(user_id=user.id, feature="suggest")
-    q = await suggest_questions_for_user(user.id, limit=min(max(limit, 1), 10))
+    with enforce_budget(db, user.id):
+        set_request_usage(user_id=user.id, feature="suggest")
+        q = await suggest_questions_for_user(user.id, limit=min(max(limit, 1), 10))
     return SuggestedQuestionsOut(questions=q)
 
 
@@ -179,12 +179,12 @@ async def upload_doc(
     from costs.budget import enforce_budget
 
     # Embedding (và OCR ảnh) tốn tiền như một lượt hỏi: cùng chịu trần ngân sách ngày.
-    enforce_budget(db, user.id)
-    try:
-        chunks = await ingest_file(user.id, dest, workspace_id=workspace_id, content=content)
-    except Exception as exc:
-        status = 429 if "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc) else 500
-        raise HTTPException(status_code=status, detail=format_ingest_error(exc)) from exc
+    with enforce_budget(db, user.id):
+        try:
+            chunks = await ingest_file(user.id, dest, workspace_id=workspace_id, content=content)
+        except Exception as exc:
+            status = 429 if "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc) else 500
+            raise HTTPException(status_code=status, detail=format_ingest_error(exc)) from exc
 
     return UploadResult(
         filename=filename,

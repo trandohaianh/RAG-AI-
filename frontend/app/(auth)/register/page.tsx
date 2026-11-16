@@ -36,7 +36,7 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const res = await api.post("/auth/register", { email, password });
-      login(res.data.access_token, res.data.user);
+      login(res.data.user);
       router.replace("/chat");
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));

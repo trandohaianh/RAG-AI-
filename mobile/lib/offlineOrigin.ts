@@ -50,6 +50,32 @@ export function bindOfflineApiOriginForWrite(apiUrl: string): Promise<void> {
   });
 }
 
+/** Gỡ ràng buộc origin do BẢN CŨ tạo ra mà không có dữ liệu thật của người dùng hiện tại.
+ *
+ * Bản cũ gắn origin ngay cả khi chỉ ĐỌC, nên máy cài mới rồi đổi sang máy chủ thật bị khoá
+ * vĩnh viễn vào địa chỉ dev mặc định. Ràng buộc chỉ được gỡ khi đồng thời:
+ * - đang gắn với máy chủ KHÁC máy chủ hiện tại;
+ * - không có marker `has_records` (marker do bản mới ghi kèm mọi bản ghi offline, nên thiếu
+ *   marker nghĩa là ràng buộc đến từ bản cũ);
+ * - người dùng hiện tại không có bản ghi offline nào (`hasOwnRecords`, chỉ đọc SecureStore
+ *   trực tiếp — không được gọi lại hàm có khoá này).
+ * Dữ liệu thật của bản cũ vẫn được giữ cô lập như trước. */
+export function releaseUnusedLegacyBinding(
+  apiUrl: string,
+  hasOwnRecords: () => Promise<boolean>
+): Promise<boolean> {
+  const origin = originOf(apiUrl);
+  return withBindingLock(async () => {
+    if (!(await secureAvailable())) return false;
+    const existing = await SecureStore.getItemAsync(ORIGIN_KEY);
+    if (!existing || existing === origin) return false;
+    if (await SecureStore.getItemAsync(MARKER_KEY)) return false;
+    if (await hasOwnRecords()) return false;
+    await SecureStore.deleteItemAsync(ORIGIN_KEY);
+    return true;
+  });
+}
+
 const OTHER_SERVER =
   "Dữ liệu offline thuộc máy chủ khác. Chọn lại máy chủ gốc để xem và đồng bộ; thao tác cũ vẫn được giữ trên thiết bị.";
 

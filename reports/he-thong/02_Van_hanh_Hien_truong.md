@@ -165,7 +165,7 @@ với $w$ = {urgent 0,5; high 0,2; normal 0,05; low 0}. Ví dụ: một ca khẩ
 
 ## 4. Hạn chế còn lại
 
-- **Vị trí checklist:** `create_step` đặt `position = len(case.steps)`, nên hai lần tạo đồng thời có thể trùng `position`. Chỉ ảnh hưởng thứ tự hiển thị, không mất dữ liệu.
+- **Vị trí checklist (đã sửa ở vòng 3):** trước đây `create_step` dùng `len(case.steps)`, và hai lần thêm bước đồng thời trùng vị trí. Giờ code chạy một `UPDATE` không đổi gì trên dòng ca để lấy khoá (khoá ghi trên SQLite, khoá dòng trên PostgreSQL), rồi đặt `position = MAX(position) + 1`. Test: `round3::test_concurrently_added_checklist_steps_get_distinct_positions` (FAIL trên `7f0955a`).
 - **Bản ghi idempotency cũ** (trước bản sửa) vẫn khớp theo hash chỉ gồm body, để không biến các lượt replay hợp lệ thành 409 sau khi nâng cấp.
 - **Lập lịch:** thời gian di chuyển là ước lượng đường chim bay × 1,35, không phải dẫn đường thật.
 - **Ghim IP:** chỉ áp dụng khi `FIELD_WEBHOOK_ALLOW_PRIVATE` tắt. Bật biến này (môi trường dev) thì hệ thống tin DNS.

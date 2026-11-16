@@ -1,14 +1,35 @@
 """FastAPI authentication dependencies."""
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
+import config
 from auth.models import User
 from auth.schemas import CurrentUser
 from auth.service import decode_access_token
 from database import get_db
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+# auto_error=False: web console xác thực bằng cookie httpOnly thay vì header Bearer.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def request_token(request: Request, bearer: str | None) -> str | None:
+    """Lấy JWT từ header Bearer (mobile, API) hoặc từ cookie phiên (web).
+
+    Cookie được trình duyệt tự gửi kèm, nên với phương thức ghi phải có header chống CSRF:
+    một trang khác không đặt được header tuỳ ý nếu không qua CORS preflight (chỉ cho origin
+    đã cấu hình), còn form/ảnh/link thì không gửi header được.
+    """
+    if bearer:
+        return bearer
+    token = request.cookies.get(config.AUTH_COOKIE_NAME)
+    if not token:
+        return None
+    if request.method.upper() not in _SAFE_METHODS and \
+            request.headers.get(config.CSRF_HEADER, "").strip().lower() != config.CSRF_HEADER_VALUE:
+        raise HTTPException(status_code=403, detail="Thiếu header chống CSRF")
+    return token
 
 
 def email_verification_required() -> bool:
@@ -20,9 +41,17 @@ def email_verification_required() -> bool:
 
 
 async def get_current_user_allow_unverified(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
+    bearer: str | None = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> CurrentUser:
+    token = request_token(request, bearer)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     payload = decode_access_token(token)
     if not payload:
         raise HTTPException(

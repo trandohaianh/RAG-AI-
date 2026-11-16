@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -566,13 +566,21 @@ def create_step(
         if not step:
             raise HTTPException(status_code=409, detail="Không thể khôi phục bước đã đồng bộ")
         return step
+    # Hai lần thêm bước đồng thời (web + outbox mobile) từng cùng đọc len(case.steps) và trùng
+    # vị trí. UPDATE không đổi gì giữ khoá ghi (SQLite) / khoá dòng ca (PostgreSQL) tới khi
+    # commit, nên MAX(position) đọc sau đó đã gồm bước của giao dịch kia.
+    db.execute(
+        update(ServiceCase).where(ServiceCase.id == case.id)
+        .values(updated_at=ServiceCase.updated_at).execution_options(synchronize_session=False)
+    )
+    last = db.scalar(select(func.max(ServiceCaseStep.position)).where(ServiceCaseStep.case_id == case.id))
     step = ServiceCaseStep(
         case_id=case.id,
         created_by=user.id,
         title=body.title.strip(),
         instruction=body.instruction.strip(),
         source=body.source,
-        position=len(case.steps),
+        position=0 if last is None else last + 1,
     )
     db.add(step)
     db.flush()
@@ -686,16 +694,16 @@ async def assist_case(
     from costs.budget import enforce_budget
     from costs.context import set_request_usage
 
-    enforce_budget(db, user.id)
-    set_request_usage(user_id=user.id, workspace_id=case.workspace_id, feature="field_assistant")
-    enforce_query_quota(db, user.id, user.subscription_plan)
-    evidence_bundle = {}
-    try:
-        answer, sources = await answer_rag_once(
-            user.id, question, workspace_id=case.workspace_id, evidence_out=evidence_bundle
-        )
-    except RagGenerationError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from None
+    with enforce_budget(db, user.id):
+        set_request_usage(user_id=user.id, workspace_id=case.workspace_id, feature="field_assistant")
+        enforce_query_quota(db, user.id, user.subscription_plan)
+        evidence_bundle = {}
+        try:
+            answer, sources = await answer_rag_once(
+                user.id, question, workspace_id=case.workspace_id, evidence_out=evidence_bundle
+            )
+        except RagGenerationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from None
     _case_for_user(db, case_id, user.id)  # Recheck membership after generation.
     source_text = ", ".join(sources) if sources else "không có nguồn truy xuất"
     _add_event(

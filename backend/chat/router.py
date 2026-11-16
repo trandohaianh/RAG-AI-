@@ -195,13 +195,18 @@ async def chat_stream(
 
     from costs.budget import enforce_budget
 
-    enforce_budget(db, user.id)
-    reservation = enforce_query_quota(db, user.id, user.subscription_plan)
+    budget = enforce_budget(db, user.id)
+    try:
+        reservation = enforce_query_quota(db, user.id, user.subscription_plan)
+    except Exception:
+        budget.release()
+        raise
     try:
         chat_service.add_message(db, conv_id, "user", body.question)
         history = chat_service.get_history_for_rag(db, conv_id)
     except Exception:
         release_query_quota(db, reservation)
+        budget.release()
         raise
 
 
@@ -292,6 +297,10 @@ async def chat_stream(
             yield f"data: {json.dumps({'error': RAG_ERROR_MESSAGE, 'code': 'rag_unavailable'}, ensure_ascii=False)}\n\n"
 
             return
+
+        finally:
+            # Chi phí thật đã được ghi khi stream kết thúc: trả lại khoản đặt trước.
+            budget.release()
 
 
 

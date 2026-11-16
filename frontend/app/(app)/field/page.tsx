@@ -31,6 +31,7 @@ import { useAuth } from "@/lib/auth";
 import { loadSnapshot, saveSnapshot } from "@/lib/caseCache";
 import { formatDateTime } from "@/lib/utils";
 import api, {
+  currentSession,
   getApiErrorMessage,
   type DocItem,
   type FieldCase,
@@ -166,17 +167,16 @@ export default function FieldOperationsPage() {
     setLegacyCount(legacy);
   }, [queueScope]);
 
-  // Capture the session token and validate ownership again for every replay.
-  // Explicit headers prevent an account switch from reusing axios's new token.
+  // Capture the session and validate ownership again for every replay: a login switch
+  // (new session epoch) must never replay the previous account's queued edits.
   const queueSender = useCallback(() => {
-    const token = localStorage.getItem("rag_token");
+    const epoch = currentSession();
     return (method: "post" | "patch", url: string, body: Record<string, unknown>) => {
       const current = JSON.parse(localStorage.getItem("rag_user") || "null");
-      if (!queueScope || !token || current?.id !== queueScope.userId ||
-          localStorage.getItem("rag_token") !== token) {
+      if (!queueScope || !epoch || current?.id !== queueScope.userId || currentSession() !== epoch) {
         return Promise.reject(new Error("Hàng đợi đang chờ đăng nhập lại đúng tài khoản."));
       }
-      return api.request({ method, url, data: body, headers: { Authorization: `Bearer ${token}` } });
+      return api.request({ method, url, data: body });
     };
   }, [queueScope]);
 

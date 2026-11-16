@@ -137,14 +137,14 @@ async def v1_ask(
     from costs.budget import enforce_budget
     from costs.context import set_request_usage
 
-    enforce_budget(db, api_user.id)
-    set_request_usage(user_id=api_user.id, feature="public_api")
-    enforce_query_quota(db, api_user.id, plan)
-    evidence_bundle = {}
-    try:
-        answer, sources = await answer_rag_once(api_user.id, body.question, evidence_out=evidence_bundle)
-    except RagGenerationError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from None
+    with enforce_budget(db, api_user.id):
+        set_request_usage(user_id=api_user.id, feature="public_api")
+        enforce_query_quota(db, api_user.id, plan)
+        evidence_bundle = {}
+        try:
+            answer, sources = await answer_rag_once(api_user.id, body.question, evidence_out=evidence_bundle)
+        except RagGenerationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from None
     from chat import service as chat_service
 
     conv = chat_service.get_or_create_conversation(db, api_user.id, "__api__")

@@ -26,6 +26,7 @@ from auth.lifecycle import deactivate_account
 from auth.models import User
 from auth.schemas import CurrentUser
 from auth.service import create_access_token, hash_password
+from costs import models as cost_models  # noqa: F401  (llm_budget_reservations)
 from database import Base, _enable_sqlite_foreign_keys
 from evals import graders
 from field import integrations, models as field_models, photos
@@ -289,7 +290,7 @@ def test_photo_limit_is_rechecked_after_slow_processing(env, monkeypatch):  # no
 
 
 # ============================================================================ cost limits (U7)
-def test_document_upload_respects_the_daily_ai_budget(monkeypatch, tmp_path):
+def test_document_upload_respects_the_daily_ai_budget(monkeypatch, tmp_path, sessions):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
@@ -309,7 +310,12 @@ def test_document_upload_respects_the_daily_ai_budget(monkeypatch, tmp_path):
     monkeypatch.setattr("costs.budget.spent_today", lambda db, user_id=None: 5.0)
     app = FastAPI()
     app.include_router(docs_router.router)
-    app.dependency_overrides[get_db] = lambda: iter([None])
+
+    def override_db():
+        with sessions() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(id=3, email="u@example.com", role="user")
     with TestClient(app) as c:
         response = c.post("/documents/upload", files={"file": ("sop.txt", b"Quy trinh", "text/plain")})

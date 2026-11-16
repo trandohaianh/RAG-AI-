@@ -37,6 +37,17 @@ ALGORITHM: str = os.getenv("ALGORITHM", "HS256").strip()
 if ALGORITHM not in {"HS256", "HS384", "HS512"}:
     raise ValueError("ALGORITHM must be one of HS256, HS384, HS512")
 ACCESS_TOKEN_EXPIRE_DAYS: int = 7
+# Web console giữ phiên trong cookie httpOnly (JS không đọc được, XSS không lấy được token).
+# Mobile/Public API vẫn dùng header Bearer.
+AUTH_COOKIE_NAME: str = os.getenv("AUTH_COOKIE_NAME", "fieldops_session")
+AUTH_COOKIE_SAMESITE: str = os.getenv("AUTH_COOKIE_SAMESITE", "lax").strip().lower()
+if AUTH_COOKIE_SAMESITE not in {"lax", "strict", "none"}:
+    raise ValueError("AUTH_COOKIE_SAMESITE must be lax, strict or none")
+AUTH_COOKIE_DOMAIN: str | None = os.getenv("AUTH_COOKIE_DOMAIN") or None
+# Header bắt buộc khi xác thực bằng cookie với phương thức ghi (chống CSRF): form/ảnh từ site
+# khác không gửi được header tuỳ ý, còn fetch có header này phải qua CORS preflight.
+CSRF_HEADER: str = "X-Requested-With"
+CSRF_HEADER_VALUE: str = "fieldops"
 RESET_TOKEN_EXPIRE_MINUTES: int = 30
 
 # Google Sign-In: OAuth client ID loại "Web application" (có thể nhiều, cách nhau dấu phẩy
