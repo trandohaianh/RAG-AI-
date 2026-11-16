@@ -49,7 +49,7 @@ function VerifyEmailInner() {
       )}
       {state === "error" && (
         <>
-          <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+          <p className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
             {message}
           </p>
           <p className="mt-6 text-sm text-white/50">

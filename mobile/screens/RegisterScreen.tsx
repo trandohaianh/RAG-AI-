@@ -91,7 +91,7 @@ export default function RegisterScreen({ navigation }: any) {
           placeholderTextColor={colors.textMuted}
         />
 
-        <GradientButton
+        <GradientButton pill
           title={loading ? "Đang tạo tài khoản..." : "Đăng ký"}
           onPress={onSubmit}
           loading={loading}
@@ -116,8 +116,8 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: 14,
+    borderRadius: radius.full,
+    paddingHorizontal: 18,
     paddingVertical: 12,
     fontSize: 15,
     backgroundColor: colors.card,

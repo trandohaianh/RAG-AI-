@@ -10,6 +10,8 @@ type Props = {
   variant?: "primary" | "outline";
   style?: ViewStyle;
   testID?: string;
+  /** Bo tròn hoàn toàn (dùng cho màn đăng nhập/đăng ký). */
+  pill?: boolean;
 };
 
 export default function GradientButton({
@@ -20,6 +22,7 @@ export default function GradientButton({
   variant = "primary",
   style,
   testID,
+  pill,
 }: Props) {
   const isDisabled = disabled || loading;
 
@@ -29,7 +32,7 @@ export default function GradientButton({
         testID={testID}
         onPress={onPress}
         disabled={isDisabled}
-        style={[styles.outline, isDisabled && styles.disabled, style]}
+        style={[styles.outline, pill && styles.pill, isDisabled && styles.disabled, style]}
         activeOpacity={0.7}
       >
         <Text style={styles.outlineText}>{title}</Text>
@@ -43,7 +46,7 @@ export default function GradientButton({
         colors={[colors.primary, colors.primaryTo]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={[styles.button, isDisabled && styles.disabled]}
+        style={[styles.button, pill && styles.pill, isDisabled && styles.disabled]}
       >
         {loading ? (
           <ActivityIndicator color="#fff" />
@@ -56,6 +59,7 @@ export default function GradientButton({
 }
 
 const styles = StyleSheet.create({
+  pill: { borderRadius: radius.full },
   button: {
     height: 48,
     borderRadius: radius.md,

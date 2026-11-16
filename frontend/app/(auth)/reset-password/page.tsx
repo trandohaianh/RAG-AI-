@@ -48,7 +48,7 @@ function ResetPasswordForm() {
       <h1 className="mt-6 text-3xl font-semibold tracking-tight">Đặt lại mật khẩu</h1>
 
       {!token ? (
-        <p className="mt-6 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+        <p className="mt-6 rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
           Link không hợp lệ — thiếu token. Yêu cầu lại từ trang{" "}
           <Link href="/forgot-password" className="underline">
             Quên mật khẩu
@@ -62,7 +62,7 @@ function ResetPasswordForm() {
       ) : (
         <form onSubmit={onSubmit} className="mt-8 space-y-3 text-left">
           {error && (
-            <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+            <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
               {error}
             </p>
           )}
