@@ -86,7 +86,9 @@ def build_summary(db: Session, days: int, user_id: int | None = None) -> dict:
     scoped = _aggregate(db, start, end, user_id)
     cost, inp, out, count = scoped.with_entities(*_sum_cols()).one()
 
-    day_col = func.date(LlmUsageEvent.created_at)
+    from database import utc_date
+
+    day_col = utc_date(LlmUsageEvent.created_at, db)
     by_day_rows = (
         scoped.with_entities(day_col, *_sum_cols()).group_by(day_col).order_by(day_col).all()
     )

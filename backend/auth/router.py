@@ -24,6 +24,7 @@ from auth.service import (
     create_access_token,
     create_email_verification_token,
     create_reset_token,
+    find_active_user_by_email,
     login_with_google,
     register_user,
     reset_password_with_token,
@@ -160,24 +161,24 @@ async def resend_verification(
 
 @router.post("/forgot-password")
 async def forgot_password(data: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)):
-    ratelimit.hit("email:address", data.email)
-    ratelimit.hit("email:ip", ratelimit.client_ip(request))
+    ip = ratelimit.client_ip(request)
+    # Khoá theo cặp IP + email: khoá chỉ theo email cho phép bất kỳ ai gửi 5 yêu cầu để
+    # chặn email đặt lại mật khẩu của người khác trong 1 giờ.
+    ratelimit.hit("email:address", f"{ip}|{data.email}")
+    ratelimit.hit("email:ip", ip)
     generic = {
         "message": "Nếu email tồn tại, một link đặt lại mật khẩu đã được gửi."
     }
-    user = (
-        db.query(User)
-        .filter(User.email == data.email, User.deleted_at.is_(None))
-        .first()
-    )
+    user = find_active_user_by_email(db, data.email)
     # Keep the response identical for unknown and disabled accounts, including
     # installations where email delivery is not configured.
     if not user or not is_email_configured():
         return generic
     token = create_reset_token(db, user)
-    await send_reset_email(
+    # Gửi nền: chờ SMTP chỉ với tài khoản có thật làm thời gian phản hồi lộ email nào tồn tại.
+    _send_in_background(send_reset_email(
         user.email, f"{APP_PUBLIC_URL}/reset-password?token={token}"
-    )
+    ))
     return generic
 
 

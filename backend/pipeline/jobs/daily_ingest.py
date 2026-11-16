@@ -32,23 +32,38 @@ async def _run(dag_run_id: str) -> int:
     processed = 0
     errors: list[str] = []
 
-    for user_id, file_path in discover_upload_files(UPLOAD_DIR):
-        try:
-            await ingest_file(user_id, file_path, dag_run_id=dag_run_id)
-            processed += 1
-            print(f"OK user={user_id} file={file_path.name}")
-        except Exception as exc:
-            errors.append(f"{file_path}: {exc}")
-            print(f"FAIL {file_path}: {exc}")
+    try:
+        for user_id, file_path in discover_upload_files(UPLOAD_DIR):
+            try:
+                await ingest_file(user_id, file_path, dag_run_id=dag_run_id)
+                processed += 1
+                print(f"OK user={user_id} file={file_path.name}")
+            except Exception as exc:
+                errors.append(f"{file_path}: {exc}")
+                print(f"FAIL {file_path}: {exc}")
+    except Exception as exc:
+        # Lỗi ngoài vòng lặp (vd. quét thư mục upload): không để bronze.ingest_runs kẹt 'running'.
+        finish_ingest_run(run_id, status="failed", files_processed=processed,
+                          error_message=f"{type(exc).__name__}: {exc}"[:500])
+        raise
 
-    status = "success" if not errors else "partial"
+    status = ingest_status(processed, len(errors))
     finish_ingest_run(
         run_id,
         status=status,
         files_processed=processed,
         error_message="; ".join(errors[:5]) if errors else None,
     )
+    if status == "failed":
+        # Exit code khác 0 để Airflow/cron thử lại và báo lỗi, thay vì ghi "partial" rồi coi là xong.
+        raise RuntimeError(f"Daily ingest failed for all {len(errors)} file(s)")
     return processed
+
+
+def ingest_status(processed: int, failed: int) -> str:
+    if not failed:
+        return "success"
+    return "partial" if processed else "failed"
 
 
 def main() -> None:

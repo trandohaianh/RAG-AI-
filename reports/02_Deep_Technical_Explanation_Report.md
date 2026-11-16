@@ -1,148 +1,230 @@
-# Deep Technical Explanation & Project Knowledge Report
+# Báo cáo giải thích kỹ thuật chuyên sâu — FieldOps
 
-## 1. Bài toán dự án giải quyết
+**Mốc mã nguồn:** HEAD `7569b27` cộng các bản sửa của hai vòng kiểm toán 2026-11-16 (chưa commit).
 
-FieldOps (nền tảng điều hành dịch vụ hiện trường) nối ba nhu cầu: quản lý đội/workspace, quản lý ca sửa và tra cứu SOP/manual bằng trợ lý AI có dẫn chứng. Người dùng không hỏi một mô hình “biết mọi thứ”; trợ lý chỉ nên trả lời từ tài liệu đã nạp, trong khi kỹ thuật viên vẫn chịu trách nhiệm xác nhận thao tác.
+Báo cáo này mô tả các luồng, ranh giới tin cậy và thuật toán **xuyên suốt** hệ thống. Chi tiết từng phần nằm trong [`he-thong/`](he-thong/README.md). Mọi khẳng định đều kèm vị trí trong code; phần nào chưa được chạy thực tế được ghi rõ ở §6.
 
-Web console phục vụ điều phối và quản trị. Ứng dụng mobile phục vụ kỹ thuật viên và có hàng đợi offline cho một số thao tác ca. Backend là nơi giữ quyền sở hữu dữ liệu, phân quyền, quota, lịch sử và bằng chứng.
+---
 
-## 2. Hệ thống hoạt động tổng thể
+## 1. Bài toán
+
+FieldOps phục vụ đội kỹ thuật hiện trường (FTTH, BTS, thiết bị mạng) với bốn chức năng:
+
+1. **Ca sửa:** checklist, nhật ký, ảnh, phân quyền theo đội.
+2. **Điều phối tuyến:** VRP có khung giờ, giải bằng heuristic.
+3. **Trợ lý tra cứu SOP và manual có dẫn chứng:** mỗi nhãn `【E#】` trỏ tới một đoạn trích có SHA-256, và nhãn được kiểm **ngay trong lúc stream**.
+4. **Tích hợp CRM/NMS:** webhook vào có ký HMAC; webhook ra có outbox, claim nguyên tử, ghim IP và retry.
+
+Có bốn loại client:
+
+| Client | Đặc điểm |
+|---|---|
+| Web (Next.js) | Có CSP; outbox IndexedDB |
+| Mobile (Expo) | Outbox SecureStore, gắn với đúng máy chủ đã tạo ra dữ liệu |
+| Widget nhúng | Chạy trên website khách |
+| Public API | Dùng API key |
+
+---
+
+## 2. Các luồng request
+
+### 2.1 Xác thực (chi tiết: hệ thống 1)
+
+**Đăng ký và đăng nhập bằng mật khẩu**
+
+- bcrypt, có chặn đầu vào trên 72 byte.
+- Email so sánh **không phân biệt hoa/thường**: kiểm trùng khi đăng ký; khi đăng nhập, ưu tiên khớp chính xác, rồi chỉ nhận khớp không phân biệt hoa/thường nếu có đúng một tài khoản.
+
+**JWT**
+
+- HS256 (allow-list `HS256`/`HS384`/`HS512`, kiểm lúc khởi động), có hiệu lực 7 ngày.
+- Claim: `sub`, `exp`, `purpose="access"`, `version=token_version`.
+- Mỗi request đối chiếu `token_version` và `deleted_at` trong DB.
+
+**Đăng nhập Google**
+
+- Xác minh JWKS, `aud`, `iss` và `email_verified`.
+- Liên kết vào một tài khoản mật khẩu **chưa xác minh** thì vô hiệu mật khẩu cũ và tăng `token_version` (chống pre-hijack).
+
+**Quên mật khẩu**
+
+- Email gửi ở nền, nên thời gian phản hồi không lộ email nào tồn tại.
+- Limiter khoá theo `IP|email`.
+
+### 2.2 Chat RAG qua SSE (chi tiết: hệ thống 3)
 
 ```mermaid
 sequenceDiagram
-  participant U as Client
-  participant API as FastAPI
-  participant DB as SQLAlchemy DB
-  participant R as Hybrid RAG
-  participant M as Gemini/Ollama
-  U->>API: Bearer/API/embed request
-  API->>DB: authenticate + ownership + quota
-  API->>R: question + source/workspace
-  R-->>API: revision-consistent evidence chunks
-  API->>M: grounded prompt
-  M-->>API: tokens or one-shot answer
-  API->>API: citation/evidence audit
-  API->>DB: persist message/event
-  API-->>U: SSE/JSON + sources/evidence
+  participant C as Client
+  participant R as chat.router
+  participant Q as quota/budget
+  participant RT as retriever
+  participant L as chain + llm
+  C->>R: POST /chat/{conv} {question ≤ 4000}
+  R->>Q: enforce_budget, enforce_query_quota (UPDATE nguyên tử, commit)
+  R->>R: lưu câu hỏi; lịch sử ≤ 10 lượt × 2000 ký tự, bỏ nhãn cũ
+  L->>RT: vector ∥ BM25L → RRF → rerank (cache theo revision)
+  L-->>R: evidence bundle, context (【】 trong tài liệu đã vô hiệu)
+  loop mỗi token
+    L->>L: giữ phần từ ngoặc 【 chưa đóng; audit nhãn đã đóng
+    alt nhãn hợp lệ / không có nhãn
+      L-->>C: token
+    else nhãn không tồn tại
+      L-->>C: error (nhãn bịa không bao giờ được gửi)
+    end
+  end
+  L->>L: audit cuối → lưu answer + evidence; judge (p=0,1) nếu có context
+  R-->>C: done {sources, evidence, citation_audit}
 ```
 
-Application startup is defined in `backend/main.py:lifespan`: validate production security configuration, create data directories, initialize the app schema and recover interrupted document publications. The optional medallion schema is attempted but does not prevent SQLite-only startup; after this audit it emits a warning when initialization fails.
+### 2.3 Ingest tài liệu
 
-## 3. Request and data lifecycles
+Thứ tự xử lý:
 
-### Authentication
+1. Kiểm tra quyền, tên tệp, phần mở rộng và kích thước 20 MB.
+2. **Ngân sách AI.**
+3. Loader hoặc OCR.
+4. Splitter (1000/100).
+5. Embedding theo lô 20.
+6. Journal, rồi publish vào Chroma, rồi tăng revision.
+7. Medallion (tuỳ chọn): bronze → GE → silver → gold. Gold **luôn** được đồng bộ lại; ngày được tính theo UTC.
 
-`backend/auth/service.py` hashes passwords with bcrypt and creates JWTs containing `sub`, `exp`, `purpose`, and a database-backed token `version`. `backend/dependencies.py:get_current_user` decodes and validates the token, then queries a non-deleted user whose `token_version` matches. Password reset increments the version, invalidating old access tokens. Thus JWT is a transport credential, while the database is the revocation authority.
+### 2.4 Ca sửa, offline và phân quyền (chi tiết: hệ thống 2, 6, 7)
 
-### Document upload
+**Truy cập ca**
 
-`backend/docs/router.py:upload_doc` verifies workspace membership/ownership, sanitizes the filename, checks the extension and a 20 MB default limit, reads at most one byte beyond the limit, and passes the bytes to `backend/rag/ingest.py`. The ingestion pipeline loads PDF/DOCX/TXT or OCRs supported images, attaches source metadata, splits documents with a recursive splitter, embeds chunks, and publishes them into a Chroma collection. The document lifecycle module coordinates publication, revision markers, locks and recovery. Delete invalidates BM25/cache state and removes the published document through the lifecycle path.
+- Mọi truy cập đều join membership; người ngoài đội nhận 404.
 
-### Chat
+**Phân quyền**
 
-`backend/chat/router.py:chat_stream` checks the conversation belongs to the user, atomically reserves one daily query, stores the user message, snapshots history, and starts an SSE generator. `backend/rag/chain.py:stream_rag_answer` retrieves chunks, builds an evidence context, calls the provider on a bounded worker slot, validates citations, then emits `done`. Only after completion does the route persist the assistant message and structured evidence. Provider errors return a safe public error message rather than provider internals.
+- Owner: sửa mọi thứ.
+- Kỹ thuật viên: chỉ nhận ca chưa giao cho mình, và chỉ đổi trạng thái ca của mình.
+- `PATCH /dispatch`: chỉ owner.
 
-Public API and embed routes reuse the same quota and RAG concepts with different credentials. Field assistance additionally writes an assistant recommendation event tied to the service case.
+**Outbox ở client**
 
-## 4. Retrieval and ranking in detail
+- Lưu trước, gửi sau.
+- `client_action_id` được dùng làm khoá idempotency.
+- Lỗi 5xx quá 8 lần thì thao tác chuyển sang `rejected`.
 
-The retriever takes `RETRIEVE_CANDIDATES` candidates (default 15) and returns `TOP_K` results (default 5). Two branches run concurrently:
+**Server**
 
-1. Chroma performs semantic similarity search using the configured embedding model.
-2. BM25 searches the same collection lexically, which is useful for exact alarm codes, model names and identifiers.
-3. Results are merged with Reciprocal Rank Fusion (RRF).
-4. Cohere rerank is used when configured; otherwise `lexical_rerank` scores query/chunk token overlap and gives section headings extra weight.
-5. The final list is cached using the collection revision, query, source and workspace scope.
+- `request_hash = SHA-256({body, target})`.
+- Replay một mã đã dùng: trả kết quả cũ, hoặc 409 nếu khác nội dung.
+- Race giữa hai lần gửi lại đồng thời: trả replay.
 
-For RRF, if a document has rank (r_i(d)) in result list (i), a common form is:
+### 2.5 Tích hợp CRM/NMS
 
-\[
-RRF(d) = \sum_i \frac{1}{k + r_i(d)}
-\]
+**Chiều vào**
 
-Here (k) is a damping constant and the rank starts at 1. Example: with (k=60), a document ranked 1 in semantic search and 4 in BM25 scores (1/61 + 1/64). A document appearing only at rank 2 scores (1/62). The first document wins because independent evidence from both lists is rewarded. The exact fusion implementation is in `backend/rag/bm25.py:reciprocal_rank_fusion`; the code, rather than this generic formula, is authoritative for its tie and truncation behavior.
+1. Kiểm `Content-Length` và đọc body theo stream, tối đa 256 KB.
+2. Kiểm chữ ký HMAC (lệch đồng hồ tối đa 300 s).
+3. Dedupe theo `event_id`.
+4. Race khi tạo ca theo `external_ref`: trả 503 kèm `Retry-After`.
 
-Lexical reranking uses token overlap. If a chunk contains two primary query terms in its heading and three in its body, its score contribution is (4×2 + 2×3 = 14), before contextual heading matches. This is intentionally a fallback heuristic, not a learned relevance model. Stopwords are removed and a field-case query after `Câu hỏi kỹ thuật viên:` receives primary weight.
+**Chiều ra**
 
-Semantic retrieval itself is delegated to Chroma/LangChain. The project calls the library API; it does not implement the embedding model or cosine/distance kernel. Therefore embedding quality, vector metric and model behavior must be verified against the installed Chroma configuration rather than inferred from the route code.
+1. Ghi outbox cùng transaction với thay đổi của ca.
+2. Claim bằng `UPDATE` có điều kiện (lease 5 phút).
+3. `validate_outbound_url` (chỉ IP `is_global`), rồi POST tới đúng IP đã kiểm (`Host` và SNI giữ tên miền).
+4. Backoff; quá 8 lần thì `dead`. Gauge `fieldops_field_webhook_deliveries` cấp dữ liệu cho alert.
 
-## 5. Chunking and ingestion assumptions
+### 2.6 Billing
 
-The recursive splitter defaults to chunk size 1000 and overlap 100. If a document has length (L), a rough upper bound on chunk count for regular text is:
+**Checkout**
 
-\[
-N \approx \left\lceil \frac{L - O}{S - O} \right\rceil
-\]
+- `Customer.create` có idempotency key.
+- `UPDATE … WHERE stripe_customer_id IS NULL`, rồi đọc lại customer đã lưu.
 
-where (S=1000) is chunk size and (O=100) is overlap. For (L=2500), this estimates (\lceil 2400/900\rceil=3) chunks. Real counts differ because the recursive splitter respects separators and may produce smaller chunks. Overlap preserves context at boundaries but increases embedding/storage cost.
+**Webhook**
 
-OCR is a Gemini-dependent path. Empty OCR output is rejected. Images therefore require Gemini even if text generation is configured for Ollama.
+- Chữ ký Stripe.
+- Tìm tài khoản theo `customer`.
+- `billing_sync_version` đơn điệu.
 
-## 6. Quota mathematics and transaction behavior
+**Vô hiệu hoá tài khoản:** huỷ các subscription còn hiệu lực.
 
-`backend/saas/limits.py:enforce_query_quota` updates the daily counter conditionally:
+### 2.7 Job vận hành
 
-\[
-used' = used + 1 \quad \text{only if } used < limit
-\]
+- `run_chain` chạy dưới khoá file dùng chung giữa API và container pipeline.
+- Khi khởi động, các lượt `running` cũ được đánh dấu `fail`.
+- Chạy bù dựa trên mốc `backup`.
+- Mỗi chuỗi được bọc trong `_safe_chain`, nên lỗi tạm thời không làm dừng vòng lặp lịch.
 
-The update is committed before model generation, so concurrent workers cannot both pass the same final slot. A request accepted into RAG remains charged even if the provider later fails; only local preparation failures call `release_query_quota`. This is a deliberate billing/abuse-control decision and is covered by `tests/test_query_quota.py`.
+---
 
-The initialization migration counts retained assistant messages and field recommendation events once per UTC day, guarded by a migration marker. It avoids repeatedly reconstructing usage from mutable history on every restart.
+## 3. Ranh giới tin cậy
 
-## 7. Technologies and why they are used
+| Ranh giới | Thứ được tin | Cơ chế | Còn hở |
+|---|---|---|---|
+| Internet → edge | Không gì | TLS, HSTS, body ≤ 30 MB. XFO SAMEORIGIN, riêng `/embed` có `frame-ancestors *`. Edge ghi đè `X-Forwarded-For`. | Hai cấu hình edge phải đồng bộ bằng tay |
+| Trình duyệt → console | Mã do `'self'` phục vụ | CSP: `connect-src` chỉ tới API đã cấu hình, `object-src 'none'`, `frame-ancestors 'self'` | Cần `'unsafe-inline'` cho script (chưa dùng nonce); token nằm ở `localStorage` |
+| Bearer JWT | Chữ ký và `token_version` trong DB | §2.1 | — |
+| Google ID token | JWKS, `aud`, `iss`, email đã xác minh | Chống pre-hijack | — |
+| API key | SHA-256 của key | Phạm vi theo user | — |
+| Embed token | **Công khai** | `allowed_origins` so với origin của trang cha (`ancestorOrigins`/`referrer`) | Client không phải trình duyệt giả được header |
+| Vai trò trong workspace | Membership trong DB | Owner và kỹ thuật viên (§2.4) | — |
+| CRM/NMS → API | Secret HMAC của từng tích hợp | §2.5 | — |
+| API → URL webhook của owner | Không tin | https, IP `is_global`, ghim IP, không theo redirect | Dev có `FIELD_WEBHOOK_ALLOW_PRIVATE` thì tắt các kiểm tra này |
+| Tài liệu → prompt | Là dữ liệu | Vô hiệu `【】`, `［］` và `---`; system prompt dặn mô hình | Chưa dùng `system_instruction` |
+| LLM → người dùng | Không tin | Audit nhãn **trong lúc stream**; nhãn sai thì dừng và không lưu | Chỉ kiểm danh tính nhãn, không kiểm nội dung đúng nghĩa |
+| Ảnh upload | Không tin | Nhận dạng bằng nội dung tệp; chặn > 40 MP trước khi giải nén; mã hoá lại bỏ EXIF/GPS; kiểm hạn mức lại dưới khoá ghi | — |
+| Thiết bị mobile → máy chủ | Origin đã gắn cho dữ liệu offline | Chỉ gắn khi ghi; đọc chỉ kiểm tra | Máy đã bị khoá nhầm ở bản cũ |
 
-- **FastAPI:** async HTTP/SSE and dependency injection; suitable for separate web, mobile, embed and public boundaries.
-- **SQLAlchemy:** transactional models and portability between SQLite development and PostgreSQL warehouse/application deployments.
-- **SQLite:** low-friction local app store; not a substitute for a tested multi-writer production topology.
-- **ChromaDB:** local/persistent vector index for per-user or per-workspace retrieval.
-- **BM25:** lexical complement for identifiers and exact operational language.
-- **Google GenAI:** embeddings, Gemini generation and image OCR. Ollama is an optional local text-generation provider.
-- **Redis:** optional retrieval cache for multi-process deployments; local behavior can operate without it.
-- **PostgreSQL + medallion layers:** optional Bronze raw metadata, Silver cleaned chunks and Gold summaries/metrics for data engineering workflows.
-- **Next.js/React:** web console with App Router and static/dynamic route rendering.
-- **Expo/React Native:** mobile client and secure local storage/offline queue.
-- **Prometheus/Grafana:** metrics collection and operational dashboards.
+---
 
-## 8. Important design decisions
+## 4. Thuật toán: công thức và ví dụ tính
 
-1. **Evidence-first answers.** Retrieval chunks are captured before generation and citation validity is checked before the answer is marked complete. This reduces plausible but unsupported responses.
-2. **Revision-consistent reads.** Publication locks and revision checks prevent a cache or retrieval result from being written after the underlying collection changed.
-3. **Bounded generation concurrency.** A semaphore limits synchronous provider workers, preventing unlimited client streams from exhausting threads.
-4. **Defense-in-depth file boundaries.** Filename sanitization plus resolved-parent equality protects user/workspace upload roots.
-5. **Stable public failures.** Provider exception details are logged by type but are not returned as raw external-service errors.
-6. **Optional integrations.** Redis, Cohere, Stripe, email and the warehouse can be absent for local development. This improves portability but means readiness must expose feature availability clearly.
+| Thuật toán | Công thức và tham số (vị trí) | Ví dụ |
+|---|---|---|
+| Chia đoạn | $N \approx \lceil (L-O)/(S-O)\rceil$, S = 1000, O = 100 (`rag/ingest.py`) | L = 2500 cho **3** chunk |
+| BM25L | $idf=\ln(N+1)-\ln(df+0{,}5)$; $c=\frac{tf}{1-b+b\,|d|/\overline{|d|}}$; $s=\sum idf\cdot tf\cdot\frac{(k_1+1)(c+\delta)}{k_1+c+\delta}$, với k₁ = 1,5, b = 0,75, δ = 0,5 (`rag/bm25.py`) | N = 10, df = 2, tf = 2, $|d|$ bằng trung bình: **≈ 4,63** |
+| RRF | $\sum 1/(60+r_i)$, hạng tính từ 1 | Hạng (1, 3) cho 0,032266, cao hơn hạng (2) với 0,016129 |
+| Rerank lexical | $4|Q\cap H|+2|Q\cap B|+|C\cap H|$ (`rag/rerank.py`) | Từ "pon" ở tiêu đề, "pon" và "đỏ" ở thân: **8** |
+| Giữ nhãn khi stream | Phát phần văn bản tới trước ngoặc mở chưa đóng; giữ tối đa 64 ký tự, không qua xuống dòng; audit phần đã phát trước mỗi lần phát (`rag/chain.py:_safe_release_point`) | `"Đúng 【E9"` chỉ phát `"Đúng "`; `"99】"` đóng nhãn E999, audit báo `invalid`, stream dừng |
+| Quota | $used'=used+1$ khi $used<limit$; Free 50, Pro 1000 câu/ngày UTC | — |
+| Chi phí | $\frac{in\cdot p_{in}+(out+thinking)\cdot p_{out}}{10^6}+units\cdot p_{unit}$; ước lượng $\lceil len/4\rceil$ khi thiếu số token | 3000 token vào, 400 ra, flash: **0,0019 USD** |
+| Lập tuyến | $travel=\lceil 1{,}35\,d/v\cdot60\rceil$; $cost=\sum(travel+w(start-shift))$, w = {0,5; 0,2; 0,05; 0}; chèn rẻ nhất với điểm $\Delta cost+3|seq|$, rồi 2-opt | 4 km cho **11 phút**; ca khẩn chờ 1 giờ "đắt" bằng 30 phút lái xe |
+| Retry webhook | $\min(30\cdot2^a, 21600)$ s; lease claim 5 phút; tối đa 8 lần | a = 3 cho 240 s |
+| Outbox client | Lỗi 5xx: `failures += 1`; chuyển sang `rejected` khi `failures ≥ 8`; lỗi mạng không đếm | — |
+| Judge | Bernoulli p = 0,1 trên câu trả lời có context; điểm clamp vào [0, 1] | n = 1000 cho 100 ± 9,5 câu được chấm |
+| nDCG@k | $\frac{\sum rel_i/\log_2(i+1)}{\sum_{i\le\min(|rel|,k)}1/\log_2(i+1)}$ | Nguồn đúng ở hạng 1 và 3: **0,9197** |
+| Grader | Một cụm bị phủ định bởi "không …" ngay phía trước thì **không** khớp; câu có `【E#】` không phải lời từ chối | "Không được tắt nguồn" không chứa dữ kiện "tắt nguồn" |
+| Ngày UTC | `CAST(ts AT TIME ZONE 'UTC' AS DATE)`; `timezone('UTC', ts)` | Nạp lúc 23:30 UTC ngày 15 vẫn tính cho ngày 15 dù máy chủ ở UTC+7 |
 
-## 9. Strengths, weaknesses and limits
+---
 
-Strengths include explicit ownership checks, token revocation, transactional quota enforcement, document recovery machinery, hybrid retrieval, evidence bundles, frontend build health and a large regression suite.
+## 5. Lựa chọn công nghệ và giới hạn
 
-Weaknesses are operational: backend dependency drift blocked local test collection; external-provider behavior was not run in this audit; optional warehouse startup can still leave the application serving without medallion functionality; and the project has several deployment variants that increase configuration surface.
+| Công nghệ | Lý do chọn | Giới hạn |
+|---|---|---|
+| FastAPI + SQLAlchemy 2 | Async và SSE; migration có ledger, chạy trên SQLite và PostgreSQL | SQLite chỉ cho một writer; các khoá ghi trong code (ảnh, vô hiệu hoá tài khoản) dùng `UPDATE` không đổi gì để lấy khoá |
+| Chroma + rank_bm25 | Không cần server riêng; bắt đúng mã lỗi chính xác | Index BM25 nằm trong RAM; phải dựng lại khi revision đổi |
+| Gemini / Ollama | Chất lượng và OCR / chạy cục bộ | Chưa dùng `system_instruction`; OCR luôn cần Gemini |
+| Stripe | Checkout, Portal, webhook | Cần idempotency key (đã thêm) |
+| Pillow | Kiểm tra, mã hoá lại, bỏ metadata | Chỉ tự raise ở 2× giới hạn, nên phải tự chặn số pixel (đã thêm) |
+| Next.js 15 | App Router; CSP qua `headers()` | Cần `'unsafe-inline'` khi chưa dùng nonce |
+| Expo SecureStore | Lưu trữ được mã hoá | Giới hạn kích thước mỗi khoá nên phải chia chunk; không có transaction nên phải tự khoá |
+| Caddy / nginx | TLS tự động / cấu hình chi tiết | Hai biến thể phải đồng bộ |
+| Prometheus | Metric và alert | Metric của tiến trình không được scrape thì phải xuất qua API (đã thêm gauge từ DB) |
+| Khoá file (`storage_lock`) | Dùng chung qua volume data, chạy trên cả Windows và POSIX | Chỉ hiệu lực khi các tiến trình dùng chung volume |
 
-RAG limits include embedding drift, OCR errors, incomplete source documents, lexical false positives, provider latency, and the fact that reranking cannot recover a relevant chunk that neither initial retriever finds. Evaluation data and a measured quality threshold are necessary before claiming production accuracy.
+---
 
-## 10. Failure scenarios and diagnosis
+## 6. Trạng thái kiểm chứng
 
-- **`ModuleNotFoundError` at import:** rebuild `backend/.venv` from `backend/requirements.txt`; do not interpret this as application test failure.
-- **No Gemini key:** Gemini generation/upload paths fail unless `LLM_PROVIDER=ollama` is valid for text generation; OCR/embeddings still need Gemini.
-- **Both retrieval branches fail:** the request produces a safe RAG-unavailable response and the accepted quota remains charged.
-- **One retrieval branch fails:** the other branch may still serve results; the failure is logged by branch type.
-- **Warehouse unavailable:** SQLite application behavior continues, but medallion lineage/stats are unavailable and a startup warning is emitted.
-- **Interrupted publication:** startup recovery scans pending transactions and attempts restoration before serving.
-- **Invalid citation or stale document revision:** generation is not completed/persisted as a successful grounded answer.
-- **Offline mobile mutation:** the queue retries when connectivity returns; conflict semantics and device-level integration still need field testing.
+| Thành phần | Cách kiểm | Kết quả |
+|---|---|---|
+| Backend (mọi hệ thống) | pytest trên WSL | **517 passed, 12 skipped** (baseline 468/12) |
+| Các bản sửa backend | 48 regression test trên `git archive HEAD` | Đều FAIL đúng lỗi, PASS sau khi sửa; trừ 1 test chống hồi quy pass ở cả hai |
+| Web và mobile | `node --test` | 17/17; 3 test mới FAIL trên mã gốc |
+| Typecheck, build | `npm ci`, `tsc`, `next build` | PASS |
+| CSP, embed | `next start` cùng built-in browser | Render bình thường, không vi phạm CSP; request tới domain lạ bị chặn hoặc bị bỏ qua |
+| Eval offline | 3 script của CI | Giống hệt trước khi sửa |
+| Compose | `docker compose config` | PASS; thiếu `ACME_EMAIL` thì báo lỗi rõ ràng |
+| PostgreSQL, Caddy, promtool, thiết bị mobile, provider thật | — | **Chưa chạy** (giới hạn môi trường; CI chạy PostgreSQL và promtool) |
 
-## 11. What is real versus future work
+**Tái lập trên Windows**
 
-Real code exists for authentication, app persistence, cases/checklists/events, document ingestion, hybrid retrieval, evidence, web UI, mobile queue, analytics, embed/public boundaries and optional billing/warehouse adapters. The README explicitly identifies CRM/NMS sync, route scheduling, field-photo storage and internal-system integration as not yet implemented. Landing-page mockups are visual demonstrations and should not be confused with live analytics.
-
-## 12. Recommended learning and development sequence
-
-1. Rebuild the backend environment and run the full test suite.
-2. Read `backend/main.py`, `backend/dependencies.py`, and the router registration to understand boundaries.
-3. Follow one upload through `docs.router` → `rag.ingest` → lifecycle → Chroma.
-4. Follow one question through `chat.router` → `saas.limits` → `rag.retriever` → `rag.chain` → message persistence.
-5. Run the offline evaluation scripts and compare retrieval/evidence regressions before changing ranking weights.
-6. Add readiness, provider telemetry, backup/restore drills and PostgreSQL deployment tests before production claims.
-
-The authoritative implementation remains the linked source files. This report intentionally labels library-owned mathematics and provider behavior as delegated rather than claiming that the project implements them itself.
+1. **Backend:** chạy trên WSL, vì `xxhash` bị Application Control chặn trên Windows. Cài thư viện bằng `PYTHONUTF8=1 pip install -r backend/requirements.txt`. Khi chạy pytest, dùng `--basetemp` với một đường dẫn ngắn.
+2. **Web và mobile:** chạy `npm ci` trước.

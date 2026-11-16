@@ -58,17 +58,44 @@ def capture_evidence(rows) -> dict:
     return {"schema_version": 1, "collection": getattr(rows, "collection", None), "evidence": evidence}
 
 
+_LABEL_BRACKETS = str.maketrans({"【": "[", "】": "]", "［": "[", "］": "]"})
+_BLOCK_SEPARATOR = re.compile(r"(?m)^[ \t]*-{3,}[ \t]*$")
+
+
+def _prompt_safe(text: str) -> str:
+    """Document text is data: it must not be able to open a fake 【E#】 evidence block.
+
+    Only the prompt copy is neutralised; the stored quote and its SHA-256 stay verbatim.
+    """
+    return _BLOCK_SEPARATOR.sub("- - -", str(text).translate(_LABEL_BRACKETS))
+
+
 def evidence_context(bundle: dict) -> str:
     return "\n\n---\n\n".join(
-        f"【{item['reference_id']}】 Nguồn: {item['source']}" +
-        (f", trang {item['page']}" if item['page'] is not None else "") + "\n" + item['quote']
+        f"【{item['reference_id']}】 Nguồn: {_prompt_safe(item['source'])}" +
+        (f", trang {item['page']}" if item['page'] is not None else "") + "\n" + _prompt_safe(item['quote'])
         for item in bundle['evidence']
     )
 
 
+# Ngoặc nhãn: 【】 chuẩn, cùng biến thể ngoặc vuông toàn khổ ［］ mà mô hình đôi khi sinh ra.
+_LABEL = re.compile(r"[【［]([^】］\r\n]*)[】］]")
+OPEN_LABEL_BRACKETS = "【［"
+
+
+def _label_tokens(answer: str) -> list[str]:
+    """Nội dung các nhãn trông như tham chiếu bằng chứng (bắt đầu bằng E/e sau khoảng trắng).
+
+    `【 E9】`, `【e9】`, `［E9］` trước đây bị bỏ qua nên câu trả lời được báo "uncited" thay vì
+    "invalid". Nay chúng được giữ nguyên văn: chỉ khớp ĐÚNG `E<n>` mới là trích dẫn hợp lệ.
+    Mã thiết bị ASCII như `[E204]` không dùng ngoặc này nên vẫn không bị coi là nhãn.
+    """
+    return [raw for raw in _LABEL.findall(answer) if raw.strip()[:1] in {"E", "e"}]
+
+
 def audit_citations(answer: str, bundle: dict) -> dict:
     available = {item['reference_id'] for item in bundle['evidence']}
-    tokens = re.findall(r"【(E[^】\r\n]*)】", answer)
+    tokens = _label_tokens(answer)
     cited = list(dict.fromkeys(token for token in tokens if token in available))
     invalid = list(dict.fromkeys(token for token in tokens if token not in available))
     status = "invalid" if invalid else "cited" if cited else "uncited" if available else "no_evidence"

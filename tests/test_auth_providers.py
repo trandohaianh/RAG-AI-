@@ -89,7 +89,19 @@ def test_google_links_existing_password_account_case_insensitively(client, db_fa
     res = client.post("/auth/google", json={"credential": "x" * 40})
     assert res.status_code == 200 and res.json()["user"]["id"] == 5
     assert res.json()["user"]["has_google"] is True
-    # Mật khẩu cũ vẫn dùng được sau khi liên kết.
+    # Tài khoản chưa xác minh email: mật khẩu do người đăng ký trước đặt không được giữ quyền
+    # sau khi chủ hộp thư (Google đã xác minh) đăng nhập — chống pre-hijack.
+    assert client.post("/auth/login", json={"email": "Tech@example.com", "password": "Password-123"}).status_code == 401
+
+
+def test_google_link_keeps_password_of_already_verified_account(client, db_factory, monkeypatch):
+    with db_factory() as db:
+        db.add(User(id=5, email="Tech@example.com", hashed_password=hash_password("Password-123"), role="user",
+                    email_verified_at=datetime.now(timezone.utc)))
+        db.commit()
+    _fake_google(monkeypatch, sub="g-5", email="tech@example.com")
+    assert client.post("/auth/google", json={"credential": "x" * 40}).json()["user"]["id"] == 5
+    # Email đã được chính chủ xác minh trước đó: liên kết Google không làm mất mật khẩu.
     assert client.post("/auth/login", json={"email": "Tech@example.com", "password": "Password-123"}).status_code == 200
 
 
@@ -266,5 +278,9 @@ def test_smtp_channel_sends_verification_and_reset(client, db_factory, monkeypat
 
     _FakeSMTP.sent = []
     assert client.post("/auth/forgot-password", json={"email": "smtp@example.com"}).status_code == 200
+    for _ in range(50):  # email đặt lại mật khẩu cũng gửi nền (không lộ email tồn tại qua thời gian)
+        if _FakeSMTP.sent:
+            break
+        asyncio.run(asyncio.sleep(0.02))
     assert "/reset-password?token=" in _FakeSMTP.sent[0].get_body(("html",)).get_content()
     assert router is not None

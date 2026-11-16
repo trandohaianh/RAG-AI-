@@ -308,7 +308,19 @@ def update_case_dispatch(case_id: int, body: CaseDispatchUpdate, user: CurrentUs
     case = db.get(ServiceCase, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Không tìm thấy ca sửa")
-    _owner(db, case.workspace_id, user.id)
+    if _owner(db, case.workspace_id, user.id).role != "owner":
+        # Vị trí/khung giờ/ưu tiên là đầu vào của lập lịch, vốn chỉ trưởng đội được làm.
+        raise HTTPException(status_code=403, detail="Chỉ trưởng đội được sửa thông tin điều phối")
+    # priority/est_minutes là cột NOT NULL: null tường minh phải là 422, không phải IntegrityError 500.
+    for name in ("priority", "est_minutes"):
+        if name in body.model_fields_set and getattr(body, name) is None:
+            raise HTTPException(status_code=422, detail=f"{name} không được để trống")
+    start = body.window_start if "window_start" in body.model_fields_set else case.window_start
+    end = body.window_end if "window_end" in body.model_fields_set else case.window_end
+    if start and end:
+        if _aware(end) <= _aware(start):
+            # Chỉ gửi một đầu mút vẫn phải so với đầu mút đã lưu.
+            raise HTTPException(status_code=422, detail="Khung giờ hẹn: giờ kết thúc phải sau giờ bắt đầu")
     for name in body.model_fields_set:
         value = getattr(body, name)
         if isinstance(value, datetime):
@@ -369,6 +381,9 @@ def apply_schedule(workspace_id: int, body: ApplyRequest, user: CurrentUser = De
             case = db.get(ServiceCase, case_id)
             if not case or case.workspace_id != workspace_id or case_id in seen:
                 raise HTTPException(status_code=422, detail=f"Ca {case_id} không hợp lệ hoặc bị lặp")
+            if case.status not in ACTIVE_STATUSES:
+                # Ca đã xong/huỷ không được xếp lại (và không gửi lại case.scheduled sang CRM).
+                raise HTTPException(status_code=422, detail=f"Ca {case_id} đã đóng, không thể xếp lịch")
             if case.latitude is None:
                 raise HTTPException(status_code=422, detail=f"Ca {case_id} chưa có toạ độ")
             seen.add(case_id)
@@ -401,7 +416,8 @@ def apply_schedule(workspace_id: int, body: ApplyRequest, user: CurrentUser = De
 
 
 @router.get("/workspaces/{workspace_id}/schedule")
-def day_schedule(workspace_id: int, day: date = Query(alias="date"), tz_offset_minutes: int = 420,
+def day_schedule(workspace_id: int, day: date = Query(alias="date"),
+                 tz_offset_minutes: int = Query(420, ge=-720, le=840),
                  technician_id: int | None = None, user: CurrentUser = Depends(get_current_user),
                  db: Session = Depends(get_db)):
     _owner(db, workspace_id, user.id)

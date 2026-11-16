@@ -1,148 +1,344 @@
-# Technical Code Audit & Refactoring Report
+# Báo cáo kiểm toán mã nguồn kỹ thuật — FieldOps (`D:\self`)
 
-**Audit basis:** repository state inspected on 2026-11-13. Existing uncommitted changes were treated as user-owned. No unrelated files were reverted or deleted.
+- **Ngày kiểm toán:** 2026-11-16, hai vòng.
+- **Nhánh:** `fullstack/fieldops-production`.
+- **Mốc mã nguồn:** HEAD `7569b27`, cộng các thay đổi **chưa commit** của đợt kiểm toán (49 tệp sửa và 3 tệp hoặc thư mục mới).
+- **Thay thế:** báo cáo ngày 2026-11-13. Báo cáo đó không chạy được backend vì môi trường thiếu thư viện.
 
-## 1. Executive summary
+**Báo cáo chi tiết theo hệ thống:** [`he-thong/`](he-thong/README.md), gồm 7 tệp.
 
-FieldOps is a multi-client field-service platform. The web and mobile clients call a FastAPI backend for authentication, workspaces, service cases, documents, conversations, billing, analytics, and a grounded RAG assistant. SQLite is the default application store; ChromaDB stores vectors; PostgreSQL is an optional medallion warehouse; Redis and Cohere are optional accelerators.
+| # | Hệ thống |
+|---|---|
+| 1 | Xác thực, tài khoản, billing |
+| 2 | Vận hành hiện trường |
+| 3 | RAG và AI |
+| 4 | Pipeline dữ liệu |
+| 5 | Triển khai, giám sát, CI |
+| 6 | Web |
+| 7 | Mobile |
 
-The codebase has substantial real implementations and a broad regression suite. Frontend type-check and production build both passed. Backend tests did not reach assertions because the selected `backend/.venv` is missing declared packages (`jwt`/PyJWT and `redis`). Therefore the backend status is **NOT RUN/BLOCKED**, not PASS.
+Báo cáo này là bản tổng hợp, mô tả mã nguồn **sau khi đã sửa**.
 
-One source change was made: optional medallion startup failures remain non-fatal for SQLite development, but are now logged with the exception type. This removes an observability blind spot without changing the API contract or data behavior.
+---
 
-## 2. Project structure and entry points
+## 1. Phạm vi và độ tin cậy
 
-| Area | Responsibility | Evidence |
-|---|---|---|
-| `backend/main.py` | FastAPI construction, lifespan, router registration, health and metrics | `lifespan`, `app`, `include_router` |
-| `backend/auth/` | JWT authentication, bcrypt passwords, reset-token lifecycle | `auth.service`, `auth.router` |
-| `backend/chat/` | Conversation/message persistence and streaming chat | `chat.router`, `chat.service` |
-| `backend/field/` | Workspace, membership, case/checklist/event workflows | `field.router`, `field.models` |
-| `backend/docs/` | Upload, list, lineage, delete and workspace ownership checks | `docs.router.upload_doc` |
-| `backend/rag/` | Loading, chunking, embedding, hybrid retrieval, reranking, grounding and evidence | `ingest`, `retriever`, `chain`, `evidence` |
-| `backend/pipeline/` | Optional Bronze/Silver/Gold PostgreSQL path and lineage | `pipeline.db`, `pipeline.*` |
-| `frontend/` | Next.js web console and embedded widget | App Router pages and `lib/api.ts` |
-| `mobile/` | React Native/Expo field client with offline queue | `lib/fieldOffline.ts`, screens |
-| `tests/` | Backend security, RAG, workflow, migration and client-state regression tests | 296 collected before import errors |
-| `deploy/`, `airflow/`, `monitoring/`, `gx/` | Production packaging, ingestion orchestration, metrics and data quality | deployment and operational assets |
+### Đã làm
 
-Primary backend command is `uvicorn main:app` through `backend/start.ps1`/container configuration. Frontend commands are `npm run dev`, `npm run typecheck`, `npm run build`.
+**Vòng 1**
 
-## 3. System architecture and request flow
+1. Lập bản đồ stack và các entry point; đo baseline cho mọi bộ test.
+2. Bốn reviewer chạy song song theo vùng rủi ro:
+   - xác thực và billing;
+   - multi-tenancy;
+   - RAG/LLM;
+   - pipeline, triển khai và client.
+3. Tự đối chiếu từng phát hiện với code.
+4. Sửa 20 lỗi có kịch bản lỗi cụ thể (F1–F20).
+
+**Vòng 2**
+
+Chủ dự án yêu cầu "sửa luôn các lỗi". Vòng này sửa tiếp:
+
+- các lỗi đã xác nhận ở vòng 1 nhưng để lại (U1–U19);
+- 5 hành vi trước đây được giữ cho chủ dự án quyết định (D1, D2, D3, D6, D7).
+
+D4 và D5 được giữ nguyên có chủ đích; lý do ở §5.
+
+**Quy trình chung cho mọi bản sửa**
+
+- Mỗi bản sửa backend có regression test chạy trên bản `git archive HEAD` sạch: test **FAIL** đúng ở lỗi được mô tả, rồi **PASS** sau khi sửa.
+- Client (web và mobile) được kiểm theo cùng quy trình bằng `node --test`.
+
+### Không làm hoặc không kiểm chứng được (giới hạn môi trường)
+
+- **PostgreSQL:** 12 test PostgreSQL bị skip vì không có `FIELDOPS_TEST_POSTGRES_URL` và Docker daemon không chạy. CI có service Postgres và sẽ chạy chúng.
+- **Không chạy thật:** Caddy, promtool, thiết bị mobile thật, và các provider bên ngoài (Gemini, Cohere, Stripe, Google, SMTP).
+- **Chặn bởi Windows Application Control:** thư viện `xxhash` bị chặn trên Windows, nên backend được chạy trên WSL Ubuntu.
+
+### Độ tin cậy
+
+| Phạm vi | Mức tin cậy |
+|---|---|
+| Logic backend có test | **Cao** |
+| Web và mobile | **Trung bình–cao** (có test mô phỏng và kiểm tra trên trình duyệt; chưa chạy trên thiết bị) |
+| Cấu hình triển khai | **Trung bình** (`docker compose config`, `bash -n`; chưa khởi động container) |
+| Hành vi provider bên ngoài | **Thấp** (không được thực thi) |
+
+### Ghi chú về môi trường
+
+Commit `7569b27` của một phiên làm việc khác được đẩy lên giữa đợt kiểm toán. Baseline đã được đo lại trên commit này, và mọi thay đổi nằm chồng lên nó.
+
+---
+
+## 2. Kiến trúc
 
 ```mermaid
 flowchart LR
-  C[Web / Mobile / Embed / Public API] --> A[FastAPI routers]
-  A --> AU[JWT, API key, embed token]
-  A --> DB[(SQLite app DB)]
-  A --> Q[Durable daily quota]
-  A --> DOC[Upload + lifecycle]
-  DOC --> FILES[(data/uploads)]
-  DOC --> EMB[Gemini embeddings]
-  EMB --> V[(ChromaDB)]
-  A --> R[Hybrid retriever]
-  R --> V
-  R --> B[BM25 index]
-  R --> RR[Cohere or lexical rerank]
-  RR --> L[Gemini or Ollama]
-  L --> E[Evidence/citation audit]
-  E --> DB
-  A --> M[Prometheus metrics]
-  DOC -. optional .-> PG[(PostgreSQL medallion)]
+  W[Web Next.js] -->|Bearer JWT, CSP| EDGE
+  M[Mobile Expo] -->|Bearer JWT + outbox SecureStore| EDGE
+  E[Widget /embed trên site khách] -->|X-Embed-Token + Parent-Origin| EDGE
+  P[Public API /v1] -->|X-API-Key| EDGE
+  CRM[CRM/NMS] -->|HMAC ts.body| EDGE
+  EDGE[Caddy / nginx] --> API[FastAPI]
+  API --> DB[(SQLite / PostgreSQL)]
+  API --> CH[(Chroma user_N / workspace_N)]
+  API --> LLM[Gemini / Ollama]
+  API -->|webhook ra, claim + ghim IP| CRM
+  PL[container pipeline: job + webhook retry] --> DB
+  PL --> PG[(PostgreSQL medallion)]
+  PROM[Prometheus] -->|/metrics + token| API
 ```
 
-For a normal chat request: authentication is resolved in `backend/dependencies.py:get_current_user`; conversation ownership is checked in `backend/chat/service.py`; quota is atomically reserved in `backend/saas/limits.py:enforce_query_quota`; `backend/rag/retriever.py:retrieve` reads a revision-consistent snapshot, runs vector and BM25 retrieval, fuses results, and reranks; `backend/rag/chain.py:stream_rag_answer` generates on a bounded worker slot; citation evidence is validated before the assistant message is committed by `backend/chat/router.py:chat_stream`.
-
-## 4. Current implementation status
-
-| Capability | Status | Evidence / qualification |
+| Hệ thống | Mã nguồn chính | Báo cáo chi tiết |
 |---|---|---|
-| Registration/login/JWT revocation | Implemented | bcrypt, typed JWT claims, token version checks |
-| Workspace and service-case workflow | Implemented | routers/models/tests present; requires runtime verification |
-| Document upload and path containment | Implemented | extension, size, ownership and resolved-path checks |
-| Text/PDF/DOCX/image ingestion | Implemented | loaders, OCR adapter, chunking, embedding and lifecycle recovery |
-| Hybrid RAG | Implemented | Chroma + BM25 + RRF + rerank fallback |
-| Grounded evidence | Implemented | evidence bundle and citation audit are persisted/exposed |
-| Web UI | Implemented | build and typecheck PASS |
-| Mobile offline queue | Implemented in client code | needs device/network integration verification |
-| PostgreSQL medallion | Partial/optional | startup deliberately continues when warehouse unavailable |
-| Redis cache/Cohere rerank/Stripe/email | Optional integration | enabled only when corresponding configuration is present |
-| CRM/NMS synchronization, route scheduling, field photos | Not implemented | explicitly listed as future scope in README |
+| Xác thực, billing, cổng truy cập | `auth/`, `dependencies.py`, `billing/`, `embed/`, `public_api/`, `admin/`, `config.py` | [he-thong/01](he-thong/01_Xac_thuc_Tai_khoan_Billing.md) |
+| Vận hành hiện trường | `field/` | [he-thong/02](he-thong/02_Van_hanh_Hien_truong.md) |
+| RAG và AI | `rag/`, `chat/`, `docs/`, `costs/`, `saas/limits.py`, `evals/` | [he-thong/03](he-thong/03_RAG_AI_Tro_ly.md) |
+| Pipeline dữ liệu | `pipeline/`, `validation/`, `airflow/` | [he-thong/04](he-thong/04_Pipeline_Du_lieu.md) |
+| Triển khai, giám sát, CI | `deploy/`, `monitoring/`, `.github/`, `render.yaml`, `railway.toml`, `metrics.py` | [he-thong/05](he-thong/05_Trien_khai_Giam_sat_CI.md) |
+| Web | `frontend/` | [he-thong/06](he-thong/06_Web_Frontend.md) |
+| Mobile | `mobile/` | [he-thong/07](he-thong/07_Ung_dung_Mobile.md) |
 
-## 5. Module analysis and findings
+---
 
-### High priority
+## 3. Lỗi đã sửa
 
-1. **Backend environment drift — High / operational.** `backend/requirements.txt` declares PyJWT and redis, and `backend/scripts/check_dependencies.py` explicitly checks them, but the selected virtual environment lacks both and has multiple version mismatches (including FastAPI, Starlette, Pydantic, SQLAlchemy, pypdf, pandas and Stripe). Consequence: test collection and application imports fail before behavior is exercised. Remedy: install from the pinned requirements in a clean environment and make CI/environment bootstrap mandatory before local verification.
+Kịch bản lỗi chi tiết và tên test của từng lỗi nằm trong báo cáo của hệ thống tương ứng. Cột "Test":
 
-2. **Warehouse failure visibility — High / fixed in this audit.** `backend/main.py:35` previously swallowed all exceptions from `init_medallion_schema`. The code still starts in SQLite-only mode, but now emits a warning containing the exception type. A production deployment should additionally expose warehouse readiness separately from `/health`.
+- `R1`: `tests/test_audit_regressions.py`;
+- `R2`: `tests/test_audit_regressions_round2.py`;
+- `CS`: `tests/client_state.test.cjs`.
 
-3. **Production readiness is configuration-dependent — High / remaining.** `validate_security_config` protects production JWT signing, but external services, CORS, Stripe, email, PostgreSQL and Redis are optional by design. A deployment health check must distinguish “feature disabled” from “feature configured but unavailable.”
+### 3.1 Mức Cao
 
-### Medium priority
+| ID | Hệ thống | Vị trí | Lỗi | Test |
+|---|---|---|---|---|
+| F1 | 5 | `deploy/cloud/Caddyfile` | `X-Frame-Options: SAMEORIGIN` toàn site làm widget nhúng trả phí trắng trơn trên website khách. | Đọc cấu hình |
+| F2 | 5 | `.github/workflows/ci.yml` | Bước `docker compose config` luôn đỏ trên checkout sạch (thiếu `deploy/production/.env`). | Tái hiện trên bản archive (exit 1 → 0) |
+| D1 | 1 | `auth/service.py:login_with_google` | Pre-hijack: Google gộp vào một tài khoản mật khẩu chưa xác minh, nhưng mật khẩu và JWT của người đăng ký trước vẫn dùng được. | R2, và `test_auth_providers.py` đã cập nhật |
+| U1 | 7 | `mobile/lib/offlineOrigin.ts`, `fieldOffline.ts`, `api.ts` | Bản cài mới đổi sang máy chủ thật thì mất vĩnh viễn chế độ offline (bị khoá vào IP dev mặc định). | CS |
 
-4. **Startup work is synchronous around database/schema setup — Medium.** `init_db` and medallion initialization run during the async lifespan. This is acceptable for a small deployment but can lengthen readiness. Move heavy migrations to a deployment job once multi-worker production operation is required.
+### 3.2 Mức Trung bình
 
-5. **RAG dependencies are provider-heavy — Medium.** Importing the application imports Google/LangChain/Chroma paths. A minimal auth-only deployment still needs the full RAG dependency set. Consider optional provider modules or a separate worker if cold-start and memory become constraints.
+| ID | Hệ thống | Vị trí | Lỗi | Test |
+|---|---|---|---|---|
+| F3 | 1 | `billing/router.py` | Checkout đồng thời tạo hai customer Stripe, nên gói không được nâng sau khi trả tiền. | R1 |
+| F4 | 1 | `auth/service.py:register_user` | Email chỉ khác hoa/thường tạo ra hai tài khoản. | R1 |
+| — | 1 | `authenticate_user`, `field/router.py:add_member` | Không đăng nhập hay mời vào đội được với email lưu dạng chữ hoa. | R2 |
+| U2 | 1 | `embed/router.py:_check_origin` | `allowed_origins` làm widget luôn bị 403. | R2 |
+| D2 | 2 | `field/router.py`, `field/dispatch.py` | Kỹ thuật viên gán lại ca hay sửa dispatch của người khác. | R2 |
+| F9 | 2 | `field/photos.py` | Ảnh từ 1× đến 2× giới hạn pixel bị giải nén hoàn toàn (tốn RAM). | R1 |
+| F10, U5 | 2 | `field/integrations.py` | SSRF qua 100.64/10 và qua DNS rebinding. | R1, R2 |
+| U4 | 2 | `field/integrations.py:dispatch_due` | Webhook ra bị gửi trùng giữa hai tiến trình. | R2 |
+| F5, F6, F7 | 3 | `docs/router.py`, `chat/schemas.py`, `rag/prompt.py` | Chi phí AI không giới hạn: gợi ý câu hỏi không chịu ngân sách, câu hỏi không giới hạn độ dài, lịch sử không giới hạn; nhãn trích dẫn cũ bị tái sử dụng. | R1 |
+| F8 | 3 | `rag/evidence.py` | Tài liệu giả được khối bằng chứng `【E#】`. | R1 |
+| D3 | 3 | `rag/chain.py` | Nhãn trích dẫn bịa được stream tới người dùng. | R2 |
+| D6 | 6, 7 | `frontend/lib/offlineQueue.ts`, `mobile/lib/fieldOffline.ts` | Một thao tác lỗi 5xx vĩnh viễn chặn mọi thao tác phía sau. | CS (2 test) |
+| D7 | 5 | `render.yaml`, `railway.toml` | Deploy PaaS chạy ở chế độ dev, `/metrics` mở công khai. | R2 |
+| U16 | 6 | `frontend/next.config.js` | Không có CSP trong khi token nằm ở `localStorage`. | `curl` và trình duyệt |
+| F18 | 4 | `pipeline/gold.py`, `medallion.py` | Gold giữ dữ liệu cũ sau một lần nạp lại không đạt kiểm tra. | R1 |
 
-6. **Frontend landing page contains intentional mockup visuals — Low, documented.** `frontend/app/page.tsx` labels analytics/audit visuals as mockups. They are presentation content, not evidence of live analytics. Keep the labels and do not count them as runtime functionality.
+### 3.3 Mức Thấp hoặc Thấp–Trung bình
 
-## 6. Technology and algorithm assessment
-
-- FastAPI provides dependency-injected HTTP routing and SSE responses.
-- SQLAlchemy 2 provides ORM/database transactions; migrations are versioned in `backend/schema_migrations.py`.
-- JWT (HS256 by default) carries `sub`, `exp`, `purpose`, and token version. Database lookup remains authoritative, so token theft does not bypass revocation.
-- bcrypt hashes passwords with a 72-byte input guard.
-- LangChain loaders/splitters and Google GenAI provide document processing and embedding/generation; the project owns lifecycle, evidence, quota, and retrieval orchestration.
-- Chroma similarity search supplies semantic candidates. BM25 supplies lexical candidates for exact codes and identifiers. Reciprocal Rank Fusion combines independent rankings. Cohere reranking is optional; lexical reranking is the deterministic fallback.
-- Redis is a read-through retrieval cache keyed by collection revision and query. The revision key prevents stale results after publication.
-- Prometheus middleware exposes request metrics; Grafana assets visualize them.
-
-The main algorithmic risks are external model variability, embedding/model drift, and sparse/low-quality documents. The code mitigates stale publication and invalid citations, but quality still needs an evaluated corpus and provider-specific thresholds.
-
-## 7. Duplicate/dead-code analysis
-
-No file was deleted. The repository contains multiple deployment variants under `deploy/production` and `deploy/distributed`; these are not safe to remove without deployment-manifest and CI verification. `frontend/app/page.tsx` mockups are referenced UI content, not dead code. The backend dependency checker is an active operational guard. A definitive unused-symbol report requires a working type/lint/static-analysis environment and should be a follow-up, not a guess based on filenames.
-
-## 8. Refactoring changes
-
-- Updated `backend/main.py` so optional medallion initialization logs a warning with the exception type instead of silently swallowing every error.
-- No API contract, schema, storage path, or user data was changed.
-- No uncommitted user changes were reverted.
-
-## 9. Testing and verification
-
-| Check | Result | Evidence |
-|---|---|---|
-| Frontend TypeScript | PASS | `npm run typecheck` |
-| Frontend production build | PASS | `npm run build`; 15 routes generated |
-| Backend dependency contract | FAIL/BLOCKED | dependency checker reports missing PyJWT, psycopg2 and redis plus multiple pinned-version mismatches |
-| Backend pytest collection | BLOCKED | `ModuleNotFoundError: jwt` and `ModuleNotFoundError: redis` in `backend/.venv` |
-| Backend test assertions | NOT RUN | collection stopped after 14 import errors |
-| Production integration/LLM calls | NOT RUN | would require external services and secrets |
-| Docker/warehouse runtime | NOT RUN | not required for static audit and no readiness evidence collected |
-
-## 10. Remaining issues
-
-- Recreate/install the backend environment from `backend/requirements.txt` and rerun all tests.
-- Run PostgreSQL-backed tests with the configured service and verify medallion readiness separately.
-- Exercise upload → retrieval → evidence → delete/recovery against a real Chroma store.
-- Add CI checks for mobile and backend dependency bootstrap parity (mobile typecheck exists; local mobile run was not performed).
-- Replace placeholder deployment URLs and review production secrets/TLS outside source control.
-
-## 11. Roadmap
-
-| Phase | Work | Priority | Complexity |
+| ID | Hệ thống | Lỗi | Test |
 |---|---|---|---|
-| 1 — Foundation | Rebuild backend env, run 296-test suite, fix all assertion failures | Critical | M |
-| 1 — Foundation | Add `/ready` dependency-aware readiness and structured startup logging | High | S |
-| 1 — Foundation | Verify migrations and document lifecycle on SQLite and PostgreSQL | High | M |
-| 2 — Scale | Separate heavy RAG/embedding work from API workers; measure latency and memory | Medium | L |
-| 2 — Scale | Add retrieval-quality corpus, regression thresholds, and provider drift monitoring | High | M |
-| 2 — Scale | Complete mobile/network integration and offline conflict telemetry | Medium | M |
-| 3 — Production | CI security/dependency audit, backups, restore drills, alerting and runbooks | High | L |
-| 3 — Production | Pilot CRM/NMS integration, scheduling and field-photo retention policy | Low | L |
+| F11 | 1, 2 | Người bị vô hiệu hoá vẫn là `default_assignee` của tích hợp. | R1 |
+| F12–F14 | 2 | Lỗi 500 do null hay tz quá biên; khung giờ đảo ngược; ca đã đóng vẫn được xếp lịch. | R1 |
+| F15–F17 | 3 | Judge chấm câu từ chối; ghi thiếu usage khi stream bị ngắt (Gemini, Ollama). | R1 |
+| F19 | 4 | Số chunk silver đếm cả dòng trùng. | R1 |
+| F20 | 6 | Mock của test client thiếu `CasePhotosSection`. | CS (13 → 14/14) |
+| U6 | 2 | Quota ảnh kiểu check-then-act. | R2 |
+| U7 | 3 | Upload không chịu ngân sách AI. | R2 |
+| U8 | 4 | Job runner: lượt chạy kẹt `running`, DB lỗi làm chết scheduler, chạy bù không kích hoạt, khoá chỉ trong một tiến trình. | R2 (một phần kiểm bằng đọc code) |
+| U9 | 2, 5 | Alert dead-letter không kích hoạt. | R2 |
+| U10 | 2 | Idempotency bỏ qua `step_id`; race 500; đọc body trước khi kiểm kích thước; race tạo ca. | R2 (race tạo ca kiểm bằng đọc code) |
+| U11 | 2, 4 | Retry delivery đã giao; bucket theo ngày dùng múi giờ session PostgreSQL. | R2 |
+| U12 | 1 | Forgot-password lộ email tồn tại qua thời gian phản hồi; limiter theo email chặn được email của người khác. | R2 |
+| U13 | 1 | Vô hiệu hoá tài khoản không huỷ subscription Stripe. | R2 |
+| U14 | 3 | Grader: phủ định, từ chối kèm trích dẫn, judge thiếu clamp, `k`. | R2 |
+| U15 | 4 | Ingest hằng ngày exit 0 khi mọi tệp lỗi; ngày lệch UTC; đường dẫn và retry của DAG. | R2 |
+| U16b | 1, 6 | `/embed?api=` gửi câu hỏi tới máy chủ tuỳ ý. | Trình duyệt |
+| U17 | 3 | Nhãn sai định dạng bị báo `uncited` thay vì `invalid`. | R2 |
+| U18 | 5, 7 | Caddy sập khi `ACME_EMAIL` rỗng; mobile đọc dữ liệu ngoài storage lock. | R2, và đọc code |
+| U19 | 1 | `ALGORITHM` và tham số chunk không được kiểm lúc khởi động. | R2 |
 
-## 12. Final assessment
+U3 ("stream trước khi audit") được giải quyết bằng D3.
 
-The project is a substantial working implementation, not merely a UI mockup. Web compilation is healthy, and the backend has real security, persistence, lifecycle, quota, retrieval and evidence logic. It is **not yet certified production-ready by this audit** because backend verification is blocked by environment drift and external integrations were not exercised. The five most important next actions are: install the declared backend dependencies; rerun/fix the full backend suite; add dependency-aware readiness; verify both database modes and document recovery; establish repeatable RAG quality and operational monitoring gates.
+---
+
+## 4. Hạn chế đã xác nhận nhưng chưa xử lý triệt để
+
+| Vấn đề | Lý do để lại | Đề xuất |
+|---|---|---|
+| Ngân sách AI là trần mềm khi có nhiều request đồng thời | Đặt trước chi phí ước tính cần thiết kế lại phần ghi chi phí | Đặt trước chi phí ước tính theo số token tối đa |
+| CSP vẫn cần `'unsafe-inline'` cho script | App Router chèn script inline; muốn bỏ thì phải dùng nonce qua middleware | Middleware sinh nonce; chuyển token sang cookie httpOnly |
+| Prompt chưa dùng `system_instruction` của Gemini | Thay đổi hành vi mô hình, cần đánh giá live | Tách system prompt, rồi chạy lại eval live |
+| Máy mobile *đã* bị khoá vào IP dev từ bản cũ | Không phân biệt được với dữ liệu thật của bản cũ, nên giữ an toàn | Hướng dẫn người dùng chọn lại máy chủ cũ hoặc cài lại |
+| `create_step` có thể trùng `position` khi tạo đồng thời | Chỉ ảnh hưởng thứ tự hiển thị | `max(position) + 1` dưới khoá dòng ca |
+| `allowed_origins` của embed không chặn được client không phải trình duyệt | Embed token vốn là công khai | Giữ nguyên; ghi rõ đây không phải lớp xác thực |
+| Hai cấu hình edge (Caddy, nginx) phải đồng bộ bằng tay | Kiến trúc triển khai | Sinh header từ một nguồn chung |
+
+---
+
+## 5. Quyết định giữ nguyên
+
+| ID | Hành vi | Lý do giữ |
+|---|---|---|
+| D4 | Quota vẫn bị trừ khi provider lỗi (docstring `release_query_quota`) | Chống lạm dụng: request đã vào RAG thì đã tốn tài nguyên |
+| D5 | `rag/technical` từ chối khi có hơn 4 parent đạt ngưỡng, thay vì cắt bớt | Câu trả lời kỹ thuật không được bỏ sót bằng chứng bắt buộc |
+
+---
+
+## 6. Vùng đã xác minh là đúng
+
+Các vùng này không cần sửa; chi tiết ở từng báo cáo hệ thống.
+
+- **Xác thực:**
+  - JWT ghim thuật toán, kiểm `purpose` và `token_version`.
+  - Token đặt lại mật khẩu dùng một lần.
+  - Token xác minh email gắn hash của email.
+  - Xác minh Google qua JWKS, `aud`, `iss` và `email_verified`.
+- **Phân quyền và quota:**
+  - API key phạm vi theo user; admin đọc role từ DB.
+  - Không có IDOR giữa các workspace.
+  - Quota cập nhật nguyên tử.
+  - Migration có khoá và chạy lại được nhiều lần.
+- **RAG:**
+  - RRF với hạng tính từ 1.
+  - Cô lập collection; cache khoá theo revision.
+  - Vòng đời publish và recovery.
+- **Triển khai:**
+  - Compose production: chỉ gateway publish cổng; các mạng dữ liệu là `internal`.
+  - Secret qua `_FILE`.
+  - Shell script dùng `set -euo pipefail`.
+  - Pipeline SQL có tham số bind.
+
+---
+
+## 7. Kết quả kiểm thử trước và sau khi sửa
+
+Môi trường:
+
+- **Backend:** WSL Ubuntu, Python 3.12.3, venv cài từ `backend/requirements.txt`, chạy trên bản sao đã loại `.env` cục bộ.
+- **Web và mobile:** Windows, Node 25.2.1, `npm ci` sạch.
+
+| Bộ kiểm tra | Trước (HEAD `7569b27`) | Sau vòng 1 | **Sau vòng 2** | Ghi chú |
+|---|---|---|---|---|
+| `check_dependencies.py` | PASS | PASS | PASS | 29 gói, 18 import contract |
+| Backend pytest | 468 passed, 12 skipped | 484 passed, 12 skipped | **517 passed, 12 skipped** | Không có hồi quy. 12 skip là test PostgreSQL (môi trường) |
+| Regression test trên mã gốc | — | 16/16 FAIL | **31/32 FAIL** | Test còn lại (`test_valid_label_split…`) là test chống hồi quy, không tái hiện lỗi, nên PASS trên cả hai |
+| `node --test tests/client_state.test.cjs` | 13/14 | 14/14 | **17/17** | 3 test mới FAIL trên mã gốc |
+| Frontend typecheck và build | PASS | PASS | **PASS** | `node_modules` trong repo cũ hơn `package.json` (môi trường) |
+| Mobile `tsc` | PASS | PASS | **PASS** | |
+| Eval offline: `run_evals` (68 câu) | pass 0,7206; recall@5 1,0; MRR 0,9121 | giống | **giống hệt** | Grader mới không đổi kết quả trên bộ dữ liệu hiện có |
+| `run_eval_benchmark`, `validate-only` | PASS | PASS | **PASS** | |
+| `docker compose config` (root) | **FAIL** | PASS sau bootstrap | PASS | F2 |
+| `docker compose config` (cloud) | PASS | PASS | PASS; báo lỗi rõ ràng khi thiếu `ACME_EMAIL` | |
+| Trình duyệt (`next start`) | — | — | `/`, `/login`, `/embed` render; không vi phạm CSP; `?api=` lạ bị bỏ qua hoặc bị chặn | |
+
+---
+
+## 8. Refactoring và mã chết
+
+Đợt kiểm toán ưu tiên thay đổi tối thiểu. Không đổi schema DB và không đổi API, trừ các điểm sau:
+
+- giới hạn 4000 ký tự cho câu hỏi chat;
+- `PATCH /field/cases/{id}/dispatch` chỉ dành cho owner;
+- `/embed/chat` nhận thêm header `X-Embed-Parent-Origin`;
+- retry một delivery đã giao trả 409;
+- inbound webhook trả 503 khi race.
+
+### Hàm mới
+
+| Hàm | Vị trí | Tác dụng |
+|---|---|---|
+| `find_active_user_by_email` | `auth/service.py` | Tìm tài khoản theo email không phân biệt hoa/thường |
+| `cancel_customer_subscriptions` | `billing/router.py` | Huỷ subscription Stripe khi vô hiệu hoá tài khoản |
+| `utc_date` | `database.py` | Bucket ngày theo UTC trên PostgreSQL |
+| `_post_pinned` | `field/integrations.py` | Gửi webhook tới đúng IP đã kiểm tra |
+| `_require_case_edit_rights` | `field/router.py` | Phân quyền sửa ca |
+| `fail_interrupted_runs`, `_chain_lock`, `_safe_chain` | `pipeline/jobs/runner.py` | Dọn lượt chạy kẹt, khoá chuỗi job, giữ vòng lặp lịch |
+| `bindOfflineApiOriginForWrite` | `mobile/lib/offlineOrigin.ts` | Chỉ gắn origin khi ghi dữ liệu offline |
+| `_safe_release_point` | `rag/chain.py` | Giữ nhãn trích dẫn lại cho tới khi kiểm tra xong |
+
+### Mã chết và tồn đọng (không xoá)
+
+- `backend/api/` và `backend/platform/`: thư mục rỗng, không được git theo dõi.
+- `backend/_uvicorn*.log`: log cục bộ, đã gitignore.
+- `prompt.format_context`: vẫn dùng khi `include_evidence=False`.
+- `deploy/production/edu` và `deploy/production/telecom`: hai dự án khác đóng gói chung.
+
+---
+
+## 9. Lộ trình
+
+| Giai đoạn | Việc | Ưu tiên |
+|---|---|---|
+| Ngay | Commit và chạy CI (gồm 12 test PostgreSQL và promtool) | Cao |
+| Ngay | Sau deploy: kiểm header `/embed` và `/` bằng `curl -I` | Cao |
+| Ngay | Đặt `EXPO_PUBLIC_API_URL` cho bản mobile phát hành | Cao |
+| 1 | CSP dùng nonce; chuyển token sang cookie httpOnly | TB |
+| 1 | Đặt trước chi phí để ngân sách AI thành trần cứng | TB |
+| 2 | Dùng `system_instruction` cho Gemini; chạy lại eval live | TB |
+| 2 | Sinh cấu hình Caddy và nginx từ một nguồn | Thấp |
+| 3 | Tách RAG/embedding ra worker; tách `deploy/production` đa dự án | Thấp |
+
+---
+
+## 10. Danh sách tệp thay đổi
+
+Toàn bộ chưa commit.
+
+**Backend (28 tệp)**
+
+- `auth/`: `lifecycle.py`, `router.py`, `service.py`
+- `billing/router.py`
+- `chat/`: `router.py`, `schemas.py`
+- `config.py`, `database.py`, `metrics.py`
+- `costs/router.py`
+- `analytics/service.py`
+- `docs/router.py`
+- `embed/router.py`
+- `evals/`: `graders.py`, `harness.py`
+- `field/`: `dispatch.py`, `integrations.py`, `photos.py`, `router.py`
+- `pipeline/`: `gold.py`, `medallion.py`, `silver.py`, `jobs/daily_ingest.py`, `jobs/runner.py`
+- `rag/`: `chain.py`, `evidence.py`, `llm.py`, `prompt.py`
+
+**Frontend (5 tệp)**
+
+- `app/(app)/field/page.tsx`
+- `app/embed/page.tsx`
+- `components/ChatWindow.tsx`
+- `lib/offlineQueue.ts`
+- `next.config.js`
+
+**Mobile (4 tệp)**
+
+- `lib/api.ts`
+- `lib/fieldOffline.ts`
+- `lib/offlineOrigin.ts`
+- `screens/ChatScreen.tsx`
+
+**Triển khai, giám sát, CI (8 tệp)**
+
+- `.github/workflows/ci.yml`
+- `deploy/cloud/Caddyfile`
+- `deploy/cloud/deploy.sh`
+- `deploy/cloud/docker-compose.yml`
+- `render.yaml`
+- `railway.toml`
+- `monitoring/alerts/fieldops-rules.yml`
+- `airflow/dags/daily_rag_ingest.py`
+
+**Test**
+
+- `tests/client_state.test.cjs`
+- `tests/test_auth_providers.py`
+- `tests/test_audit_regressions.py` (mới)
+- `tests/test_audit_regressions_round2.py` (mới)
+
+**Báo cáo**
+
+- `reports/01_*.md`, `reports/02_*.md`
+- `reports/he-thong/` (mới, 8 tệp)

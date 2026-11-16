@@ -265,6 +265,7 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="Nhập câu hỏi... (Enter gửi)"
+            maxLength={4000}
             disabled={loading}
             rows={1}
             className="min-h-[38px] resize-none border-0 shadow-none text-[13px] focus-visible:ring-0"

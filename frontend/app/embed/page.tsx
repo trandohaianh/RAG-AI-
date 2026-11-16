@@ -8,10 +8,26 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import MessageBubble, { type ChatMessage } from "@/components/MessageBubble";
 
+/** Origin của trang đang nhúng iframe này ("" khi mở trực tiếp hoặc không xác định được).
+ * `ancestorOrigins` do trình duyệt điền nên trang cha không giả được; Firefox không có nó thì
+ * dùng `document.referrer` (trang cha chỉ có thể xoá chứ không đổi được origin). */
+function embedParentOrigin(): string {
+  if (typeof window === "undefined" || window.parent === window) return "";
+  const ancestors = (window.location as Location & { ancestorOrigins?: DOMStringList }).ancestorOrigins;
+  if (ancestors && ancestors.length > 0) return ancestors[0];
+  try {
+    return document.referrer ? new URL(document.referrer).origin : "";
+  } catch {
+    return "";
+  }
+}
+
 function EmbedChatInner() {
   const params = useSearchParams();
   const token = params.get("token") ?? "";
-  const apiBase = (params.get("api") ?? process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000").replace(
+  // Bản build đã cấu hình API thì bỏ qua ?api=: nếu không, một link tự chế có thể gửi câu
+  // hỏi của khách truy cập tới máy chủ tuỳ ý. Chỉ bản dev (không có biến) mới đọc tham số.
+  const apiBase = (process.env.NEXT_PUBLIC_API_URL || params.get("api") || "http://127.0.0.1:8000").replace(
     /\/$/,
     ""
   );
@@ -39,6 +55,9 @@ function EmbedChatInner() {
         headers: {
           "Content-Type": "application/json",
           "X-Embed-Token": token,
+          // Request đi từ iframe nên Origin luôn là origin của ứng dụng; backend so origin của
+          // trang cha (website khách) với allowed_origins của token.
+          "X-Embed-Parent-Origin": embedParentOrigin(),
         },
         body: JSON.stringify({
           question,
@@ -145,6 +164,7 @@ function EmbedChatInner() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Hỏi về tài liệu..."
+          maxLength={4000}
           rows={2}
           className="resize-none"
           onKeyDown={(e) => {

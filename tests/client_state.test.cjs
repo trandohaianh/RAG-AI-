@@ -374,6 +374,7 @@ test("case detail purges cache on HTTP 403/404 instead of using the offline fall
       "../lib/theme": { colors: {}, radius: {} },
       "../components/GradientButton": { __esModule: true, default: () => null },
       "../components/EvidencePanel": { __esModule: true, default: () => null },
+      "../components/CasePhotosSection": { __esModule: true, default: () => null },
     });
     screen.default({ route: { params: { caseId: 8 } }, navigation: {} });
     focus();
@@ -464,4 +465,58 @@ test("web Axios and streaming 401s only clear their own session", async () => {
   await assert.rejects(rejectResponse({ response: { status: 401 }, config: { url: "/field/cases", headers: { Authorization: "Bearer next" } } }));
   assert.equal(local.has("rag_token"), false);
   assert.equal(location.href, "/login");
+});
+
+// ---------------------------------------------------------------- audit 2026-11-16 regressions
+test("fresh install that switches to the real server keeps offline mode (no binding to the dev default)", async () => {
+  const h = mobileHarness();
+  const offline = offlineHarness(h);
+  assert.equal(await offline.isSecureOfflineStorageAvailable(), true, "reading must not bind the offline origin");
+  await h.api.setApiUrl("https://fieldops.example.test");
+  await h.api.saveAuth("real", user);
+  assert.equal(await offline.isSecureOfflineStorageAvailable(), true);
+  await offline.enqueueFieldAction(1, offline.prepareFieldAction({ kind: "note", case_id: 8, detail: "on site" }));
+  assert.equal(await offline.getPendingFieldActionCount(1), 1);
+});
+
+test("web outbox moves an action that keeps failing with 5xx to rejected and unblocks later ones", async () => {
+  const h = queueHarness(indexedStorage([record("a"), { ...record("b"), createdAt: 2 }]));
+  const sent = [];
+  const sender = async (_m, _u, body) => {
+    if (body.client_action_id === "a") throw { response: { status: 500 } };
+    sent.push(body.client_action_id);
+  };
+  for (let i = 1; i < h.q.MAX_SERVER_FAILURES; i++) {
+    assert.deepEqual(plain(await h.q.flush(scope, sender)), { sent: 0, left: 2, rejected: 0 }, "attempt " + i);
+  }
+  const final = await h.q.flush(scope, sender);
+  assert.deepEqual(plain(final), { sent: 1, left: 0, rejected: 1 });
+  assert.deepEqual(sent, ["b"]);
+  const [rejectedAction] = await h.q.rejected(scope);
+  assert.equal(rejectedAction.id, "a");
+  await h.q.retryRejected(scope, "a");
+  assert.equal((await h.q.pending(scope))[0].serverFailures, 0, "manual retry starts a fresh count");
+});
+
+test("mobile sync moves an action that keeps failing with 5xx to rejected and sends later edits", async () => {
+  const sent = [];
+  const h = mobileHarness({ fetch: async (_url, options) => {
+    const body = JSON.parse(options.body);
+    if (body.detail === "poison") return { ok: false, status: 500, json: async () => ({ detail: "boom" }) };
+    sent.push(body.detail);
+    return { ok: true, status: 200, json: async () => ({}) };
+  } });
+  await h.api.saveAuth("tech", user);
+  const offline = offlineHarness(h);
+  for (const detail of ["poison", "later"]) {
+    await offline.enqueueFieldAction(1, offline.prepareFieldAction({ kind: "note", case_id: 8, detail }));
+  }
+  for (let i = 1; i < offline.MAX_SERVER_FAILURES; i++) {
+    const result = await offline.syncPendingFieldActions(1);
+    assert.equal(result.pending, 2, "attempt " + i);
+  }
+  const result = await offline.syncPendingFieldActions(1);
+  assert.equal(result.rejected, 1);
+  assert.equal(result.pending, 0);
+  assert.ok(sent.includes("later"));
 });

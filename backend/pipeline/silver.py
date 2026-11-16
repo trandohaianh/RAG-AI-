@@ -27,7 +27,7 @@ def write_silver_chunks(
             content = (c.get("content") or "").strip()
             if not content:
                 continue
-            db.execute(
+            result = db.execute(
                 text(
                     """
                     INSERT INTO silver.document_chunks (
@@ -52,5 +52,6 @@ def write_silver_chunks(
                     "validation_passed": passed,
                 },
             )
-            written += 1
+            # ON CONFLICT DO NOTHING (chunk trùng nội dung) không ghi dòng nào: không được đếm.
+            written += max(result.rowcount or 0, 0)
     return written

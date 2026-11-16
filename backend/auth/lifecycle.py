@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from auth.models import PasswordResetToken, User
 from field.models import (
+    FieldIntegration,
     FieldWorkspace,
     FieldWorkspaceMember,
     ServiceCase,
@@ -29,6 +30,7 @@ def deactivate_account(db: Session, user_id: int, actor_id: int) -> None:
         )
         if locked.rowcount != 1:
             raise HTTPException(status_code=404, detail="Không tìm thấy user")
+        stripe_customer_id = db.scalar(select(User.stripe_customer_id).where(User.id == user_id))
         workspace_ids = db.scalars(
             select(FieldWorkspaceMember.workspace_id)
             .where(
@@ -70,6 +72,13 @@ def deactivate_account(db: Session, user_id: int, actor_id: int) -> None:
         db.execute(delete(ApiKey).where(ApiKey.user_id == user_id))
         db.execute(delete(PasswordResetToken).where(PasswordResetToken.user_id == user_id))
         db.execute(delete(FieldWorkspaceMember).where(FieldWorkspaceMember.user_id == user_id))
+        # Ca mới từ CRM/NMS không được tự giao cho người đã rời mọi đội.
+        db.execute(
+            update(FieldIntegration)
+            .where(FieldIntegration.default_assignee == user_id)
+            .values(default_assignee=None)
+            .execution_options(synchronize_session=False)
+        )
 
         for case in db.scalars(
             select(ServiceCase).where(ServiceCase.assigned_to == user_id)
@@ -103,3 +112,17 @@ def deactivate_account(db: Session, user_id: int, actor_id: int) -> None:
     except Exception:
         db.rollback()
         raise
+    # Sau khi commit (không giữ transaction trong lúc gọi mạng): tài khoản đã bị vô hiệu
+    # hoá thì Stripe không được tiếp tục trừ tiền khách.
+    if stripe_customer_id:
+        import logging
+
+        try:
+            from billing.router import cancel_customer_subscriptions
+
+            cancel_customer_subscriptions(stripe_customer_id)
+        except Exception as exc:  # không làm hỏng việc vô hiệu hoá đã commit
+            logging.getLogger(__name__).warning(
+                "Không huỷ được subscription Stripe của user %s (%s); cần huỷ thủ công",
+                user_id, type(exc).__name__,
+            )

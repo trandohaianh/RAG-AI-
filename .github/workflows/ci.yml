@@ -73,6 +73,9 @@ jobs:
       - name: Validate docker compose
         run: |
           cp .env.example .env
+          # docker-compose.yml gốc include deploy/production/.env (gitignore) và cần các secret
+          # mà chỉ bootstrap sinh ra; thiếu bước này thì bước kiểm tra luôn đỏ trên checkout sạch.
+          python -B deploy/production/bootstrap_local.py
           docker compose config --quiet
           cp deploy/cloud/.env.example deploy/cloud/.env
           sed -i "s|^SECRET_KEY=.*|SECRET_KEY=$(openssl rand -hex 32)|; s|^METRICS_TOKEN=.*|METRICS_TOKEN=ci|" deploy/cloud/.env

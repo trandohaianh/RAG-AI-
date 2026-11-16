@@ -276,7 +276,9 @@ async def chat_stream(
 
                             db_save.close()
 
-                        if answer_text.strip():
+                        # Câu từ chối "chưa có tài liệu" không có context: judge sẽ chấm nó
+                        # faithfulness=1.0 và làm lệch trung bình chất lượng, nên không lấy mẫu.
+                        if answer_text.strip() and str(retrieved_context[0] or "").strip():
 
                             _schedule_eval(saved_id, question, retrieved_context[0], answer_text)
 

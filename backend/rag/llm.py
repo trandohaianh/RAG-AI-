@@ -41,12 +41,14 @@ def _elapsed_ms(start: float) -> int:
     return int((time.perf_counter() - start) * 1000)
 
 
-def _record_ollama(payload: dict, prompt: str, text: str, start: float, feature: str | None) -> None:
+def _record_ollama(payload: dict, prompt: str, text: str, start: float, feature: str | None,
+                   status: str = "ok") -> None:
     record_usage(
         provider="ollama", model=f"ollama:{OLLAMA_MODEL}",
         input_tokens=payload.get("prompt_eval_count") or estimate_tokens(prompt),
         output_tokens=payload.get("eval_count") or estimate_tokens(text),
-        estimated=not payload.get("eval_count"), latency_ms=_elapsed_ms(start), feature=feature,
+        estimated=not payload.get("eval_count"), latency_ms=_elapsed_ms(start),
+        status=status, feature=feature,
     )
 
 
@@ -56,6 +58,10 @@ def _record_gemini(response, prompt_text: str, text: str, start: float, feature:
     estimated = not (inp or out)
     if estimated:
         inp, out = estimate_tokens(prompt_text), estimate_tokens(text)
+    elif not out and text:
+        # Stream bị ngắt: chunk usage cuối mới có prompt_token_count, chưa có số token đầu ra,
+        # nhưng văn bản đã sinh vẫn bị tính tiền.
+        out, estimated = estimate_tokens(text), True
     record_usage(
         provider="gemini", model=LLM_MODEL, input_tokens=inp, output_tokens=out,
         thinking_tokens=thinking, estimated=estimated, latency_ms=_elapsed_ms(start),
@@ -105,29 +111,37 @@ def stream_text(prompt: str, *, feature: str | None = None) -> Iterator[str]:
     start = time.perf_counter()
     if LLM_PROVIDER == "ollama":
         produced: list[str] = []
-        with httpx.stream(
-            "POST",
-            f"{OLLAMA_URL}/api/generate",
-            json=_ollama_body(prompt, True, False, None, None),
-            timeout=_OLLAMA_TIMEOUT,
-        ) as resp:
-            resp.raise_for_status()
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                payload = json.loads(line)
-                if not isinstance(payload, dict) or "error" in payload:
-                    raise RuntimeError("Ollama stream failed")
-                piece = payload.get("response", "")
-                if not isinstance(piece, str):
-                    raise RuntimeError("Invalid Ollama response")
-                if piece:
-                    produced.append(piece)
-                    yield piece
-                if payload.get("done") is True:
-                    _record_ollama(payload, prompt, "".join(produced), start, feature)
-                    return
-            raise RuntimeError("Ollama stream ended before completion")
+        recorded = started = False
+        try:
+            with httpx.stream(
+                "POST",
+                f"{OLLAMA_URL}/api/generate",
+                json=_ollama_body(prompt, True, False, None, None),
+                timeout=_OLLAMA_TIMEOUT,
+            ) as resp:
+                resp.raise_for_status()
+                started = True
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    payload = json.loads(line)
+                    if not isinstance(payload, dict) or "error" in payload:
+                        raise RuntimeError("Ollama stream failed")
+                    piece = payload.get("response", "")
+                    if not isinstance(piece, str):
+                        raise RuntimeError("Invalid Ollama response")
+                    if piece:
+                        produced.append(piece)
+                        yield piece
+                    if payload.get("done") is True:
+                        recorded = True
+                        _record_ollama(payload, prompt, "".join(produced), start, feature)
+                        return
+                raise RuntimeError("Ollama stream ended before completion")
+        finally:
+            # Giống nhánh Gemini: client ngắt hoặc lỗi giữa stream vẫn phải để lại đúng một bản ghi.
+            if started and not recorded:
+                _record_ollama({}, prompt, "".join(produced), start, feature, status="partial")
 
     stream = client().models.generate_content_stream(model=LLM_MODEL, contents=prompt)
     completed = False

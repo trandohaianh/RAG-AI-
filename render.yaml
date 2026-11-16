@@ -20,6 +20,12 @@ services:
         sync: false
       - key: SECRET_KEY
         generateValue: true
+      # Không đặt thì APP_ENV mặc định "development": /metrics mở công khai và các kiểm tra
+      # cấu hình production (khoá ký, CORS) bị bỏ qua.
+      - key: APP_ENV
+        value: production
+      - key: METRICS_TOKEN
+        generateValue: true
       - key: DATA_DIR
         value: /app/data
       - key: MEDALLION_ENABLED

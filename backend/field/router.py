@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from rag.evidence import EvidenceOut, CitationAudit, public_bundle
@@ -209,29 +210,37 @@ def _claim_client_action(
     actor_id: int,
     action_type: str,
     request_body: BaseModel,
+    target: dict | None = None,
 ) -> tuple[FieldClientAction | None, bool]:
     if client_action_id is None:
         return None, False
 
-    request_hash = hashlib.sha256(
-        json.dumps(
-            request_body.model_dump(
-                exclude={"client_action_id"}, exclude_unset=True, mode="json"
-            ),
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
-    existing = db.get(FieldClientAction, client_action_id)
-    if existing:
+    body = request_body.model_dump(exclude={"client_action_id"}, exclude_unset=True, mode="json")
+
+    def _digest(payload: dict) -> str:
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+
+    # Đối tượng trong path (vd. step_id) là một phần của thao tác: cùng mã + cùng body nhưng
+    # khác bước không được coi là "đã áp dụng" rồi lặng lẽ bỏ qua.
+    request_hash = _digest({"body": body, "target": target}) if target else _digest(body)
+    # Bản ghi cũ (trước khi thêm target) chỉ băm body: vẫn nhận replay của chúng.
+    legacy_hash = _digest(body)
+
+    def _check(existing: FieldClientAction) -> tuple[FieldClientAction, bool]:
         if (
             existing.case_id != case_id
             or existing.actor_id != actor_id
             or existing.action_type != action_type
-            or existing.request_hash != request_hash
+            or existing.request_hash not in {request_hash, legacy_hash}
         ):
             raise HTTPException(status_code=409, detail="Mã thao tác đã được sử dụng")
         return existing, True
+
+    existing = db.get(FieldClientAction, client_action_id)
+    if existing:
+        return _check(existing)
 
     action = FieldClientAction(
         client_action_id=client_action_id,
@@ -241,7 +250,16 @@ def _claim_client_action(
         request_hash=request_hash,
     )
     db.add(action)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        # Hai lần gửi lại đồng thời cùng mã: bản kia đã ghi trước. Trả kết quả replay như
+        # khi đến tuần tự, thay vì 500.
+        db.rollback()
+        existing = db.get(FieldClientAction, client_action_id)
+        if existing is None:
+            raise
+        return _check(existing)
     return action, False
 
 
@@ -347,11 +365,10 @@ def add_member(
     )
     if not actor_membership or actor_membership.role != "owner":
         raise HTTPException(status_code=403, detail="Chỉ trưởng đội được thêm thành viên")
-    account = db.scalar(
-        select(User).where(
-            User.email == body.email.strip().lower(), User.deleted_at.is_(None)
-        )
-    )
+    from auth.service import find_active_user_by_email
+
+    # Email lưu giữ nguyên hoa/thường: so sánh chuỗi đã lower với cột gốc bỏ sót "Tech@x.com".
+    account = find_active_user_by_email(db, body.email)
     if not account:
         raise HTTPException(
             status_code=404,
@@ -442,6 +459,36 @@ def get_case(
     return _case_for_user(db, case_id, user.id)
 
 
+def _member_role(db: Session, workspace_id: int, user_id: int) -> str | None:
+    return db.scalar(
+        select(FieldWorkspaceMember.role).where(
+            FieldWorkspaceMember.workspace_id == workspace_id,
+            FieldWorkspaceMember.user_id == user_id,
+        )
+    )
+
+
+def _require_case_edit_rights(db: Session, case: ServiceCase, user_id: int, body: "CaseUpdate") -> None:
+    """Trưởng đội sửa mọi thứ. Kỹ thuật viên:
+
+    - chỉ được nhận ca chưa có người phụ trách cho chính mình (không giao/huỷ giao ca người khác);
+    - chỉ được đổi trạng thái ca giao cho mình, hoặc ca chưa giao do chính mình tạo.
+    Quyền giao việc phải khớp với lập lịch (cũng chỉ trưởng đội), vì mỗi lần giao còn gửi
+    webhook `case.assigned` sang CRM.
+    """
+    if _member_role(db, case.workspace_id, user_id) == "owner":
+        return
+    assignee = case.assigned_to
+    if "assigned_to" in body.model_fields_set and body.assigned_to != case.assigned_to:
+        if not (case.assigned_to is None and body.assigned_to == user_id):
+            raise HTTPException(status_code=403, detail="Chỉ trưởng đội được giao ca cho người khác")
+        assignee = user_id
+    if body.status is not None and body.status != case.status:
+        own = assignee == user_id or (assignee is None and case.created_by == user_id)
+        if not own:
+            raise HTTPException(status_code=403, detail="Chỉ được đổi trạng thái ca giao cho bạn")
+
+
 @router.patch("/cases/{case_id}", response_model=CaseOut)
 def update_case(
     case_id: int,
@@ -460,6 +507,7 @@ def update_case(
     )
     if already_applied:
         return case
+    _require_case_edit_rights(db, case, user.id, body)
     notify: list[str] = []
     if body.status is not None:
         if body.status not in CASE_STATUSES:
@@ -561,6 +609,7 @@ def update_step(
         actor_id=user.id,
         action_type="step_update",
         request_body=body,
+        target={"step_id": step_id},
     )
     if already_applied:
         return step

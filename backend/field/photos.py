@@ -23,14 +23,14 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 import config
 from auth.schemas import CurrentUser
 from database import get_db
 from dependencies import get_current_user
-from field.models import FieldWorkspaceMember, ServiceCase, ServiceCasePhoto, ServiceCaseEvent
+from field.models import FieldWorkspace, FieldWorkspaceMember, ServiceCase, ServiceCasePhoto, ServiceCaseEvent
 
 router = APIRouter(prefix="/field", tags=["field photos"])
 
@@ -86,6 +86,10 @@ def process_image(data: bytes) -> tuple[bytes, bytes, int, int]:
         with Image.open(io.BytesIO(data)) as probe:
             if probe.format not in _ALLOWED:
                 raise ValueError("Chỉ nhận ảnh JPEG, PNG hoặc WebP")
+            # Pillow chỉ raise DecompressionBombError khi vượt 2× MAX_IMAGE_PIXELS (từ 1× đến 2×
+            # nó chỉ cảnh báo) nên phải tự chặn trước khi giải nén toàn bộ ảnh vào RAM.
+            if probe.width * probe.height > MAX_PIXELS:
+                raise ValueError("Ảnh có độ phân giải quá lớn")
             probe.verify()
         with Image.open(io.BytesIO(data)) as image:
             image = ImageOps.exif_transpose(image)
@@ -158,9 +162,21 @@ async def upload_photo(
         from metrics import FIELD_PHOTOS
         FIELD_PHOTOS.labels("rejected").inc()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if workspace_photo_bytes(db, case.workspace_id) + len(full) > config.FIELD_PHOTO_WORKSPACE_QUOTA_MB * 1024 * 1024:
+    case_id, workspace_id = case.id, case.workspace_id
+    # Kiểm tra lại hạn mức SAU khi giữ khoá ghi của đội: nhiều ảnh upload song song (outbox
+    # offline xả hàng đợi) đều qua bước đếm ở trên trước khi bản nào kịp commit. UPDATE không
+    # đổi gì lấy khoá ghi trên SQLite và khoá dòng đội trên PostgreSQL cho tới khi commit.
+    db.rollback()   # kết thúc transaction chỉ-đọc trước khi xin khoá ghi
+    db.execute(update(FieldWorkspace).where(FieldWorkspace.id == workspace_id)
+               .values(name=FieldWorkspace.name).execution_options(synchronize_session=False))
+    count = db.scalar(select(func.count()).select_from(ServiceCasePhoto).where(ServiceCasePhoto.case_id == case_id))
+    if count >= config.FIELD_PHOTO_MAX_PER_CASE:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=f"Mỗi ca tối đa {config.FIELD_PHOTO_MAX_PER_CASE} ảnh")
+    if workspace_photo_bytes(db, workspace_id) + len(full) > config.FIELD_PHOTO_WORKSPACE_QUOTA_MB * 1024 * 1024:
+        db.rollback()
         raise HTTPException(status_code=409, detail="Đội đã dùng hết dung lượng ảnh")
-    key = f"{case.workspace_id}/{case.id}/{uuid.uuid4().hex}"
+    key = f"{workspace_id}/{case_id}/{uuid.uuid4().hex}"
     target = _path(key, "full")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(full)

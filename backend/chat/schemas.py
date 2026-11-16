@@ -33,7 +33,8 @@ class MessageOut(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    question: str = Field(..., min_length=1)
+    # Cùng trần với /embed/chat và /v1/ask: một lượt quota không được kéo theo prompt không giới hạn.
+    question: str = Field(..., min_length=1, max_length=4000)
     source: str | None = None
     """Tên file cụ thể để chỉ hỏi trong phạm vi 1 tài liệu — None = tìm trên toàn bộ kho."""
 

@@ -1,5 +1,7 @@
 # Railway — https://railway.app/new
 # Tạo project → Deploy from GitHub → thêm PostgreSQL plugin → set env vars
+# BẮT BUỘC đặt trong Variables: APP_ENV=production, SECRET_KEY (≥32 ký tự ngẫu nhiên),
+# METRICS_TOKEN, CORS_ORIGINS. Thiếu APP_ENV thì API chạy chế độ dev và /metrics mở công khai.
 
 [build]
 builder = "DOCKERFILE"

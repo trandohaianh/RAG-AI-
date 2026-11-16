@@ -93,7 +93,8 @@ services:
     ports: ["80:80", "443:443", "443:443/udp"]
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?Thiếu APP_DOMAIN trong .env}
-      ACME_EMAIL: ${ACME_EMAIL:-}
+      # Bắt buộc: `email {$ACME_EMAIL}` rỗng là lỗi cú pháp Caddyfile.
+      ACME_EMAIL: ${ACME_EMAIL:?Thiếu ACME_EMAIL trong .env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # Site của các dự án khác trên cùng VM (VD Telecom) được thả vào đây rồi `caddy reload`.

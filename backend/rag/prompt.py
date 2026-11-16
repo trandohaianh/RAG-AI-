@@ -1,4 +1,5 @@
 """Xây dựng prompt Gemini với context + lịch sử."""
+import re
 from typing import Any
 
 SYSTEM_PROMPT = (
@@ -24,13 +25,25 @@ def format_context(chunks: list[tuple[str, str, int | None]]) -> str:
     return "\n\n---\n\n".join(parts)
 
 
+# Chỉ giữ các lượt gần nhất: mỗi câu hỏi tính 1 quota, nên chi phí token không được tăng
+# tuyến tính theo độ dài hội thoại.
+HISTORY_MAX_TURNS = 10
+HISTORY_TURN_MAX_CHARS = 2000
+# Nhãn 【E#】 trong câu trả lời cũ trỏ tới bằng chứng của lượt trước. Nếu để nguyên, mô hình
+# có thể chép lại và nhãn đó sẽ được kiểm tra như thể trỏ tới bằng chứng của lượt hiện tại.
+_CITATION_LABEL = re.compile(r"[【［][^】］\r\n]*[】］]")
+
+
 def format_history(history: list[dict[str, Any]] | None) -> str:
     if not history:
         return ""
     lines = []
-    for turn in history:
+    for turn in history[-HISTORY_MAX_TURNS:]:
         label = "Người dùng" if turn.get("role") == "user" else "Trợ lý"
-        lines.append(f"{label}: {turn.get('content', '')}")
+        content = _CITATION_LABEL.sub("", str(turn.get("content", "") or ""))
+        if len(content) > HISTORY_TURN_MAX_CHARS:
+            content = content[:HISTORY_TURN_MAX_CHARS] + "…"
+        lines.append(f"{label}: {content}")
     return "\n".join(lines)
 
 

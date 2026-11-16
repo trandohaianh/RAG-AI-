@@ -48,6 +48,24 @@ _NO_DOC_MSG = (
 )
 
 
+_MAX_HELD_LABEL_CHARS = 64
+
+
+def _safe_release_point(text: str, released: int) -> int:
+    """Vị trí xa nhất có thể gửi mà không cắt ngang một nhãn trích dẫn chưa đóng."""
+    from rag.evidence import OPEN_LABEL_BRACKETS
+
+    opening = max(text.rfind(ch, released) for ch in OPEN_LABEL_BRACKETS)
+    if opening < 0:
+        return len(text)
+    tail = text[opening:]
+    closed = "】" in tail or "］" in tail
+    # Nhãn không chứa xuống dòng và rất ngắn; quá giới hạn thì đó không phải nhãn.
+    if closed or "\n" in tail or len(tail) > _MAX_HELD_LABEL_CHARS:
+        return len(text)
+    return opening
+
+
 async def stream_rag_answer(
     user_id: int,
     question: str,
@@ -154,6 +172,7 @@ async def stream_rag_answer(
         _STREAM_SLOTS.release()
         raise
     answer_parts = []
+    released = 0   # số ký tự của câu trả lời đã gửi cho client
     try:
         while True:
             kind, payload = await queue.get()
@@ -161,11 +180,25 @@ async def stream_rag_answer(
                 raise RagGenerationError()
             if include_evidence:
                 if kind == "token":
+                    # Không gửi một nhãn 【E#】 trước khi biết nó có thật: giữ lại phần từ ngoặc
+                    # mở chưa đóng, và kiểm tra mọi nhãn đã đóng trước khi phát phần văn bản đó.
+                    # Nhãn sai -> dừng ngay, người dùng không bao giờ thấy trích dẫn bịa.
                     answer_parts.append(payload)
-                elif kind == "done":
-                    bundle['citation_audit'] = audit_citations("".join(answer_parts), bundle)
+                    text = "".join(answer_parts)
+                    cutoff = _safe_release_point(text, released)
+                    if cutoff > released:
+                        if audit_citations(text[:cutoff], bundle)['status'] == "invalid":
+                            raise RagGenerationError()
+                        yield "token", text[released:cutoff]
+                        released = cutoff
+                    continue
+                if kind == "done":
+                    text = "".join(answer_parts)
+                    bundle['citation_audit'] = audit_citations(text, bundle)
                     if bundle['citation_audit']['status'] == "invalid":
                         raise RagGenerationError()
+                    if len(text) > released:
+                        yield "token", text[released:]
                     yield "evidence", bundle
             yield kind, payload
             if kind == "done":

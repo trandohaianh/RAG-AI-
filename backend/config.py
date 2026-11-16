@@ -31,7 +31,11 @@ JUDGE_SAMPLE_RATE: float = min(1.0, max(0.0, float(os.getenv("JUDGE_SAMPLE_RATE"
 # JWT
 APP_ENV: str = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower()
 SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-change-in-production-32ch")
-ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
+ALGORITHM: str = os.getenv("ALGORITHM", "HS256").strip()
+# Khoá ký là bí mật đối xứng: chỉ các thuật toán HMAC hợp lệ ("none" hay RS*/ES* với khoá
+# đối xứng đều là cấu hình sai, phải dừng ngay khi khởi động thay vì lộ ra lúc xác thực).
+if ALGORITHM not in {"HS256", "HS384", "HS512"}:
+    raise ValueError("ALGORITHM must be one of HS256, HS384, HS512")
 ACCESS_TOKEN_EXPIRE_DAYS: int = 7
 RESET_TOKEN_EXPIRE_MINUTES: int = 30
 
@@ -57,6 +61,9 @@ RESEND_FROM_EMAIL: str = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
 # Chunking RAG (chunk lớn hơn → ít lần gọi embedding)
 CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "1000"))
 CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "100"))
+# Splitter chỉ báo lỗi lúc ingest tài liệu đầu tiên; kiểm tra ngay khi khởi động.
+if CHUNK_SIZE < 1 or not 0 <= CHUNK_OVERLAP < CHUNK_SIZE:
+    raise ValueError("CHUNK_SIZE must be positive and 0 <= CHUNK_OVERLAP < CHUNK_SIZE")
 TOP_K: int = int(os.getenv("TOP_K", "5"))
 # Lấy nhiều chunk hơn trước rerank (tuần 1–2)
 RETRIEVE_CANDIDATES: int = int(os.getenv("RETRIEVE_CANDIDATES", "15"))

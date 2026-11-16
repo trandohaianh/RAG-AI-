@@ -70,15 +70,34 @@ def _get_embed_row(db: Session, raw_token: str) -> EmbedToken:
     return row
 
 
-def _check_origin(row: EmbedToken, origin: str | None) -> None:
+def _origin_of(url: str | None) -> str:
+    from urllib.parse import urlparse
+
+    parsed = urlparse((url or "").strip())
+    return f"{parsed.scheme}://{parsed.netloc}".lower() if parsed.scheme and parsed.netloc else ""
+
+
+def _check_origin(row: EmbedToken, origin: str | None, parent_origin: str | None = None) -> None:
+    """Giới hạn website được dùng token.
+
+    - Website khách gọi API trực tiếp: Origin phải thuộc allowed_origins.
+    - Widget chuẩn: request đi từ iframe `APP_PUBLIC_URL/embed`, nên Origin là origin của
+      chính ứng dụng; khi đó origin của TRANG CHA (do trang embed đọc từ ancestorOrigins /
+      referrer) mới là thứ phải thuộc allowed_origins.
+    """
     if not row.allowed_origins or not row.allowed_origins.strip():
         return
     if not origin:
         raise HTTPException(status_code=403, detail="Thiếu Origin header")
-    allowed = {o.strip().rstrip("/") for o in row.allowed_origins.split(",") if o.strip()}
-    origin_norm = origin.rstrip("/")
-    if origin_norm not in allowed:
-        raise HTTPException(status_code=403, detail="Origin không được phép")
+    allowed = {_origin_of(o) or o.strip().rstrip("/").lower()
+               for o in row.allowed_origins.split(",") if o.strip()}
+    origin_norm = _origin_of(origin) or origin.rstrip("/").lower()
+    if origin_norm in allowed:
+        return
+    app_origin = _origin_of(APP_PUBLIC_URL)
+    if app_origin and origin_norm == app_origin and _origin_of(parent_origin) in allowed:
+        return
+    raise HTTPException(status_code=403, detail="Origin không được phép")
 
 
 async def _embed_user_plan(db: Session, user_id: int) -> str:
@@ -212,7 +231,7 @@ async def embed_chat(
         raise HTTPException(status_code=500, detail="Thiếu GEMINI_API_KEY")
 
     row = _get_embed_row(db, x_embed_token)
-    _check_origin(row, request.headers.get("origin"))
+    _check_origin(row, request.headers.get("origin"), request.headers.get("x-embed-parent-origin"))
 
     plan = await _embed_user_plan(db, row.user_id)
     conv_id = None

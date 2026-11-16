@@ -674,7 +674,9 @@ export default function FieldOperationsPage() {
                     </div>
                     <CasePhotos caseId={selectedCase.id} currentUserId={user?.id}
                       isOwner={workspaces.find((w) => w.id === workspaceId)?.role === "owner"} />
-                    <CaseDispatchEditor item={selectedCase} onSaved={() => void load(workspaceId)} />
+                    {workspaces.find((w) => w.id === workspaceId)?.role === "owner" && (
+                      <CaseDispatchEditor item={selectedCase} onSaved={() => void load(workspaceId)} />
+                    )}
                   </div>
                   <div className="space-y-5">
                     <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4">

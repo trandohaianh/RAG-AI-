@@ -137,6 +137,27 @@ class _PipelineCollector:
         yield last_status
         yield quality
 
+        # Hàng đợi webhook ra theo trạng thái, đọc từ DB. Phần lớn lượt retry/dead-letter xảy
+        # ra trong container pipeline (không được scrape), nên counter trong-process của nó
+        # không bao giờ tới Prometheus; gauge này thì API luôn xuất được.
+        deliveries = GaugeMetricFamily(
+            "fieldops_field_webhook_deliveries",
+            "Số lượt webhook ra CRM/NMS theo trạng thái (pending/delivered/dead)", labels=["status"])
+        try:
+            from sqlalchemy import func
+
+            from database import SessionLocal
+            from field.models import FieldWebhookDelivery
+
+            with SessionLocal() as db:
+                counts = dict(db.query(FieldWebhookDelivery.status, func.count(FieldWebhookDelivery.id))
+                              .group_by(FieldWebhookDelivery.status).all())
+            for status in ("pending", "delivered", "dead"):
+                deliveries.add_metric([status], float(counts.get(status, 0)))
+        except Exception:
+            pass
+        yield deliveries
+
         # Dung lượng ổ dữ liệu: VM free có 200GB tổng, cần cảnh báo trước khi đầy.
         disk = GaugeMetricFamily("fieldops_data_disk_bytes", "Dung lượng ổ chứa DATA_DIR", labels=["kind"])
         try:

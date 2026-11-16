@@ -39,6 +39,20 @@ class Base(DeclarativeBase):
     pass
 
 
+def utc_date(column, db=None):
+    """Ngày UTC của một cột timestamptz, dùng cho GROUP BY theo ngày.
+
+    Trên PostgreSQL, date(timestamptz) đổi theo múi giờ của session: nếu máy chủ DB không ở UTC,
+    bucket theo ngày lệch khỏi cửa sổ UTC mà truy vấn dùng. SQLite lưu sẵn giá trị UTC.
+    """
+    from sqlalchemy import func
+
+    bind = db.get_bind() if db is not None else engine
+    if bind.dialect.name == "postgresql":
+        return func.date(func.timezone("UTC", column))
+    return func.date(column)
+
+
 def get_db() -> Generator:
     db = SessionLocal()
     try:

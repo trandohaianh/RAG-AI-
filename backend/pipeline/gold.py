@@ -7,7 +7,17 @@ from pipeline.db import session_scope
 
 
 def refresh_document_summary(user_id: int, source: str) -> None:
+    """Đồng bộ dòng gold với các chunk silver ĐẠT kiểm tra hiện hành của nguồn.
+
+    Silver xoá rồi ghi lại toàn bộ chunk mỗi lần nạp; nếu lần nạp lại không đạt kiểm tra thì
+    không còn chunk hợp lệ và dòng gold cũ phải bị xoá, nếu không lineage vẫn báo gold_ready
+    với số chunk của phiên bản trước.
+    """
     with session_scope() as db:
+        db.execute(
+            text("DELETE FROM gold.document_summary WHERE user_id = :user_id AND source = :source"),
+            {"user_id": user_id, "source": source},
+        )
         db.execute(
             text(
                 """
@@ -43,7 +53,9 @@ def upsert_daily_stats(metric_date: date | None = None) -> dict:
     - validation_failures: số tệp có chunk không đạt kiểm tra chất lượng.
     - users_active: số người dùng có tệp được nạp trong ngày.
     """
-    day = metric_date or date.today()
+    # Ngày UTC (cả tham số lẫn CAST ... AT TIME ZONE 'UTC' bên dưới): date.today() theo giờ máy
+    # và CAST theo múi giờ session DB làm số liệu lệch sang ngày bên cạnh quanh nửa đêm.
+    day = metric_date or datetime.now(timezone.utc).date()
     with session_scope() as db:
         row = db.execute(
             text(
@@ -55,14 +67,14 @@ def upsert_daily_stats(metric_date: date | None = None) -> dict:
                 SELECT
                     CAST(:metric_date AS DATE),
                     (SELECT COUNT(*) FROM bronze.raw_documents
-                      WHERE CAST(ingested_at AS DATE) = CAST(:metric_date AS DATE)),
+                      WHERE CAST(ingested_at AT TIME ZONE 'UTC' AS DATE) = CAST(:metric_date AS DATE)),
                     (SELECT COUNT(*) FROM silver.document_chunks
-                      WHERE CAST(created_at AS DATE) = CAST(:metric_date AS DATE)),
+                      WHERE CAST(created_at AT TIME ZONE 'UTC' AS DATE) = CAST(:metric_date AS DATE)),
                     (SELECT COUNT(DISTINCT bronze_id) FROM silver.document_chunks
-                      WHERE CAST(created_at AS DATE) = CAST(:metric_date AS DATE)
+                      WHERE CAST(created_at AT TIME ZONE 'UTC' AS DATE) = CAST(:metric_date AS DATE)
                         AND validation_passed = FALSE),
                     (SELECT COUNT(DISTINCT user_id) FROM bronze.raw_documents
-                      WHERE CAST(ingested_at AS DATE) = CAST(:metric_date AS DATE)),
+                      WHERE CAST(ingested_at AT TIME ZONE 'UTC' AS DATE) = CAST(:metric_date AS DATE)),
                     :updated_at
                 ON CONFLICT (metric_date) DO UPDATE SET
                     files_processed = EXCLUDED.files_processed,

@@ -131,10 +131,15 @@ def _judge(question: str, context: str, answer: str) -> dict | None:
 
     prompt = _JUDGE_PROMPT.format(context=context[:6000], question=question, answer=answer[:3000])
     try:
-        raw = generate_text(prompt, json_mode=True, temperature=0.0, max_tokens=256, feature="eval_judge")
+        # Cùng ngân sách token với judge production (rag/judge.py): 256 token làm model có
+        # "thinking" trả rỗng, và các ca đó lặng lẽ rơi khỏi trung bình judge.
+        raw = generate_text(prompt, json_mode=True, temperature=0.0, max_tokens=1024, feature="eval_judge")
         match = _JSON_RE.search(raw)
         data = json.loads(match.group(0)) if match else None
-        return {"faithfulness": float(data["faithfulness"]), "relevancy": float(data["relevancy"])} if data else None
+        if not data:
+            return None
+        clamp = lambda value: min(1.0, max(0.0, float(value)))  # noqa: E731 — như production
+        return {"faithfulness": clamp(data["faithfulness"]), "relevancy": clamp(data["relevancy"])}
     except Exception:
         return None
 
@@ -181,8 +186,14 @@ def _grade(case: dict, answer: str, bundle: dict, k: int, error: str | None) -> 
 def run_suite(ctx: EvalContext, dataset_path: Path, *, k: int = 5, judge: bool = False,
               split: str | None = None, limit: int | None = None) -> dict:
     _install_providers(ctx)
+    import config
     from costs.context import usage_scope
     from rag.chain import RagGenerationError, answer_rag_once
+
+    if k > config.TOP_K:
+        # answer_rag_once luôn truy hồi TOP_K chunk; k lớn hơn chỉ làm recall@k bị báo thấp
+        # và gắn nhãn sai trong báo cáo.
+        raise ValueError(f"k={k} lớn hơn TOP_K={config.TOP_K}: đặt TOP_K>=k trước khi chạy eval")
 
     dataset = load_dataset(dataset_path)
     cases = [c for c in dataset["cases"] if split in (None, "all") or c.get("split") == split]

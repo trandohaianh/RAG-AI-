@@ -172,7 +172,12 @@ def set_password(db: Session, user: User, new_password: str) -> None:
 
 
 def register_user(db: Session, data: UserCreate) -> User:
-    if db.query(User).filter(User.email == data.email).first():
+    from sqlalchemy import func as sa_func
+
+    # Hộp thư không phân biệt hoa/thường: "Alice@x.com" và "alice@x.com" là cùng một người.
+    # Không chặn ở đây thì có thể có hai tài khoản, và đăng nhập Google (so sánh lower(email))
+    # sẽ liên kết vào một trong hai một cách tuỳ ý.
+    if db.query(User).filter(sa_func.lower(User.email) == data.email.lower()).first():
         raise ValueError("Email đã được sử dụng")
     user = User(
         email=data.email,
@@ -194,12 +199,29 @@ def register_user(db: Session, data: UserCreate) -> User:
     return user
 
 
-def authenticate_user(db: Session, email: str, password: str) -> User | None:
-    user = (
+def find_active_user_by_email(db: Session, email: str) -> User | None:
+    """Tìm tài khoản đang hoạt động theo email, không phân biệt hoa/thường.
+
+    Ưu tiên khớp chính xác (dữ liệu cũ có thể còn hai bản khác hoa/thường); nếu không có
+    thì chỉ nhận khi khớp không phân biệt hoa/thường đúng MỘT tài khoản, để không chọn bừa.
+    """
+    from sqlalchemy import func as sa_func
+
+    email = (email or "").strip()
+    exact = db.query(User).filter(User.email == email, User.deleted_at.is_(None)).first()
+    if exact is not None:
+        return exact
+    matches = (
         db.query(User)
-        .filter(User.email == email, User.deleted_at.is_(None))
-        .first()
+        .filter(sa_func.lower(User.email) == email.lower(), User.deleted_at.is_(None))
+        .limit(2)
+        .all()
     )
+    return matches[0] if len(matches) == 1 else None
+
+
+def authenticate_user(db: Session, email: str, password: str) -> User | None:
+    user = find_active_user_by_email(db, email)
     if not user or not verify_password(password, user.hashed_password):
         return None
     return user
@@ -276,8 +298,15 @@ def login_with_google(db: Session, identity) -> tuple[User, bool]:
             raise ValueError("Tài khoản đã bị vô hiệu hoá")
         if user.google_sub and user.google_sub != identity.sub:
             raise ValueError("Email này đã liên kết với tài khoản Google khác")
+        if user.email_verified_at is None:
+            # Chống pre-hijack: ai cũng đăng ký được bằng email của người khác mà không cần
+            # xác minh. Google vừa chứng minh chủ hộp thư là người đang đăng nhập, nên mật khẩu
+            # và mọi phiên do người đăng ký trước tạo ra không được giữ quyền vào tài khoản này.
+            # Chủ thật có thể đặt mật khẩu mới qua "Quên mật khẩu".
+            user.hashed_password = _UNUSABLE_PASSWORD
+            user.token_version = (user.token_version or 0) + 1
+            user.email_verified_at = now
         user.google_sub = identity.sub
-        user.email_verified_at = user.email_verified_at or now
         db.commit()
         db.refresh(user)
         return user, False

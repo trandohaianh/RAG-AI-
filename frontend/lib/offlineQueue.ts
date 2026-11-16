@@ -15,7 +15,14 @@ export type QueuedAction = {
   state?: "pending" | "rejected";
   error?: string;
   httpStatus?: number;
+  /** Số lần liên tiếp máy chủ trả 5xx cho chính thao tác này. */
+  serverFailures?: number;
 };
+
+/** Quá số lần 5xx này, thao tác được chuyển sang "bị từ chối" để người dùng xem lại: một
+ * payload mà máy chủ luôn trả 500 không được chặn mãi mọi thao tác xếp sau nó. Lỗi mạng
+ * (đang offline) không bị đếm. */
+export const MAX_SERVER_FAILURES = 8;
 
 const DB_NAME = "fieldops";
 const STORE = "pending";
@@ -135,8 +142,21 @@ async function runFlush(scope: QueueScope, sender: Sender) {
     try {
       await sender(action.method, action.url, action.body);
     } catch (err) {
-      if (retryable(err)) break;
       const response = (err as { response?: { status?: number; data?: { detail?: unknown } } })?.response;
+      const status = response?.status;
+      if (retryable(err)) {
+        if (status === undefined || status < 500) break;
+        const failures = (action.serverFailures ?? 0) + 1;
+        if (failures < MAX_SERVER_FAILURES) {
+          await put({ ...action, serverFailures: failures });
+          break;
+        }
+        await put({
+          ...action, serverFailures: failures, state: "rejected", httpStatus: status,
+          error: `Máy chủ lỗi ${status} ${failures} lần liên tiếp với thao tác này. Hãy thử lại sau hoặc huỷ.`,
+        });
+        continue;
+      }
       const detail = response?.data?.detail;
       await put({
         ...action,
@@ -183,7 +203,7 @@ export function send(
 export function retryRejected(scope: QueueScope, id: string): Promise<void> {
   return withScopeLock(scope, async () => {
     const action = (await rejected(scope)).find((entry) => entry.id === id);
-    if (action) await put({ ...action, state: "pending", error: undefined, httpStatus: undefined });
+    if (action) await put({ ...action, state: "pending", error: undefined, httpStatus: undefined, serverFailures: 0 });
   });
 }
 

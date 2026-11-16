@@ -42,11 +42,23 @@ def content_tokens(text: str) -> list[str]:
     return [t for t in re.findall(r"[\w\-]+", normalize(text)) if len(t) > 1 and t not in _STOPWORDS]
 
 
+# Từ phủ định đứng ngay trước một cụm (đã bỏ dấu): "không được tắt nguồn" không phải là
+# "tắt nguồn". Trước đây cụm bị phủ định vẫn tính là khớp: dữ kiện đúng nghĩa ngược vẫn "đạt",
+# và lời cảnh báo an toàn lại bị tính là nội dung cấm.
+# Chỉ dùng "không ...": sau khi bỏ dấu, "đừng/đúng", "chưa/chứa", "cấm/cầm" trùng chữ nhau.
+_NEGATION_TAIL = re.compile(r"(?:^|\s)(?:khong(?: duoc| nen| the| bao gio)?|never|do not|don t|not)\s*$")
+
+
 def _contains(haystack_norm: str, phrase: str) -> bool:
     needle = normalize(phrase)
     if not needle:
         return False
-    return re.search(rf"(?<![\w]){re.escape(needle)}(?![\w])", haystack_norm) is not None
+    negated_phrase = _NEGATION_TAIL.search(" " + needle.split(" ")[0]) is not None
+    for match in re.finditer(rf"(?<![\w]){re.escape(needle)}(?![\w])", haystack_norm):
+        before = haystack_norm[max(0, match.start() - 24):match.start()]
+        if negated_phrase or not _NEGATION_TAIL.search(before):
+            return True
+    return False
 
 
 def fact_coverage(answer: str, facts: list[list[str]]) -> tuple[float | None, list[list[str]]]:
@@ -64,6 +76,13 @@ def forbidden_hits(answer: str, phrases: list[str]) -> list[str]:
 
 
 def is_refusal(answer: str) -> bool:
+    """Câu trả lời là lời từ chối: có cụm từ chối và KHÔNG trích dẫn bằng chứng nào.
+
+    Một câu trả lời có nhãn 【E#】 đang khẳng định điều gì đó từ tài liệu; nếu chỉ vì có thêm
+    câu "không thể trả lời ..." mà tính là từ chối, câu bịa kèm lời rào đón sẽ đạt bài "phải từ chối".
+    """
+    if re.search(r"【\s*E\d+\s*】", answer or ""):
+        return False
     norm = normalize(answer)
     return any(re.search(pattern, norm) for pattern in _REFUSAL_PATTERNS)
 

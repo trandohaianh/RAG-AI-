@@ -7,6 +7,9 @@ git fetch --prune origin
 git reset --hard "origin/${DEPLOY_BRANCH:-main}"
 cd deploy/cloud
 set -a; source .env; set +a
+# Caddyfile dùng `email {$ACME_EMAIL}`: biến rỗng làm Caddy lỗi cú pháp và cả site sập.
+: "${APP_DOMAIN:?Thiếu APP_DOMAIN trong deploy/cloud/.env}"
+: "${ACME_EMAIL:?Thiếu ACME_EMAIL trong deploy/cloud/.env (email nhận thông báo chứng chỉ)}"
 docker network inspect edge >/dev/null 2>&1 || docker network create edge
 sudo mkdir -p /opt/edge/sites 2>/dev/null || mkdir -p /opt/edge/sites
 # Backup trước khi đổi phiên bản (migration chạy lúc API khởi động).

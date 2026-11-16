@@ -337,6 +337,7 @@ export default function ChatScreen({ route, navigation }: any) {
           placeholder="Nhập câu hỏi..."
           placeholderTextColor={colors.textMuted}
           multiline
+          maxLength={4000}
           editable={!loading}
         />
         <TouchableOpacity

@@ -1,13 +1,18 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import * as api from "./api";
-import { assertOfflineApiOrigin } from "./offlineOrigin";
+import { assertOfflineApiOrigin, bindOfflineApiOriginForWrite } from "./offlineOrigin";
 
 const STORAGE_PREFIX = "fieldops.offline.v1";
 const CHUNK_BYTE_LIMIT = 1200;
 const MAX_CACHED_CASES = 80;
 
-export type PendingFieldAction =
+/** Quá số lần máy chủ trả 5xx liên tiếp cho một thao tác thì chuyển nó sang "bị từ chối":
+ * một payload mà máy chủ luôn lỗi không được chặn mãi các thao tác xếp sau trong cùng ca.
+ * Lỗi mạng (đang offline) không bị đếm. */
+export const MAX_SERVER_FAILURES = 8;
+
+export type PendingFieldAction = { server_failures?: number } & (
   | {
       id: string;
       case_id: number;
@@ -30,7 +35,7 @@ export type PendingFieldAction =
       created_at: string;
       kind: "note";
       detail: string;
-    };
+    });
 
 type NewPendingFieldAction = PendingFieldAction extends infer Action
     ? Action extends PendingFieldAction
@@ -86,11 +91,14 @@ function splitIntoSecureChunks(value: string): string[] {
   return chunks;
 }
 
-async function ensureSecureStorage(): Promise<void> {
+async function ensureSecureStorage(mode: "read" | "write" = "read"): Promise<void> {
   if (Platform.OS === "web" || !(await SecureStore.isAvailableAsync())) {
     throw new Error("Bộ nhớ offline an toàn chỉ khả dụng trên thiết bị iOS/Android.");
   }
-  await assertOfflineApiOrigin(await api.getApiUrl());
+  const apiUrl = await api.getApiUrl();
+  // Chỉ ghi mới gắn vùng offline với máy chủ; đọc chỉ kiểm tra.
+  if (mode === "write") await bindOfflineApiOriginForWrite(apiUrl);
+  else await assertOfflineApiOrigin(apiUrl);
 }
 
 async function removeGeneration(key: string, generation: string, count: number) {
@@ -102,7 +110,7 @@ async function removeGeneration(key: string, generation: string, count: number) 
 }
 
 async function writeRecord<T>(key: string, value: T): Promise<void> {
-  await ensureSecureStorage();
+  await ensureSecureStorage("write");
   const manifestKey = `${key}.manifest`;
   const oldRaw = await SecureStore.getItemAsync(manifestKey);
   let oldManifest: RecordManifest | null = null;
@@ -216,14 +224,18 @@ export async function cacheFieldOverview(
   });
 }
 
-export async function getCachedActiveFieldOverview(
+// Đọc cũng đi qua khoá: writeRecord xoá generation cũ SAU khi đổi manifest, nên một lượt đọc
+// chen giữa có thể gặp chunk đã bị xoá ("Bản lưu offline chưa đầy đủ") dù dữ liệu vẫn nguyên.
+export function getCachedActiveFieldOverview(
   userId: number
 ): Promise<CachedFieldOverview | null> {
-  const workspaceId = await readRecord<number>(
-    recordKey(userId, "active_workspace")
-  );
-  if (!workspaceId) return null;
-  return readRecord<CachedFieldOverview>(recordKey(userId, workspaceId, "overview"));
+  return withStorageLock(async () => {
+    const workspaceId = await readRecord<number>(
+      recordKey(userId, "active_workspace")
+    );
+    if (!workspaceId) return null;
+    return readRecord<CachedFieldOverview>(recordKey(userId, workspaceId, "overview"));
+  });
 }
 
 export function cacheFieldCase(
@@ -269,11 +281,11 @@ async function cacheFieldCaseUnlocked(
   }
 }
 
-export async function getCachedFieldCase(
+export function getCachedFieldCase(
   userId: number,
   caseId: number
 ): Promise<api.FieldCase | null> {
-  return readRecord<api.FieldCase>(recordKey(userId, "case", caseId));
+  return withStorageLock(() => readRecord<api.FieldCase>(recordKey(userId, "case", caseId)));
 }
 
 export function removeCachedFieldCase(
@@ -343,8 +355,9 @@ async function enqueueFieldActionUnlocked(
   return action;
 }
 
-export async function getPendingFieldActionCount(userId: number): Promise<number> {
-  return (await readRecord<PendingFieldAction[]>(recordKey(userId, "actions")))?.length ?? 0;
+export function getPendingFieldActionCount(userId: number): Promise<number> {
+  return withStorageLock(async () =>
+    (await readRecord<PendingFieldAction[]>(recordKey(userId, "actions")))?.length ?? 0);
 }
 
 export type RejectedFieldAction = PendingFieldAction & {
@@ -389,7 +402,8 @@ export async function getRejectedFieldActions(
   caseId?: number
 ): Promise<RejectedFieldAction[]> {
   const rejected =
-    (await readRecord<RejectedFieldAction[]>(recordKey(userId, "rejected_actions"))) ?? [];
+    (await withStorageLock(() =>
+      readRecord<RejectedFieldAction[]>(recordKey(userId, "rejected_actions")))) ?? [];
   return caseId === undefined
     ? rejected
     : rejected.filter((action) => action.case_id === caseId);
@@ -415,7 +429,7 @@ export function retryRejectedFieldAction(
     const rejected = (await readRecord<RejectedFieldAction[]>(key)) ?? [];
     const entry = rejected.find((action) => action.id === actionId);
     if (!entry) return;
-    const { rejected_at: _at, error: _error, http_status: _status, ...action } = entry;
+    const { rejected_at: _at, error: _error, http_status: _status, server_failures: _failures, ...action } = entry;
     await enqueueFieldActionUnlocked(userId, action as PendingFieldAction);
     await writeRecord(key, rejected.filter((item) => item.id !== actionId));
   });
@@ -440,7 +454,7 @@ async function runFieldSync(userId: number): Promise<SyncResult> {
   const key = recordKey(userId, "actions");
   const rejectedKey = recordKey(userId, "rejected_actions");
   // Snapshot only; actions queued meanwhile are picked up by the next sync.
-  const snapshot = (await readRecord<PendingFieldAction[]>(key)) ?? [];
+  const snapshot = (await withStorageLock(() => readRecord<PendingFieldAction[]>(key))) ?? [];
   const errors: string[] = [];
   const caseIds = Array.from(new Set(snapshot.map((action) => action.case_id)));
   let offline = false;
@@ -472,6 +486,25 @@ async function runFieldSync(userId: number): Promise<SyncResult> {
         }
         errors.push(api.getErrorMessage(error));
         if (!isPermanentRejection(error)) {
+          const status = api.getApiErrorStatus(error);
+          if (status !== undefined && status >= 500) {
+            const failures = (action.server_failures ?? 0) + 1;
+            if (failures >= MAX_SERVER_FAILURES) {
+              await settle(action, {
+                ...action,
+                server_failures: failures,
+                rejected_at: new Date().toISOString(),
+                error: `Máy chủ lỗi ${status} ${failures} lần liên tiếp: ${api.getErrorMessage(error)}`,
+                http_status: status,
+              });
+              continue;
+            }
+            await withStorageLock(async () => {
+              const queue = (await readRecord<PendingFieldAction[]>(key)) ?? [];
+              await writeRecord(key, queue.map((queued) =>
+                queued.id === action.id ? { ...queued, server_failures: failures } : queued));
+            });
+          }
           // Keep this and later actions of the case queued, in order.
           break;
         }

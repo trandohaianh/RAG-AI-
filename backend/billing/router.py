@@ -4,7 +4,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from auth.models import User
@@ -42,6 +42,26 @@ def _stripe():
     return stripe
 
 
+def cancel_customer_subscriptions(customer_id: str | None) -> int:
+    """Huỷ ngay mọi subscription còn hiệu lực của một customer (khi tài khoản bị vô hiệu hoá).
+
+    Trả về số subscription đã huỷ. Không cấu hình Stripe hoặc không có customer thì bỏ qua.
+    """
+    stripe = _stripe()
+    if not stripe or not customer_id:
+        return 0
+    cancelled = 0
+    for status in ("active", "trialing", "past_due"):
+        listing = stripe.Subscription.list(customer=customer_id, status=status, limit=100)
+        rows = listing.get("data", []) if isinstance(listing, dict) else getattr(listing, "data", [])
+        for sub in rows:
+            sub_id = sub.get("id") if isinstance(sub, dict) else getattr(sub, "id", None)
+            if sub_id:
+                stripe.Subscription.cancel(sub_id)
+                cancelled += 1
+    return cancelled
+
+
 @router.get("/status", response_model=BillingStatusOut)
 def billing_status(
     user: CurrentUser = Depends(get_current_user),
@@ -75,10 +95,22 @@ def create_checkout(
 
     customer_id = row.stripe_customer_id
     if not customer_id:
-        customer = stripe.Customer.create(email=row.email, metadata={"user_id": str(row.id)})
-        customer_id = customer.id
-        row.stripe_customer_id = customer_id
+        # Hai lần bấm đồng thời không được tạo hai customer: webhook chỉ nhận diện tài khoản
+        # theo stripe_customer_id, nên thanh toán trên customer bị ghi đè sẽ không bao giờ nâng gói.
+        customer = stripe.Customer.create(
+            email=row.email,
+            metadata={"user_id": str(row.id)},
+            idempotency_key=f"fieldops-customer-{row.id}",
+        )
+        db.execute(
+            update(User)
+            .where(User.id == row.id, User.stripe_customer_id.is_(None))
+            .values(stripe_customer_id=customer.id)
+            .execution_options(synchronize_session=False)
+        )
         db.commit()
+        # Nếu request khác đã ghi trước, dùng customer đã lưu (người thắng), không phải bản vừa tạo.
+        customer_id = db.scalar(select(User.stripe_customer_id).where(User.id == row.id))
 
     session = stripe.checkout.Session.create(
         customer=customer_id,

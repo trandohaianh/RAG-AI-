@@ -10,9 +10,15 @@
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
-		X-Frame-Options "SAMEORIGIN"
 		-Server
 	}
+
+	# Chống clickjacking cho toàn site, TRỪ trang widget /embed: widget.js nhúng trang này
+	# bằng iframe trên website khách hàng, nên SAMEORIGIN ở đây làm widget trắng trơn.
+	@not_embed not path /embed /embed/*
+	header @not_embed X-Frame-Options "SAMEORIGIN"
+	@embed path /embed /embed/*
+	header @embed Content-Security-Policy "frame-ancestors *"
 
 	# API: bỏ tiền tố /api. SSE (chat stream) cần flush ngay, không đệm.
 	handle_path /api/* {

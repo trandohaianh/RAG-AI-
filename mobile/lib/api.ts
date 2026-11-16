@@ -6,7 +6,9 @@ import { rememberOfflineApiOrigin } from "./offlineOrigin";
 // Địa chỉ Tailscale của laptop — dùng được cả khi ở nhà lẫn ra ngoài (wifi hay 4G),
 // vì Tailscale tạo 1 mạng riêng ảo giữa laptop và điện thoại, không phụ thuộc mạng LAN.
 // Cổng 8001 (không phải 8000) — cổng 8000 dính lỗi Windows giữ socket "ma" không kill được.
-const DEFAULT_API_URL = "http://100.121.99.57:8001";
+// Bản phát hành đặt EXPO_PUBLIC_API_URL (eas.json / .env) để không dùng địa chỉ dev bên dưới.
+const DEFAULT_API_URL: string =
+  (typeof process !== "undefined" && process.env?.EXPO_PUBLIC_API_URL) || "http://100.121.99.57:8001";
 const API_URL_KEY = "rag_api_url";
 const TOKEN_KEY = "rag_token";
 const USER_KEY = "rag_user";

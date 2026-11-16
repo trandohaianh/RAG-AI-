@@ -73,7 +73,9 @@ def daily_series(db: Session, user_id: int, days: int = 14) -> list[dict]:
     if DATABASE_URL.startswith("sqlite"):
         day_col = func.strftime("%Y-%m-%d", Message.created_at)
     else:
-        day_col = func.date(Message.created_at)
+        from database import utc_date
+
+        day_col = utc_date(Message.created_at, db)
     rows = (
         db.query(
             day_col.label("day"),

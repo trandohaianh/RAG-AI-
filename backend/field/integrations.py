@@ -34,7 +34,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -56,6 +56,8 @@ public_router = APIRouter(prefix="/public/field", tags=["field integrations (pub
 
 MAX_SKEW_SECONDS = 300
 MAX_ATTEMPTS = 8
+CLAIM_LEASE = timedelta(minutes=5)
+MAX_INBOUND_BYTES = 256 * 1024
 EVENT_TYPES = {"ticket.created", "ticket.updated", "ticket.closed", "alarm.raised", "alarm.cleared"}
 SEVERITY = {"critical": "urgent", "major": "high", "minor": "normal", "warning": "low", "info": "low",
             "urgent": "urgent", "high": "high", "normal": "normal", "low": "low"}
@@ -72,22 +74,54 @@ def _allow_private() -> bool:
     return os.getenv("FIELD_WEBHOOK_ALLOW_PRIVATE", "").lower() in ("1", "true", "yes")
 
 
-def validate_outbound_url(url: str) -> None:
+def validate_outbound_url(url: str) -> list[str]:
+    """Kiểm tra URL webhook ra; trả về các IP công khai đã kiểm (rỗng khi cho phép mạng nội bộ)."""
     parsed = urlparse(url)
     if parsed.scheme != "https" and not (_allow_private() and parsed.scheme == "http"):
         raise ValueError("URL webhook phải dùng https")
     if not parsed.hostname:
         raise ValueError("URL webhook không hợp lệ")
     if _allow_private():
-        return
+        return []
     try:
         infos = socket.getaddrinfo(parsed.hostname, parsed.port or 443, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
         raise ValueError("Không phân giải được tên miền webhook") from exc
+    checked: list[str] = []
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+        mapped = getattr(ip, "ipv4_mapped", None)
+        if mapped is not None:
+            ip = mapped
+        # is_private bỏ sót 100.64.0.0/10 (CGNAT, metadata của một số cloud) và 0.0.0.0;
+        # chỉ cho phép địa chỉ định tuyến công khai.
+        if (not ip.is_global or ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
             raise ValueError("URL webhook không được trỏ vào mạng nội bộ")
+        if str(ip) not in checked:
+            checked.append(str(ip))
+    if not checked:
+        raise ValueError("Không phân giải được tên miền webhook")
+    return checked
+
+
+def _post_pinned(client, url: str, ips: list[str], *, content: bytes, headers: dict):
+    """POST tới đúng IP vừa kiểm tra (chống DNS rebinding).
+
+    Nếu để httpx tự phân giải lại tên miền, một DNS TTL ngắn có thể trả IP công khai lúc kiểm
+    tra rồi 127.0.0.1/169.254.169.254 lúc kết nối. Ở đây URL dùng IP, còn Host và SNI giữ tên
+    miền gốc nên chứng chỉ TLS vẫn được xác minh theo tên miền.
+    """
+    if not ips:
+        return client.post(url, content=content, headers=headers)
+    parsed = urlparse(url)
+    ip = ips[0]
+    host = f"[{ip}]" if ":" in ip else ip
+    netloc = host + (f":{parsed.port}" if parsed.port else "")
+    pinned = parsed._replace(netloc=netloc).geturl()
+    host_header = parsed.hostname + (f":{parsed.port}" if parsed.port else "")
+    return client.post(pinned, content=content, headers={**headers, "Host": host_header},
+                       extensions={"sni_hostname": parsed.hostname})
 
 
 # ----------------------------------------------------------------------------- management API
@@ -227,6 +261,9 @@ def retry_delivery(integration_id: int, delivery_id: int, user: CurrentUser = De
     delivery = db.get(FieldWebhookDelivery, delivery_id)
     if not delivery or delivery.integration_id != integration_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy lượt gửi")
+    if delivery.status == "delivered":
+        # Gửi lại một sự kiện đã giao thành công sẽ tạo bản trùng phía CRM.
+        raise HTTPException(status_code=409, detail="Lượt gửi này đã thành công, không cần gửi lại")
     delivery.status, delivery.attempts = "pending", 0
     delivery.next_attempt_at = datetime.now(timezone.utc)
     db.commit()
@@ -290,9 +327,16 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
     if not integration or not integration.is_active:
         FIELD_WEBHOOKS.labels("inbound", "rejected").inc()
         raise HTTPException(status_code=404, detail="Unknown integration")
-    raw = await request.body()
-    if len(raw) > 256 * 1024:
+    # Endpoint công khai (chỉ cần public_id): không đọc cả body vào RAM rồi mới kiểm kích thước.
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_INBOUND_BYTES:
         raise HTTPException(status_code=413, detail="Payload too large")
+    buffer = bytearray()
+    async for chunk in request.stream():
+        buffer += chunk
+        if len(buffer) > MAX_INBOUND_BYTES:
+            raise HTTPException(status_code=413, detail="Payload too large")
+    raw = bytes(buffer)
     timestamp = request.headers.get("x-fieldops-timestamp", "")
     signature = request.headers.get("x-fieldops-signature", "")
     try:
@@ -335,7 +379,15 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
                            external_source=source, external_ref=external_ref)
         _apply_fields(case, data)
         db.add(case)
-        db.flush()
+        try:
+            db.flush()
+        except IntegrityError:
+            # Hai sự kiện khác event_id cho cùng external_ref mới đến song song và bản kia đã
+            # tạo ca trước (ix_field_case_external). Sự kiện này chưa được ghi nhận nên an toàn
+            # khi CRM gửi lại: lần sau sẽ đi nhánh cập nhật ca. Trả 503 có thể thử lại, không 500.
+            db.rollback()
+            raise HTTPException(status_code=503, detail="Concurrent event for this external_ref; retry",
+                                headers={"Retry-After": "1"})
         label = "ticket CRM" if integration.kind == "crm" else "cảnh báo NMS"
         db.add(ServiceCaseEvent(case_id=case.id, actor_id=actor, event_type="created",
                                 detail=f"Tạo từ {label} {external_ref} ({integration.name})"))
@@ -413,6 +465,22 @@ def dispatch_due(db: Session, *, now: datetime | None = None, client=None, limit
     client = client or httpx.Client(timeout=10.0, follow_redirects=False)
     try:
         for delivery in rows:
+            # Container pipeline và kick() trong API (hoặc nhiều worker) cùng quét hàng đợi.
+            # Giành quyền gửi bằng một UPDATE có điều kiện: chỉ một bên thấy rowcount == 1.
+            # Nếu tiến trình chết giữa chừng, delivery tự đến hạn lại sau CLAIM_LEASE.
+            claimed = db.execute(
+                update(FieldWebhookDelivery)
+                .where(FieldWebhookDelivery.id == delivery.id,
+                       FieldWebhookDelivery.status == "pending",
+                       FieldWebhookDelivery.next_attempt_at <= now)
+                .values(next_attempt_at=now + CLAIM_LEASE)
+                .execution_options(synchronize_session=False)
+            ).rowcount
+            db.commit()
+            if claimed != 1:
+                summary["skipped"] += 1
+                continue
+            db.refresh(delivery)
             integration = db.get(FieldIntegration, delivery.integration_id)
             if not integration or not integration.is_active or not integration.outbound_url:
                 delivery.status, delivery.last_error = "dead", "kết nối đã tắt hoặc không còn URL"
@@ -422,8 +490,8 @@ def dispatch_due(db: Session, *, now: datetime | None = None, client=None, limit
             timestamp = str(int(time.time()))
             delivery.attempts += 1
             try:
-                validate_outbound_url(integration.outbound_url)
-                response = client.post(integration.outbound_url, content=body, headers={
+                ips = validate_outbound_url(integration.outbound_url)
+                response = _post_pinned(client, integration.outbound_url, ips, content=body, headers={
                     "Content-Type": "application/json", "X-FieldOps-Timestamp": timestamp,
                     "X-FieldOps-Signature": sign(integration.secret, timestamp, body),
                     "X-FieldOps-Event": delivery.event_type})
