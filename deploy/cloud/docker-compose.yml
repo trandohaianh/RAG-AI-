@@ -74,6 +74,10 @@ services:
       api: {condition: service_healthy}
     environment: *api-env
     command: python -m pipeline.jobs.runner --schedule
+    # Cùng image với API nên kế thừa HEALTHCHECK gọi /health, mà bộ lập lịch không mở cổng HTTP:
+    # container luôn bị báo "unhealthy" (dry run 2026-11-17). Tình trạng job xem ở /api/pipeline.
+    healthcheck:
+      disable: true
     volumes:
       - fieldops_data:/app/data
     deploy:

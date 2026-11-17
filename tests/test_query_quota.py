@@ -159,7 +159,8 @@ def test_closed_case_and_missing_model_config_do_not_charge(quota_client, quota_
         (embed, "/embed/chat", {"X-Embed-Token": "quota-embed-token"}),
     ]:
         monkeypatch.setattr(module, "GEMINI_API_KEY", "")
-        assert client.post(path, json={"question": "Check?"}, headers=headers).status_code == 500
+        # 503: dịch vụ chưa được cấu hình (thiếu khoá), không phải lỗi máy chủ (2026-11-17).
+        assert client.post(path, json={"question": "Check?"}, headers=headers).status_code == 503
     assert _usage(quota_db) == 0
     assert calls == []
 

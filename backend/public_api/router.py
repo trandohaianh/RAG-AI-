@@ -132,7 +132,7 @@ async def v1_ask(
     api_user: User = Depends(get_api_key_user),
 ):
     if LLM_PROVIDER != "ollama" and not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Thiếu GEMINI_API_KEY")
+        raise HTTPException(status_code=503, detail="Thiếu GEMINI_API_KEY")  # chưa cấu hình: dịch vụ chưa sẵn sàng, không phải lỗi máy chủ
     plan = api_user.subscription_plan or "free"
     from costs.budget import enforce_budget_async
     from costs.context import set_request_usage

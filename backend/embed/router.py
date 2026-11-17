@@ -228,7 +228,7 @@ async def embed_chat(
     db: Session = Depends(get_db),
 ):
     if LLM_PROVIDER != "ollama" and not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Thiếu GEMINI_API_KEY")
+        raise HTTPException(status_code=503, detail="Thiếu GEMINI_API_KEY")  # chưa cấu hình: dịch vụ chưa sẵn sàng, không phải lỗi máy chủ
 
     row = _get_embed_row(db, x_embed_token)
     _check_origin(row, request.headers.get("origin"), request.headers.get("x-embed-parent-origin"))

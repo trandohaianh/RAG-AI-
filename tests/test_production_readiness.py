@@ -17,6 +17,7 @@ from auth import ratelimit
 from auth.models import User
 from auth.service import hash_password
 from test_auth_providers import client, db_factory  # noqa: F401
+from test_query_quota import quota_client, quota_db  # noqa: F401
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
@@ -264,3 +265,54 @@ def test_frontend_has_error_boundaries():
     for path in (app / "error.tsx", app / "(app)/error.tsx", app / "global-error.tsx", app / "not-found.tsx"):
         assert path.exists(), path
     assert (app / "global-error.tsx").read_text(encoding="utf-8").count("<html lang") == 1
+
+
+def test_static_ips_never_collide_with_dynamically_assigned_ones():
+    """On a fixed subnet Docker hands the first free address (.2) to whichever container joins
+    first; a container pinned to that address then fails with "Address already in use". Every
+    pinned ipv4_address must sit inside the subnet but OUTSIDE the network's dynamic ip_range."""
+    import ipaddress
+
+    import yaml
+
+    compose = yaml.safe_load((ROOT / "deploy/production/docker-compose.yml").read_text(encoding="utf-8"))
+    networks = compose["networks"]
+    pinned = 0
+    for name, service in compose["services"].items():
+        nets = service.get("networks")
+        if not isinstance(nets, dict):
+            continue
+        for net, conf in nets.items():
+            if not conf or "ipv4_address" not in conf:
+                continue
+            pinned += 1
+            ipam = networks[net]["ipam"]["config"][0]
+            address = ipaddress.ip_address(conf["ipv4_address"])
+            assert address in ipaddress.ip_network(ipam["subnet"]), (name, net)
+            assert "ip_range" in ipam, f"{net} has pinned addresses but no ip_range for dynamic ones"
+            assert address not in ipaddress.ip_network(ipam["ip_range"]), (name, net, address)
+    assert pinned >= 3
+    cloud = (ROOT / "deploy/cloud/docker-compose.yml").read_text(encoding="utf-8")
+    assert "ipv4_address" not in cloud, "the shared edge network has no fixed subnet; do not pin addresses"
+
+
+def test_no_env_file_can_enter_a_docker_build_context():
+    for directory in ("frontend", "backend"):
+        lines = (ROOT / directory / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        assert ".env*" in [line.strip() for line in lines], directory
+
+
+def test_missing_model_key_is_reported_as_unavailable_not_a_server_bug(quota_client, monkeypatch):  # noqa: F811
+    import chat.router as chat_router
+
+    client_, _, _ = quota_client
+    monkeypatch.setattr(chat_router, "GEMINI_API_KEY", "")
+    response = client_.post("/chat/1", json={"question": "Đèn LOS đỏ thì kiểm tra gì?"})
+    assert response.status_code == 503 and response.json()["detail"] == "Thiếu GEMINI_API_KEY"
+
+
+def test_cloud_scheduler_container_does_not_inherit_the_http_healthcheck():
+    import yaml
+
+    compose = yaml.safe_load((ROOT / "deploy/cloud/docker-compose.yml").read_text(encoding="utf-8"))
+    assert compose["services"]["pipeline"]["healthcheck"] == {"disable": True}

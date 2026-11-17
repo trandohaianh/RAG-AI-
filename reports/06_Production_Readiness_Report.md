@@ -15,16 +15,18 @@
 ### 🟡 NEEDS ATTENTION — mã sẵn sàng, cấu hình triển khai cần chủ hệ thống làm checklist ở mục 6
 
 - **Không còn Blocker nào trong mã.**
-  - Test: backend 606 passed, 12 skipped. Frontend build được ở cả hai chế độ. Client test 23/23.
+  - Test: backend 610 passed, 12 skipped. Frontend build được ở cả hai chế độ. Client test 23/23.
   - E2E qua HTTP thật: 17/17 luồng chính, 16/16 luồng biên.
   - Khởi động ở chế độ production đã kiểm.
-- **Sẵn sàng cho dry run trên máy local** (chạy uvicorn trực tiếp; bước `docker compose up --build` chưa chạy được ở đây, xem dưới).
-- **Chưa thể ghi "Ready" vì ba lý do:**
-  1. **Docker daemon không chạy trên máy rà soát** (Docker Desktop đã cài nhưng tắt). Vì vậy:
-     - compose chỉ được kiểm tra tĩnh bằng `docker compose config --quiet`: cloud, production và production+gemini đều hợp lệ;
-     - **chưa build image thật.**
-  2. Một số giá trị chỉ chủ hệ thống có (khoá Gemini, tên miền, URL công khai trên Render/Railway).
-  3. Hai điều chỉnh cần kiểm tra trên bản deploy thật: `TRUSTED_PROXY_HOPS` và SSE đi qua proxy `/api` của Next.
+- **Đã dry run thật bằng Docker** (cập nhật 2026-11-18, xem mục 7):
+  - `docker compose up --build` stack `deploy/cloud` (api, pipeline, web, Caddy HTTPS) với file env dùng một lần → tất cả healthy.
+  - smoke và E2E đi qua Caddy đều đạt.
+  - Dọn bằng `down -v`.
+  - Dry run tìm ra thêm 3 lỗi và đã sửa.
+- **Chưa thể ghi "Ready" vì hai lý do:**
+  1. Một số giá trị chỉ chủ hệ thống có: khoá Gemini (thiếu khoá thì `/health/ready` trả 503, đúng thiết kế), tên miền, URL công khai trên Render/Railway.
+  2. Hai điều chỉnh chỉ kiểm được trên Render/Railway thật: `TRUSTED_PROXY_HOPS` và SSE đi qua proxy `/api` của Next. SSE qua Caddy thì đã kiểm thật.
+- Stack `deploy/production` (nginx + Kafka + Telecom + EduDSS) chưa dry run ở đây, vì thư mục đó có `.env` thật. Compose của nó hợp lệ (`config --quiet`); chạy thật bằng `smoke_production.py` theo mục 6B.
 
 ---
 
@@ -114,7 +116,7 @@ Mỗi lỗi có test hồi quy trong `tests/test_production_readiness.py` (26 te
 
 | Bộ | Kết quả |
 |---|---|
-| Backend pytest (WSL, Python 3.12) | **606 passed, 12 skipped** (test cần PostgreSQL thật) |
+| Backend pytest (WSL, Python 3.12) | **610 passed, 12 skipped** (test cần PostgreSQL thật; số sau dry run Docker) |
 | Test hồi quy vòng này, chạy trên `4d7068a` | **25 fail, 1 pass** (đúng kỳ vọng) |
 | Frontend `tsc --noEmit` | 0 lỗi |
 | `next build` thường / chế độ `/api` | thành công / thành công |
@@ -192,5 +194,65 @@ Mỗi lỗi có test hồi quy trong `tests/test_production_readiness.py` (26 te
 ### E. Chung
 
 - `APP_ENV=production` ở mọi nơi. API sẽ tự từ chối khởi động nếu khoá ký yếu, URL công khai là localhost hoặc http, hay CORS có `*`.
+- `APP_DOMAIN` phải là tên miền thật. Riêng khi chạy thử trên máy, dùng `fieldops.localhost` (Caddy tự cấp chứng chỉ nội bộ); `localhost` trần bị từ chối khởi động.
 - Sau lần khởi động đầu, xem log có dòng migration và xác nhận bảng `schema_migrations` có phiên bản 7.
 - Chạy backup thủ công một lần: `python -m pipeline.jobs.runner --only backup`. Kết quả phải có `app-`/`chroma-`/`uploads-`, hoặc có ghi chú dùng backup của nhà cung cấp Postgres.
+
+---
+
+## 7. Dry run Docker thật (2026-11-18)
+
+### Cách chạy
+
+- **Docker:** Docker Desktop 29.8.0, không bị dừng trong và sau khi chạy.
+- **Thư mục chạy:** `deploy/production` và thư mục gốc repo có `.env` thật, nên dry run **không** chạy ở đó. Thay vào đó dùng một bản sao `docker-compose.yml`, `Caddyfile` và `smoke.sh` của `deploy/cloud` trong thư mục tạm; build context trỏ về mã nguồn thật.
+- **Env dùng một lần:** `APP_DOMAIN=fieldops.localhost`, `SECRET_KEY`/`METRICS_TOKEN` sinh ngẫu nhiên, không có khoá Gemini. File bị xoá sau khi chạy.
+- **Override chỉ dành cho dry run:**
+  - Caddy công bố `127.0.0.1:18080`/`18443` thay vì 80/443.
+  - Mạng `edge` riêng tên `fieldops-dryrun-edge`, không đụng mạng `edge` dùng chung.
+  - Thư mục `sites` tạm.
+- **Các bước:**
+  1. `docker compose -p fieldops-dryrun … up -d --build --wait`
+  2. smoke và E2E qua `https://fieldops.localhost:18443`
+  3. `docker compose … restart api`
+  4. `down -v --remove-orphans`
+- **Kết quả dọn dẹp:** không còn container, volume hay network nào của dry run.
+
+### Kết quả
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Build image api + web, Caddy `caddy:2.10-alpine` | thành công |
+| Trạng thái service | api **healthy**, web **healthy**, caddy running, pipeline running (sau khi sửa lỗi 1) |
+| `smoke.sh` qua Caddy HTTPS | web 200; `/api/health` 200; `/api/auth/config` 200; `/api/metrics` không token 401, có token 200. `/api/health/ready` **503 `llm: missing_key`**: đúng, vì env dùng một lần không có khoá Gemini. Có khoá thì sẽ là 200. |
+| E2E luồng chính qua Caddy | **17/17** (cookie Secure qua HTTPS, CSRF, đội, ca, điều phối, offline, webhook CRM, trợ lý 503, đăng xuất) |
+| E2E luồng biên qua Caddy | **16/16** |
+| SSE chat qua Caddy | 200 `text/event-stream`, **không nén** dù client gửi `Accept-Encoding: gzip, zstd`. Trang web vẫn được gzip. |
+| Header qua Caddy | `X-Frame-Options` chỉ còn một giá trị (sau khi sửa lỗi 2). `/embed` không có X-Frame-Options và có `frame-ancestors *`. HSTS và nosniff có mặt. |
+| Tài liệu API | `/api/docs` → 404 |
+| Trang 404 của web | hiện "Không tìm thấy trang" (trang lỗi mới) |
+| Migration và index trong container | `schema_migrations` = 1…7; đủ 4 index mới |
+| Bộ lập lịch | lượt chạy bù: `daily_kpis`, `data_quality`, `retention`, `backup` đều `ok`; file `app-*.db` và `chroma-*.tar.gz` được tạo |
+| Dữ liệu sau `restart api` | còn nguyên (đăng nhập lại 200) |
+| Khởi động với `APP_DOMAIN=localhost` | **bị từ chối**, báo rõ "APP_PUBLIC_URL must be the public URL, not localhost": kiểm tra mới hoạt động đúng |
+
+### Lỗi dry run tìm ra và đã sửa
+
+| # | Lỗi | Nguyên nhân | Sửa | Test |
+|---|---|---|---|---|
+| 1 | Container `pipeline` luôn **unhealthy**; lần `up` đầu báo "dependency failed to start" | `HEALTHCHECK` vừa thêm vào image backend gọi `/health`, nhưng `pipeline` dùng cùng image và không mở cổng HTTP. Lỗi do chính vòng audit trước tạo ra. Stack production không bị ảnh hưởng (`rag.Dockerfile` không có HEALTHCHECK). | `deploy/cloud/docker-compose.yml`: `pipeline.healthcheck.disable: true` | `test_cloud_scheduler_container_does_not_inherit_the_http_healthcheck` |
+| 2 | API qua Caddy trả **hai** `X-Frame-Options`: `SAMEORIGIN` và `DENY` mâu thuẫn nhau, trình duyệt coi là không hợp lệ | Khối header site-wide của Caddy được hoãn tới sau phản hồi (vì có `-Server`), còn dòng `@not_embed` thì đặt trước, nên header `DENY` của API bị nối thêm vào sau | `deploy/cloud/Caddyfile`: `header @not_embed >X-Frame-Options "SAMEORIGIN"` (đặt sau, thay thế) | `test_embed_widget_stays_frameable_on_both_edges` (siết lại) |
+| 3 | Thiếu khoá Gemini thì chat, embed và public API trả **500** | Đây là thiếu cấu hình, không phải lỗi máy chủ. 500 làm monitor và người vận hành tưởng có bug. | `chat/router.py`, `embed/router.py`, `public_api/router.py`: trả **503**, thông báo giữ nguyên "Thiếu GEMINI_API_KEY". Cập nhật `tests/test_query_quota.py`. | `test_missing_model_key_is_reported_as_unavailable_not_a_server_bug` |
+
+Ba test trên fail trên `76cc662`.
+
+### IP tĩnh trên subnet cố định (lỗi EduDSS gặp)
+
+Tình huống: trên subnet cố định, container vào mạng đầu tiên lấy `.2`, khiến lệnh `--ip` đặt sau đó cho Caddy/gateway lỗi "Address already in use". **FieldOps không bị:**
+- **`deploy/cloud`:** mạng `edge` dùng chung không có subnet cố định, và không container nào ghim IP. Caddy vào mạng qua compose, không qua `docker network connect --ip`.
+- **`deploy/production`:** gateway ghim `172.30.{10,11,12}.2`, nhưng cả ba mạng đều có `ip_range: 172.30.x.128/25`. Docker chỉ cấp IP động từ `.128` trở lên, nên `.2` luôn còn trống.
+- **Test chống tái phát:** `test_static_ips_never_collide_with_dynamically_assigned_ones` kiểm mọi `ipv4_address` nằm trong subnet nhưng ngoài `ip_range`, và kiểm stack cloud không ghim IP. Test này pass cả trên mã cũ, vì cấu hình đã đúng sẵn.
+
+### Ghi chú khác
+
+`frontend/.dockerignore` và `backend/.dockerignore` đều đã loại `.env*` từ trước. Kiểm bằng thực tế: build context không chứa file env nào. Test bảo vệ là `test_no_env_file_can_enter_a_docker_build_context`.

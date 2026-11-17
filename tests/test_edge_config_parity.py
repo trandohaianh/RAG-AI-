@@ -36,7 +36,8 @@ def test_permissions_policy_allows_every_browser_capability_the_web_app_uses():
 def test_embed_widget_stays_frameable_on_both_edges():
     # Caddy: X-Frame-Options chỉ cho các path KHÔNG phải /embed.
     assert re.search(r"@not_embed\s+not\s+path\s+/embed\s+/embed/\*", CADDY)
-    assert re.search(r'header\s+@not_embed\s+X-Frame-Options', CADDY)
+    assert re.search(r'header\s+@not_embed\s+>X-Frame-Options', CADDY), \
+        "must be deferred ('>'): otherwise the API's own X-Frame-Options is appended (two values)"
     assert not re.search(r"^\s*X-Frame-Options", CADDY.split("@not_embed", 1)[0], re.M), \
         "a site-wide X-Frame-Options would blank the embed widget"
     # nginx: không đặt X-Frame-Options toàn cục (chính sách khung do CSP của ứng dụng quyết định).

@@ -33,7 +33,10 @@
 	# Chống clickjacking cho toàn site, TRỪ trang widget /embed: widget.js nhúng trang này
 	# bằng iframe trên website khách hàng, nên SAMEORIGIN ở đây làm widget trắng trơn.
 	@not_embed not path /embed /embed/*
-	header @not_embed X-Frame-Options "SAMEORIGIN"
+	# ">" = đặt SAU khi có phản hồi, THAY header cùng tên của upstream. Không có ">" thì Caddy đặt
+	# trước rồi API (middleware header bảo mật) thêm "DENY" phía sau: hai giá trị mâu thuẫn
+	# "SAMEORIGIN, DENY" (dry run 2026-11-17), trình duyệt coi là không hợp lệ.
+	header @not_embed >X-Frame-Options "SAMEORIGIN"
 	@embed path /embed /embed/*
 	header @embed Content-Security-Policy "frame-ancestors *"
 

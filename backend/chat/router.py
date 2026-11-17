@@ -199,7 +199,7 @@ async def chat_stream(
 
     if LLM_PROVIDER != "ollama" and not GEMINI_API_KEY:
 
-        raise HTTPException(status_code=500, detail="Thiếu GEMINI_API_KEY")
+        raise HTTPException(status_code=503, detail="Thiếu GEMINI_API_KEY")  # chưa cấu hình: dịch vụ chưa sẵn sàng, không phải lỗi máy chủ
 
     from saas.limits import enforce_query_quota, release_query_quota
 
