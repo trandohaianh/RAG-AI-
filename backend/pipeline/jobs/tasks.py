@@ -32,10 +32,12 @@ def _bounds(day: date) -> tuple[datetime, datetime]:
 
 
 def _p95(values: list[int]) -> float | None:
-    if not values:
-        return None
-    ordered = sorted(values)
-    return float(ordered[min(len(ordered) - 1, int(round(0.95 * (len(ordered) - 1))))])
+    # Cùng định nghĩa (nội suy tuyến tính) với báo cáo eval: trước đây KPI dùng nearest-rank nên
+    # cùng một dãy độ trễ cho hai con số p95 khác nhau ở dashboard và báo cáo eval.
+    from evals.graders import percentile
+
+    value = percentile([float(v) for v in values], 0.95)
+    return None if value is None else round(value, 1)
 
 
 # --------------------------------------------------------------------------- 1. KPIs

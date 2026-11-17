@@ -56,11 +56,11 @@ async def suggested_questions(
     limit: int = 5,
 ):
     """Tuần 3–4: gợi ý câu hỏi dựa trên chunk đã index."""
-    from costs.budget import enforce_budget
+    from costs.budget import enforce_budget_async
     from costs.context import set_request_usage
 
     # Mỗi lần gọi là một lượt Gemini thật: phải chịu cùng trần ngân sách ngày như chat/embed/API.
-    with enforce_budget(db, user.id):
+    async with await enforce_budget_async(db, user.id):
         set_request_usage(user_id=user.id, feature="suggest")
         q = await suggest_questions_for_user(user.id, limit=min(max(limit, 1), 10))
     return SuggestedQuestionsOut(questions=q)
@@ -177,13 +177,13 @@ async def upload_doc(
         )
     if not content:
         raise HTTPException(status_code=400, detail="File rỗng")
-    from costs.budget import enforce_budget
+    from costs.budget import enforce_budget_async
 
     # Embedding (và OCR ảnh) tốn tiền như một lượt hỏi: cùng chịu trần ngân sách ngày.
     from costs.budget import ingest_reserve_amount
 
     # Đặt trước theo kích thước tài liệu: một tệp lớn tốn embedding hơn hẳn một câu hỏi.
-    with enforce_budget(db, user.id, ingest_reserve_amount(len(content))):
+    async with await enforce_budget_async(db, user.id, ingest_reserve_amount(len(content))):
         try:
             chunks = await ingest_file(user.id, dest, workspace_id=workspace_id, content=content)
         except Exception as exc:

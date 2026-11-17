@@ -1,4 +1,6 @@
-# FieldOps — Đánh giá đa vai trò và thuật toán (vòng 5)
+# FieldOps — Đánh giá đa vai trò và thuật toán (vòng 5 + vòng 6)
+
+> **Cập nhật vòng 6 (cùng ngày):** mọi mục "còn lại" ở mục 8 đã được xử lý. Các mục cần ý kiến đã được hỏi chủ sản phẩm và làm theo phương án được chọn. Xem **mục 10** (quyết định, lý do, cách sửa) và **mục 11** (kết quả kiểm thử cuối).
 
 - **Ngày:** 2026-11-17
 - **Nhánh:** `fullstack/fieldops-production`
@@ -205,7 +207,7 @@ Test migration (`test_schema_migrations.py`, `test_postgres_migrations.py`) đã
 
 ---
 
-## 8. Còn lại và lý do chưa làm
+## 8. Còn lại và lý do chưa làm (sau vòng 5 — **đã xử lý ở vòng 6, xem mục 10**)
 
 | Việc | Vì sao chưa làm |
 |---|---|
@@ -236,3 +238,101 @@ Chạy trên cây làm việc, trước commit:
 | Cổng truy hồi BM25 | `run_eval_benchmark.py --offline --fail-on-regression` | 16/16, recall@k 1.0, MRR 1.0 |
 | Eval offline đầy đủ | `run_evals.py --mode offline` | 68 câu, pass 0.7206, recall@5 1.0, MRR 0.9121, phủ dữ kiện 0.7727, từ chối đúng 0.6923, 0 vi phạm — **trùng khớp baseline** |
 | QA HTTP thật | `qa_flow.py` | **17/17** |
+
+---
+
+## 10. Vòng 6 — sửa nốt và các quyết định của chủ sản phẩm
+
+- **Mốc so sánh:** `b767f92`.
+- **Test hồi quy:** `tests/test_audit_regressions_round6.py` (28 test), 3 test mới trong `tests/client_state.test.cjs`, 1 test mới trong `tests/test_edge_config_parity.py`.
+
+### 10.1 Các mục cần ý kiến — phương án đã chọn và vì sao
+
+Chủ sản phẩm được hỏi một lần. Mỗi câu có mô tả cụ thể, đánh đổi và phương án khuyến nghị. Chủ sản phẩm chọn phương án khuyến nghị ở **cả bốn câu**.
+
+| Vấn đề | Phương án đưa ra | Đã chọn | Vì sao chọn | Cách sửa |
+|---|---|---|---|---|
+| Technical RAG từ chối khi có hơn 4 mục liên quan, và từ chối mọi số thập phân dấu phẩy ("12,5 V") | (a) Giữ top-4 và đọc dấu phẩy là thập phân; (b) chỉ giữ top-4; (c) giữ nguyên | **(a)** | Từ chối đúng lúc bằng chứng dồi dào là ngược đời. Dấu phẩy là cách viết thập phân bình thường của tiếng Việt. Đánh đổi: "1,500 W" (phân cách hàng nghìn) bị đọc là 1.5. Trường hợp này hiếm trong SOP có đơn vị, và vẫn khớp nếu hai bên viết giống nhau. | `rag/technical/pipeline.py`: `_quantity()` chuẩn hoá cả câu hỏi lẫn tài liệu ("," → "."). `select` giữ các mục điểm cao nhất trong giới hạn `max_parents` và ngân sách ký tự; mỗi mục vẫn nguyên vẹn. Chỉ từ chối khi ngay mục tốt nhất cũng không vừa. |
+| Đăng nhập trên Render bị quay vòng về /login (web và API ở hai site `onrender.com` khác nhau) | (a) Proxy cùng origin `/api`; (b) domain riêng; (c) bearer trong localStorage | **(a)** | Cookie thành first-party nên chạy được cả trên Safari/Firefox. Cùng mô hình với bản deploy Caddy, không cần mua domain. Không mở lại rủi ro XSS lấy token như (c). Đánh đổi: thêm một chặng qua server Next (vài ms). | Xem chi tiết ngay dưới bảng. |
+| Token gia hạn được vô hạn; đăng xuất không thu hồi token | (a) Gia hạn giữ hạn gốc, đăng xuất thu hồi mọi thiết bị; (b) danh sách thu hồi theo từng token (jti); (c) giữ nguyên | **(a)** | Đóng cả hai lỗ hổng mà không cần bảng mới, không thêm truy vấn DB mỗi request. Đánh đổi: đăng xuất trên web cũng đăng xuất app mobile. | Xem chi tiết ngay dưới bảng. |
+| Ước lượng token theo ký tự/4 đếm thiếu tiếng Việt | Áp dụng hay không (câu chọn nhiều) | **Áp dụng** | Trần chi phí một request phải nghiêng về phía an toàn. Đánh đổi: prompt dài nhất cho phép ngắn đi khoảng 1/3. Với 5 chunk × 1000 ký tự cộng lịch sử thì vẫn còn rất xa trần. | `costs/recorder.py`: `CHARS_PER_TOKEN = 2.5`. Đặt trước ngân sách nạp tài liệu dùng cùng hằng số. |
+| Rerank từ vựng vứt bỏ thứ tự hybrid | Áp dụng hay không | **Áp dụng** | Đã hứa: nếu eval offline tụt dưới ngưỡng thì hoàn tác và báo lại. Kết quả: **MRR tăng 0.9121 → 0.9636**, pass rate giữ 0.7206. | Xem chi tiết ngay dưới bảng. |
+| Chính sách thử lại webhook | Áp dụng hay không | **Áp dụng** | Lần thử lại đầu khoảng 30 s, đúng như tài liệu. Jitter ±20% để không dội lại đối tác cùng một giây. Lỗi 4xx là lỗi của chính yêu cầu nên thử lại 8 lần là vô ích; vẫn gửi lại bằng tay được trong giao diện. | `field/integrations.py`: `_backoff` = 30·2^(n−1) ±20%. `_permanent_failure` (4xx trừ 408/429) cho vào dead-letter ngay. |
+| Eval: holdout bị rò, quá nhỏ | Tách dev/holdout hay không | **Áp dụng** | Chỉnh tham số trên dev, chỉ chặn merge trên holdout đóng băng. Như vậy con số holdout mới đo được khả năng tổng quát hoá. | Xem dòng "Eval" ở 10.2. Phần **tăng holdout lên ≥100 câu do chuyên gia duyệt vẫn cần người nghiệp vụ**. Mã đã có trường `reviewed_by`/`reviewed_at` và bộ đếm (hiện 0/12). |
+
+**Chi tiết cách sửa cho ba quyết định có thay đổi lớn:**
+
+- **Proxy `/api` cùng origin (Render):**
+  - `frontend/next.config.js`: thêm `rewrites` chuyển `/api/*` → `API_PROXY_TARGET`, tính lúc build.
+  - `frontend/Dockerfile`: có `ARG API_PROXY_TARGET`.
+  - `render.yaml`: đặt `NEXT_PUBLIC_API_URL=/api`, `API_PROXY_TARGET` lấy host của rag-api, thêm `API_PUBLIC_URL`.
+  - `lib/api.ts`: giữ nguyên URL tương đối "/api" (trước đây bị biến thành `https:///api`).
+  - `lib/offlineQueue.ts`: lấy origin của trang làm gốc cho URL tương đối.
+- **Chính sách phiên:**
+  - `/auth/session` cấp cookie với **đúng `exp` của token gốc** (`create_access_token(expires_at=…)`, `max_age` = thời gian còn lại).
+  - `/auth/logout` tăng `token_version` khi request chứng minh được không phải CSRF: có bearer, hoặc cookie kèm header `X-Requested-With`.
+  - Thiếu header thì chỉ xoá cookie như cũ, để một trang lạ không thể đăng xuất mọi thiết bị của nạn nhân.
+- **Rerank giữ thứ tự hybrid (`rag/rerank.py`):**
+  - Khi đầu vào là `HybridRanking` (RRF của BM25 + vector, đánh dấu ở `retriever.py`): gộp thứ hạng hybrid với thứ hạng độ trùng từ bằng RRF k=60; hoà điểm thì giữ thứ tự hybrid.
+  - Khi nhánh BM25 hỏng (chỉ còn vector): độ trùng từ là tín hiệu từ vựng duy nhất, nên vẫn xếp lại toàn bộ như cũ. Điều này giữ được test hồi quy "đèn LOS đỏ không ra mục an toàn lao động".
+
+### 10.2 Các mục không cần ý kiến — đã sửa
+
+| Vấn đề (file:dòng cũ) | Kịch bản lỗi | Cách sửa | Test (fail trên `b767f92`) |
+|---|---|---|---|
+| `enforce_budget` (DELETE+INSERT dưới khoá ghi SQLite) chạy thẳng trên event loop: `chat/router.py:211`, `embed/router.py:245`, `docs/router.py:62,185`, `field/router.py:697`, `public_api/router.py:140`, judge | Một lần chờ khoá (busy_timeout 30 s; container pipeline cùng ghi `app.db`) đóng băng cả worker uvicorn, kể cả `/health` | `enforce_budget_async` chạy trong threadpool; trả khoản đặt trước bằng `release_async`, được che chắn khỏi huỷ | `test_budget_reservation_never_runs_on_the_event_loop` |
+| Client ngắt **trước** lần lặp đầu của SSE nên `finally` của generator không bao giờ chạy | Khoản đặt trước bị giữ tới hết TTL 15 phút, chặn oan các lượt hỏi khác | `budgeted_stream()`: response tự trả khoản đặt trước khi kết thúc, dù generator chưa chạy | `test_reservation_is_returned_when_the_client_leaves_before_the_first_chunk` (ASGI thật, client ngắt trước byte đầu) |
+| Receiver webhook "nhỏ giọt" (`field/integrations.py:465`; timeout của httpx tính theo từng lần đọc) | Dispatcher kẹt vô hạn; quá `CLAIM_LEASE` thì delivery bị gửi trùng; các đội khác bị nghẽn | `_DeadlineClient`: mỗi POST chạy trong asyncio với hạn chót tổng `FIELD_WEBHOOK_DEADLINE_SECONDS` (20 s), chỉ đọc tối đa 4 KB phản hồi | `test_slow_loris_receiver_cannot_hold_the_dispatcher` (server TCP thật gửi 1 byte mỗi 0.2 s) |
+| 8 slot stream chỉ được nhả khi luồng provider đọc xong (`rag/chain.py:19`) | 8 client ngắt giữa chừng làm RAG từ chối mọi người trên worker đó tới 60 s | Tách hai giới hạn: `_STREAM_SLOTS` (client đang được phục vụ, trả ngay khi ngắt) và `_STREAM_THREADS` = 32 (luồng provider còn sống, vẫn có trần) | `test_disconnected_client_returns_its_stream_slot_while_the_provider_read_continues`. Test cũ trong `test_rag_streaming.py` chuyển sang kiểm `_STREAM_THREADS`. |
+| Kiểm trích dẫn tốn O(n²) theo số token (`chain.py:187-190`) | Mỗi token ghép lại cả câu trả lời và kiểm lại từ đầu; nặng với Ollama | Chỉ kiểm phần mới (`pending`); kiểm toàn bộ một lần khi xong | `test_citation_audit_work_is_linear_in_the_answer_length` |
+| Lần đầu mở app tạo hai "Đội kỹ thuật" (`field/router.py:276-287`) | Hai tab, hoặc web + mobile, cùng gọi `/field/workspaces` | Khoá dòng user (PostgreSQL) hoặc khoá ghi (SQLite) rồi kiểm tra lại trước khi tạo | `test_concurrent_first_launch_creates_one_default_team` |
+| Di trú token cũ đăng xuất người dùng khi offline (`lib/api.ts:54`, `lib/auth.tsx:72`) | Token bị xoá trước khi gọi `/auth/session`; mọi lỗi, kể cả mất mạng, đều xoá phiên | Chỉ xoá token khi server trả thành công hoặc 401/403. Mất mạng thì giữ token và hồ sơ đã lưu, thử lại lần sau | 2 test client mới |
+| Caddy nén luồng SSE (`deploy/cloud/Caddyfile:6`) | `encode` mặc định khớp `text/*`, kể cả `text/event-stream` | Liệt kê tường minh các loại nội dung được nén, không gồm SSE | `test_caddy_never_compresses_the_sse_chat_stream` |
+| KPI judge tính cả câu từ chối (faithfulness 1.0) | Hệ thống càng từ chối nhiều, "độ bám nguồn" càng đẹp | Không gửi câu từ chối cho judge (cũng đỡ tốn tiền) | `test_refusals_are_not_sent_to_the_judge` |
+| p95 của KPI (nearest-rank) khác p95 của báo cáo eval (nội suy) | Cùng một dãy độ trễ ra hai con số khác nhau | KPI dùng `evals.graders.percentile` | `test_kpi_p95_matches_the_eval_report_definition` |
+| Một chân trang "Trang 3" hay một khối lặp làm hỏng cả tài liệu ở bước kiểm chất lượng | PDF thật gần như luôn có chân trang | `drop_noise_chunks`: bỏ chunk dưới 10 ký tự và chunk trùng, ghi chú vào kết quả kiểm tra | `test_page_footers_and_repeated_blocks_do_not_fail_a_whole_document` |
+| BM25 không khớp câu gõ không dấu; "E204" ≠ "E-204" | Thợ gõ trên điện thoại hay bỏ dấu | Thêm token bỏ dấu (bản có dấu vẫn giữ, nên câu gõ đúng dấu vẫn được điểm cao hơn). Chuẩn hoá mã E204 ↔ E-204, cả ở cổng khớp mã. | `test_unaccented_query_and_joined_error_code_match_the_sop` |
+| Đặt trước ngân sách nạp tài liệu giả định "văn bản không dài hơn file" — sai với DOCX/PDF nén | Chi phí embedding vượt khoản đặt trước | `MAX_TEXT_CHARS_PER_BYTE = 5`: ingest từ chối văn bản dài hơn mức này, và khoản đặt trước tính theo đúng mức này | `test_compressed_document_cannot_extract_more_text_than_was_reserved` |
+| Eval | Baseline chốt trên "all" nên gồm cả holdout; dung sai 0.03 nhỏ hơn 1 câu/12 | Xem chi tiết ngay dưới bảng | `test_holdout_is_frozen_by_fingerprint_and_dev_edits_do_not_touch_it`, `test_ci_gates_only_on_the_holdout_split` |
+
+**Chi tiết sửa eval:**
+- CI chạy split dev chỉ để báo cáo, và **chỉ chặn merge trên holdout**.
+- Có hai baseline riêng: `offline-dev.json` và `offline-holdout.json`.
+- Baseline holdout lưu `holdout_fingerprint`; sửa holdout thì CI báo.
+- Dung sai tự nâng lên ít nhất 1/n (một câu).
+- Đếm số câu holdout đã có chuyên gia duyệt.
+
+**Test cũ được cập nhật theo các quyết định** (giá trị mong đợi thay đổi có chủ đích):
+- `test_technical_rag.py::test_comma_decimal_abstains` đổi thành `test_comma_decimal_is_read_as_decimal`.
+- Số token ước lượng trong `test_audit_regressions.py` và `test_cost_tracking.py` (giờ chia 2.5).
+- p95 trong `test_pipeline_jobs.py`: 1500 → 1470.0 (nội suy tuyến tính).
+
+### 10.3 Vẫn chưa làm — và vì sao
+
+| Việc | Lý do |
+|---|---|
+| Tăng holdout lên ≥100 câu do chuyên gia nghiệp vụ viết và duyệt | Cần người làm nghề, không phải việc sửa mã. Cơ chế đóng băng, trường duyệt và bộ đếm đã có (`backend/evals/README.md`). |
+| Điều phối: thêm relocate/swap giữa các tuyến; dùng OR-Tools khi trên khoảng 50 ca; dùng OSRM | Là cải tiến thuật toán, không phải lỗi. Cần bộ dữ liệu ca thật để chứng minh tốt hơn; nên làm thành một thay đổi riêng. |
+| Chia chunk theo tiêu đề mục; dò lại TOP_K và số ứng viên; hiệu chuẩn `min_score` của technical RAG | Cần corpus thật lớn hơn khoảng 10 lần và có nhãn chuẩn. Dò trên 16 chunk hiện có chỉ là overfit. |
+| Nhận IP thật của client sau proxy `/api` trên Render (rate limit theo IP) | Trên Render, API vốn chỉ thấy IP của load balancer vì uvicorn không tin `X-Forwarded-For`, nên đây không phải lỗi mới. Tin `*` thì cho phép giả mạo IP, vì rag-api vẫn công khai. Nên giải quyết khi có domain riêng hoặc mạng nội bộ. |
+| Kiểm tra SSE qua rewrite của Next trên Render thật | Chỉ kiểm được bằng deploy thật. Build với `NEXT_PUBLIC_API_URL=/api API_PROXY_TARGET=…` đã sinh đúng luật rewrite trong `routes-manifest.json`. |
+| Tính năng sản phẩm ở mục 1 (mobile "Lịch hôm nay", push, biên bản đóng ca, geocoding, giá theo đội) | Là roadmap, không phải lỗi. |
+
+**Ghi chú về Next.js:** lần `next build` đầu tiên dừng lại vì công cụ Next.js báo phiên bản đang dùng có cảnh báo bảo mật đã công bố; chạy lại thì build thành công. Nâng cấp Next.js nên làm thành việc riêng, sau khi đọc advisory.
+
+---
+
+## 11. Kết quả kiểm thử cuối (vòng 6)
+
+| Bộ | Lệnh | Kết quả |
+|---|---|---|
+| Backend pytest (WSL, Python 3.12) | `pytest tests -q` | **580 passed, 12 skipped** (các test cần PostgreSQL thật) |
+| Test hồi quy vòng 6, chạy trên `b767f92` | `pytest tests/test_audit_regressions_round6.py` | **27 failed, 1 passed.** Test pass là test bảo vệ: đăng xuất thiếu header CSRF chỉ xoá cookie, giống hành vi cũ. Đúng kỳ vọng. |
+| Client state (Node) | `node --test tests/client_state.test.cjs` | **23/23 pass**; 3 test mới fail trên code cũ |
+| Frontend | `tsc --noEmit` + `next build` (cả cấu hình thường và `/api` cùng origin) | **0 lỗi; build thành công.** Luật rewrite `/api/:path*` có trong `routes-manifest.json`. |
+| Mobile | `tsc --noEmit` | **0 lỗi** (mobile không đổi) |
+| Eval template | `run_rag_evaluation.py --mode validate-only` | validated |
+| Cổng truy hồi BM25 | `run_eval_benchmark.py --offline --fail-on-regression` | 16/16, recall@k 1.0, MRR 1.0 |
+| Eval offline — all | `run_evals.py --mode offline --split all` | Đạt. 68 câu, pass 0.7206, recall@5 1.0, **MRR 0.9636** (trước 0.9121), phủ dữ kiện 0.7727, từ chối đúng 0.6923, 0 vi phạm. |
+| Eval offline — dev (chỉ báo cáo) | `--split dev --no-gates` | 56 câu, pass 0.6964, MRR 0.9674 |
+| Eval offline — holdout (cổng CI) | `--split holdout` | **Đạt cổng.** 12 câu, pass 0.8333, MRR 0.9444, phủ dữ kiện 0.8889, 0 vi phạm. |

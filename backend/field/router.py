@@ -274,6 +274,16 @@ def list_workspaces(
         .options(selectinload(FieldWorkspaceMember.workspace).selectinload(FieldWorkspace.members))
     ).all()
     if not memberships:
+        # Lần đầu mở app thường bắn nhiều request cùng lúc (hai tab, web + mobile, provider
+        # remount): mỗi request đều thấy "chưa có đội" và tạo một đội mặc định. Khoá dòng user
+        # (PostgreSQL) / khoá ghi DB (SQLite) rồi kiểm tra lại: request đến sau thấy đội đã có.
+        db.execute(update(User).where(User.id == user.id).values(id=User.id)
+                   .execution_options(synchronize_session=False))
+        if db.scalar(select(func.count()).select_from(FieldWorkspaceMember)
+                     .where(FieldWorkspaceMember.user_id == user.id)):
+            db.commit()
+            return list_workspaces(user, db)
+    if not memberships:
         workspace = FieldWorkspace(
             name=f"Đội kỹ thuật {user.email.split('@', 1)[0]}",
             created_by=user.id,
@@ -691,10 +701,10 @@ async def assist_case(
         "nêu rõ khi cần chuyển cấp cho kỹ thuật viên chuyên trách.\n\n"
         f"Câu hỏi kỹ thuật viên: {body.question}"
     )
-    from costs.budget import enforce_budget
+    from costs.budget import enforce_budget_async
     from costs.context import set_request_usage
 
-    with enforce_budget(db, user.id):
+    async with await enforce_budget_async(db, user.id):
         set_request_usage(user_id=user.id, workspace_id=case.workspace_id, feature="field_assistant")
         enforce_query_quota(db, user.id, user.subscription_plan)
         evidence_bundle = {}

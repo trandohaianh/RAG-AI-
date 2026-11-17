@@ -34,8 +34,12 @@ services:
         fromDatabase:
           name: rag-postgres
           property: connectionString
-      # Sau deploy: set = https://<tên-rag-web>.onrender.com
+      # Sau deploy: set = https://<tên-rag-web>.onrender.com (trình duyệt gọi API qua /api cùng
+      # origin nên CORS chỉ còn cần cho công cụ khác; vẫn bắt buộc ở production).
       - key: CORS_ORIGINS
+        sync: false
+      # URL công khai của API mà trình duyệt thấy (ảnh hiện trường): https://<tên-rag-web>.onrender.com/api
+      - key: API_PUBLIC_URL
         sync: false
 
   - type: web
@@ -45,7 +49,11 @@ services:
     dockerContext: ./frontend
     plan: free
     envVars:
+      # API đi qua proxy cùng origin /api (next.config.js). Không trỏ thẳng tới host của rag-api:
+      # hai subdomain onrender.com là hai site khác nhau nên cookie đăng nhập không được gửi.
       - key: NEXT_PUBLIC_API_URL
+        value: /api
+      - key: API_PROXY_TARGET
         fromService:
           type: web
           name: rag-api

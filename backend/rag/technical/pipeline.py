@@ -35,11 +35,19 @@ class Policy(StrictModel):
     context_char_budget: int = Field(default=30000, ge=1000, le=100000)
 
 
+def _quantity(raw: str) -> str:
+    """Chuẩn hoá một đại lượng để so khớp: bỏ khoảng trắng, dấu phẩy thập phân -> dấu chấm.
+
+    Tiếng Việt viết số thập phân bằng dấu phẩy ("12,5 V"). Trước đây mọi câu hỏi có dấu phẩy bị
+    từ chối vì "mơ hồ". Chủ sản phẩm chọn (2026-11-17): đọc dấu phẩy là thập phân, áp dụng giống
+    nhau cho câu hỏi và tài liệu, nên "12,5 V" khớp "12.5 V". Đánh đổi: "1,500 W" (phân cách
+    nghìn) cũng bị đọc là 1.5 — hiếm trong SOP có đơn vị, và vẫn khớp nếu hai bên viết giống nhau.
+    """
+    return re.sub(r"\s+", "", raw).replace(",", ".").replace("−", "-")
+
+
 def anchors(query: str) -> tuple[set[str], set[str]]:
-    quantities = {re.sub(r"\s+", "", m.group()) for m in _QUANTITY.finditer(query)}
-    # Ambiguous commas are not silently treated as decimal separators or thousands.
-    if any("," in q for q in quantities):
-        raise TechnicalRAGError("Ambiguous decimal separator; confirm the original notation")
+    quantities = {_quantity(m.group()) for m in _QUANTITY.finditer(query)}
     codes = {m.group() for m in _CODE.finditer(query) if any(c.isdigit() for c in m.group())}
     codes.update(m.group(1) for m in _ERROR_NUMBER.finditer(query))
     return codes, quantities
@@ -56,7 +64,7 @@ def exact_match(query: str, text: str, confirmed_model: str | None = None) -> bo
             if codes == {confirmed_model} and not re.search(r"\bmodel\b", query, re.I):
                 return False  # bare ambiguous code may also be a model; do not guess
             codes.remove(confirmed_model)
-    source_values = {re.sub(r"\s+", "", m.group()) for m in _QUANTITY.finditer(text)}
+    source_values = {_quantity(m.group()) for m in _QUANTITY.finditer(text)}
     return (all(re.search(r"(?<![\w.])" + re.escape(c) + r"(?![\w.])", text) for c in codes)
             and values <= source_values)
 
@@ -117,9 +125,18 @@ class TechnicalRAG:
         # Requiring a source selector prevents mixing independently authored manuals.
         if len({e.parent.source_id for e in evidence}) > 1:
             raise TechnicalRAGError("Ambiguous sources; select a reviewed source_id")
-        if len(evidence) > p.max_parents or sum(len(e.parent.text) for e in evidence) > p.context_char_budget:
+        # Nhiều mục liên quan là dấu hiệu bằng chứng DỒI DÀO, không phải lý do từ chối: giữ các mục
+        # điểm cao nhất (evidence đã xếp theo điểm) trong giới hạn số mục và ngân sách ký tự. Mỗi
+        # mục vẫn được đưa NGUYÊN VẸN; chỉ từ chối khi ngay mục tốt nhất cũng không vừa.
+        kept, used = [], 0
+        for item in evidence[:p.max_parents]:
+            if used + len(item.parent.text) > p.context_char_budget:
+                break
+            kept.append(item)
+            used += len(item.parent.text)
+        if evidence and not kept:
             raise TechnicalRAGError("Whole required parents exceed context budget")
-        return evidence
+        return kept   # là tiền tố của evidence nên nhãn E1..En vẫn liên tục
 
     def answer(self, query: str, scope: Scope, source_id: str | None = None) -> Answer:
         if not query.strip() or len(query) > 4000:

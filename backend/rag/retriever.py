@@ -91,7 +91,9 @@ def _hybrid_search_sync(
         return lexical_hits
     if not lexical_hits:
         return vector_hits
-    return reciprocal_rank_fusion([vector_hits, lexical_hits], k=k)
+    from rag.rerank import HybridRanking
+
+    return HybridRanking(reciprocal_rank_fusion([vector_hits, lexical_hits], k=k))
 
 
 def _read_snapshot(

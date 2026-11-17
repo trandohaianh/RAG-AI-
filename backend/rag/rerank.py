@@ -46,7 +46,11 @@ def _section_title(text: str) -> str:
     return ""
 
 
-def lexical_rerank(query: str, chunks: list[Chunk], top_n: int) -> list[Chunk]:
+class HybridRanking(list):
+    """Danh sách chunk đã được xếp bằng RRF(BM25 + vector) — đã chứa tín hiệu từ vựng."""
+
+
+def lexical_rerank(query: str, chunks: list[Chunk], top_n: int, keep_order: bool = False) -> list[Chunk]:
     """Xếp lại theo độ trùng từ giữa câu hỏi và chunk.
 
     Tiêu đề mục được tính nặng hơn thân bài vì nó nói thẳng mục đó để làm gì.
@@ -68,8 +72,20 @@ def lexical_rerank(query: str, chunks: list[Chunk], top_n: int) -> list[Chunk]:
         return (4 * len(primary & head) + 2 * len(primary & body)
                 + len(context & head))
 
-    # sorted ổn định: chunk điểm bằng nhau giữ nguyên thứ tự của bước tìm vector.
-    return sorted(chunks, key=score, reverse=True)[:top_n]
+    if not keep_order:
+        # Đầu vào chỉ có MỘT tín hiệu (vector, khi nhánh BM25 hỏng/không có): độ trùng từ là tín
+        # hiệu từ vựng duy nhất nên được xếp lại toàn bộ như trước. sorted ổn định: hoà thì giữ thứ
+        # tự vector.
+        return sorted(chunks, key=score, reverse=True)[:top_n]
+    # Đầu vào là RRF (BM25 + vector): đã có tín hiệu từ vựng LẪN ngữ nghĩa. Trước đây hàm này vẫn
+    # xếp lại hoàn toàn theo độ trùng từ, vứt bỏ tín hiệu vector. Giờ gộp hai thứ hạng bằng RRF
+    # (k=60): thứ tự hybrid là tín hiệu chính, độ trùng từ chỉ đẩy lên/xuống và phá thế hoà; hoà
+    # điểm thì giữ thứ tự hybrid (chủ sản phẩm chọn 2026-11-17).
+    scores = [score(chunk) for chunk in chunks]
+    lexical_rank = {i: r for r, i in enumerate(sorted(range(len(chunks)), key=lambda i: -scores[i]), 1)}
+    fused = sorted(range(len(chunks)),
+                   key=lambda i: (-(1 / (60 + i + 1) + 1 / (60 + lexical_rank[i])), i))
+    return [chunks[i] for i in fused[:top_n]]
 
 
 def _record_rerank(data: dict, doc_count: int, started: float) -> None:
@@ -96,8 +112,9 @@ def rerank_chunks(
         return []
     if len(chunks) <= top_n:
         return chunks[:top_n]
+    hybrid = isinstance(chunks, HybridRanking)
     if not COHERE_API_KEY:
-        return lexical_rerank(query, chunks, top_n)
+        return lexical_rerank(query, chunks, top_n, keep_order=hybrid)
 
     documents = [c[0][:8000] for c in chunks]  # giới hạn Cohere
     started = time.perf_counter()
@@ -126,7 +143,7 @@ def rerank_chunks(
             if idx is None or idx < 0 or idx >= len(chunks):
                 continue
             out.append(chunks[idx])
-        return out if out else lexical_rerank(query, chunks, top_n)
+        return out if out else lexical_rerank(query, chunks, top_n, keep_order=hybrid)
     except Exception:
         # Cohere hỏng hoặc quá hạn: vẫn xếp lại tại chỗ, không trả về thứ tự thô.
-        return lexical_rerank(query, chunks, top_n)
+        return lexical_rerank(query, chunks, top_n, keep_order=hybrid)

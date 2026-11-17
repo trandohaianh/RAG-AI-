@@ -135,21 +135,57 @@ async def google_login(data: GoogleLoginRequest, request: Request, response: Res
 
 @router.post("/session", response_model=UserOut)
 def upgrade_to_cookie_session(
+    request: Request,
     response: Response,
     user: CurrentUser = Depends(get_current_user_allow_unverified),
     db: Session = Depends(get_db),
 ):
-    """Chuyển phiên web cũ (token trong localStorage) sang cookie httpOnly một lần."""
+    """Chuyển phiên web cũ (token trong localStorage) sang cookie httpOnly một lần.
+
+    Cookie mới GIỮ NGUYÊN hạn của token gốc. Trước đây mỗi lần gọi lại cấp hạn 7 ngày mới, nên
+    một token bị lộ có thể được gia hạn mãi mãi (chính sách chủ sản phẩm chọn 2026-11-17).
+    """
+    from datetime import datetime, timezone
+
+    from auth.service import decode_access_token
+    from dependencies import request_token
+
     row = db.query(User).filter(User.id == user.id, User.deleted_at.is_(None)).first()
     if not row:
         raise HTTPException(status_code=401, detail="Người dùng không tồn tại")
-    set_session_cookie(response, create_access_token(row))
+    auth_header = request.headers.get("authorization", "")
+    bearer = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
+    claims = decode_access_token(request_token(request, bearer) or "") or {}
+    expires_at = datetime.fromtimestamp(int(claims["exp"]), tz=timezone.utc)
+    remaining = int((expires_at - datetime.now(timezone.utc)).total_seconds())
+    if remaining <= 0:
+        raise HTTPException(status_code=401, detail="Token đã hết hạn")
+    set_session_cookie(response, create_access_token(row, expires_at=expires_at), max_age=remaining)
     return UserOut.from_user(row)
 
 
 @router.post("/logout")
-def logout(response: Response):
-    """Xoá cookie phiên của trình duyệt. Không cần xác thực: xoá cookie của chính mình là vô hại."""
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+    """Đăng xuất: xoá cookie VÀ thu hồi mọi token của người dùng (tăng token_version).
+
+    Trước đây chỉ xoá cookie, nên token đã bị lộ vẫn dùng được tới hết hạn. Thu hồi áp dụng cho
+    mọi thiết bị (web + mobile) — chính sách chủ sản phẩm chọn 2026-11-17. Chỉ thu hồi khi request
+    chứng minh được không phải CSRF (bearer, hoặc cookie kèm header chống CSRF); thiếu header thì
+    vẫn xoá cookie của chính trình duyệt như cũ (vô hại), không đụng tới thiết bị khác.
+    """
+    import config
+    from auth.service import decode_access_token
+    from sqlalchemy import update
+
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
+    if token is None and request.headers.get(config.CSRF_HEADER, "").strip().lower() == config.CSRF_HEADER_VALUE:
+        token = request.cookies.get(config.AUTH_COOKIE_NAME)
+    claims = decode_access_token(token) if token else None
+    if claims:
+        db.execute(update(User).where(User.id == int(claims["sub"]), User.token_version == claims["version"])
+                   .values(token_version=User.token_version + 1))
+        db.commit()
     clear_session_cookie(response)
     return {"message": "Đã đăng xuất"}
 

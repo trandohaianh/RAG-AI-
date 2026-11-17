@@ -31,7 +31,9 @@ const VERSION = 1;
 type Sender = (method: "post" | "patch", url: string, body: Record<string, unknown>) => Promise<unknown>;
 
 export function createQueueScope(apiUrl: string, userId: number, workspaceId: number): QueueScope {
-  return { apiOrigin: new URL(apiUrl).origin, userId, workspaceId };
+  // API cùng origin ("/api"): URL tương đối, lấy origin của trang làm gốc.
+  const base = typeof window !== "undefined" && window.location?.origin ? window.location.origin : "http://localhost";
+  return { apiOrigin: new URL(apiUrl, base).origin, userId, workspaceId };
 }
 
 function scopeKey(scope: QueueScope): string {

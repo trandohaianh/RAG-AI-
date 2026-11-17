@@ -37,11 +37,17 @@ def _factory() -> Callable[[], Session]:
     return SessionLocal
 
 
+# Tiếng Việt có dấu ≈ 2–3 ký tự/token (tiếng Anh ≈ 4). Ước lượng dùng cho TRẦN chi phí nên phải
+# nghiêng về phía nhiều token: với /4, một prompt "16k token" thực tế có thể 25–30k và vượt khoản
+# đặt trước ngân sách. Chủ sản phẩm chọn 2.5 (2026-11-17): prompt dài nhất cho phép ngắn đi ~1/3.
+CHARS_PER_TOKEN = 2.5
+
+
 def estimate_tokens(text: str) -> int:
-    """Ước lượng token khi provider không trả usage (≈ 4 ký tự / token)."""
+    """Ước lượng token khi provider không trả usage, và để kiểm trần đầu vào (≈ 2.5 ký tự/token)."""
     if not text:
         return 0
-    return max(1, math.ceil(len(text) / 4))
+    return max(1, math.ceil(len(text) / CHARS_PER_TOKEN))
 
 
 def record_usage(

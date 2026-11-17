@@ -1,7 +1,10 @@
 import axios from "axios";
 
 function resolveApiUrl(): string {
-  const raw = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+  const raw = (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
+  // "/api": API đi qua proxy cùng origin (next.config.js rewrites, Caddy): cookie phiên là
+  // first-party nên không bị Safari/Firefox chặn như khi web và API ở hai site khác nhau.
+  if (raw.startsWith("/")) return raw;
   if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
   return `https://${raw}`;
 }
@@ -54,10 +57,18 @@ export function getApiErrorMessage(err: unknown): string {
 
 /** Token cũ từng nằm trong localStorage (trước khi chuyển sang cookie). Trả về rồi xoá. */
 export function takeLegacyToken(): string | null {
-  if (typeof window === "undefined") return null;
-  const token = localStorage.getItem(LEGACY_TOKEN_KEY);
-  if (token) localStorage.removeItem(LEGACY_TOKEN_KEY);
+  const token = peekLegacyToken();
+  if (token) dropLegacyToken();
   return token;
+}
+
+export function peekLegacyToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(LEGACY_TOKEN_KEY);
+}
+
+export function dropLegacyToken(): void {
+  if (typeof window !== "undefined") localStorage.removeItem(LEGACY_TOKEN_KEY);
 }
 
 function expireSession(epoch: string | null | undefined) {

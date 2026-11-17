@@ -8,7 +8,7 @@ from pipeline.db import is_medallion_enabled
 from pipeline.gold import refresh_document_summary, upsert_daily_stats
 from pipeline.silver import write_silver_chunks
 from rag.ingest import _load_sync, _split_sync
-from validation.ge_validate import chunks_to_dataframe, validate_document_chunks
+from validation.ge_validate import chunks_to_dataframe, drop_noise_chunks, validate_document_chunks
 
 
 def run_medallion_for_file(
@@ -38,7 +38,9 @@ def run_medallion_for_file(
             for i, d in enumerate(split_docs)
         ]
     )
+    df, notes = drop_noise_chunks(df)
     validation = validate_document_chunks(df)
+    validation.expectation_results.extend(notes)
 
     chunk_rows = df.to_dict("records")
     silver_count = write_silver_chunks(

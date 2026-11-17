@@ -6,7 +6,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -240,13 +240,13 @@ async def embed_chat(
         # Check an existing guest before charging; create new guests only after
         # admission so quota rejection cannot create unbounded empty sessions.
         conv_id, session_token = _guest_conversation(db, row, body)
-    from costs.budget import enforce_budget
+    from costs.budget import enforce_budget_async
 
-    budget = enforce_budget(db, row.user_id)
+    budget = await enforce_budget_async(db, row.user_id)
     try:
         reservation = enforce_query_quota(db, row.user_id, plan)
     except Exception:
-        budget.release()
+        await budget.release_async()
         raise
     try:
         if conv_id is None:
@@ -255,7 +255,7 @@ async def embed_chat(
         history = chat_service.get_history_for_rag(db, conv_id)
     except Exception:
         release_query_quota(db, reservation)
-        budget.release()
+        await budget.release_async()
         raise
     user_id = row.user_id
     question = body.question
@@ -303,10 +303,12 @@ async def embed_chat(
             yield f"data: {json.dumps({'error': RAG_ERROR_MESSAGE, 'code': 'rag_unavailable'}, ensure_ascii=False)}\n\n"
             return
         finally:
-            budget.release()   # chi phí thật đã được ghi; trả khoản đặt trước
+            await budget.release_async()   # chi phí thật đã được ghi; trả khoản đặt trước
 
-    return StreamingResponse(
-        event_generator(),
+    from costs.budget import budgeted_stream
+
+    return budgeted_stream(
+        event_generator(), budget,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

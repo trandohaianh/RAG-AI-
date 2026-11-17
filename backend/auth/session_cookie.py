@@ -22,11 +22,11 @@ def _secure() -> bool:
     return config.APP_ENV not in {"dev", "development", "local", "test"} or config.AUTH_COOKIE_SAMESITE == "none"
 
 
-def set_session_cookie(response: Response, token: str) -> None:
+def set_session_cookie(response: Response, token: str, max_age: int | None = None) -> None:
     response.set_cookie(
         key=config.AUTH_COOKIE_NAME,
         value=token,
-        max_age=config.ACCESS_TOKEN_EXPIRE_DAYS * 24 * 3600,
+        max_age=max_age if max_age is not None else config.ACCESS_TOKEN_EXPIRE_DAYS * 24 * 3600,
         httponly=True,
         secure=_secure(),
         samesite=config.AUTH_COOKIE_SAMESITE,

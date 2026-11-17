@@ -61,12 +61,16 @@ def reserve_amount() -> float:
 
 
 def ingest_reserve_amount(content_bytes: int) -> float:
-    """Đặt trước cho một lần nạp tài liệu: embedding tối đa ≈ số byte / 4 token (văn bản trích
-    ra không dài hơn tệp gốc), cộng một lượt OCR có trần đầu ra cho ảnh."""
+    """Đặt trước cho một lần nạp tài liệu: embedding tối đa = số byte × MAX_TEXT_CHARS_PER_BYTE
+    ký tự (ingest từ chối văn bản dài hơn: DOCX/PDF nén nên văn bản CÓ THỂ dài hơn tệp gốc),
+    cộng một lượt OCR có trần đầu ra cho ảnh."""
     from config import EMBEDDING_MODEL, LLM_MAX_OUTPUT_TOKENS, LLM_MODEL
     from costs.pricing import compute_cost
+    from costs.recorder import CHARS_PER_TOKEN
+    from config import MAX_TEXT_CHARS_PER_BYTE
 
-    embedding = compute_cost(EMBEDDING_MODEL, max(1, content_bytes // 4))
+    max_chars = content_bytes * MAX_TEXT_CHARS_PER_BYTE
+    embedding = compute_cost(EMBEDDING_MODEL, max(1, int(max_chars / CHARS_PER_TOKEN)))
     ocr = compute_cost(LLM_MODEL, 1_000, LLM_MAX_OUTPUT_TOKENS)
     return max(embedding + ocr, 0.001)
 
@@ -121,11 +125,28 @@ class BudgetReservation:
         except Exception as exc:  # hết hạn tự nhiên theo TTL nếu không xoá được
             logger.warning("Could not release budget reservation (%s)", type(exc).__name__)
 
+    async def release_async(self) -> None:
+        # DELETE cần khoá ghi SQLite (chờ tới busy_timeout 30 s): không chạy trên event loop.
+        # Che chắn khỏi huỷ: client ngắt kết nối huỷ cả scope, mà khoản đặt trước vẫn phải trả.
+        if self.id is None:
+            return
+        import anyio
+        from starlette.concurrency import run_in_threadpool
+
+        with anyio.CancelScope(shield=True):
+            await run_in_threadpool(self.release)
+
     def __enter__(self):
         return self
 
     def __exit__(self, *exc) -> None:
         self.release()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        await self.release_async()
 
 
 def enforce_budget(db: Session, user_id: int | None, amount: float | None = None) -> BudgetReservation:
@@ -171,3 +192,32 @@ def enforce_budget(db: Session, user_id: int | None, amount: float | None = None
         db.rollback()
         raise
     return BudgetReservation(reservation_id, sessionmaker(bind=bind, autoflush=False))
+
+
+async def enforce_budget_async(db: Session, user_id: int | None, amount: float | None = None) -> BudgetReservation:
+    """enforce_budget chạy trong threadpool cho handler `async`.
+
+    Đặt chỗ là DELETE + INSERT dưới khoá ghi (SQLite busy_timeout 30 s; container pipeline cùng
+    ghi app.db). Gọi thẳng trong handler async thì một lần chờ khoá đóng băng cả worker uvicorn,
+    kể cả /health. Session vẫn chỉ được dùng tuần tự (handler chờ kết quả), nên an toàn.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    return await run_in_threadpool(enforce_budget, db, user_id, amount)
+
+
+def budgeted_stream(content, reservation: BudgetReservation, **kwargs):
+    """StreamingResponse luôn trả khoản đặt trước khi response kết thúc, kể cả khi client ngắt
+    TRƯỚC lần lặp đầu: lúc đó generator chưa chạy nên `finally` của nó không bao giờ chạy, và
+    khoản đặt trước bị giữ tới hết TTL 15 phút, chặn oan các lượt hỏi khác của user.
+    """
+    from starlette.responses import StreamingResponse
+
+    class _Response(StreamingResponse):
+        async def __call__(self, scope, receive, send):
+            try:
+                await super().__call__(scope, receive, send)
+            finally:
+                await reservation.release_async()
+
+    return _Response(content, **kwargs)

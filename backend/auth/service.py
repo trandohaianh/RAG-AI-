@@ -37,8 +37,9 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(user: User) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
+def create_access_token(user: User, expires_at: datetime | None = None) -> str:
+    """`expires_at`: giữ nguyên hạn của token gốc khi chỉ đổi hình thức phiên (bearer -> cookie)."""
+    expire = expires_at or datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
     payload = {
         "sub": str(user.id),
         "exp": expire,

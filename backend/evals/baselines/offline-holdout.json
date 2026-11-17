@@ -1,0 +1,42 @@
+{
+ "dataset_id": "fieldops-sop-golden-v1",
+ "mode": "offline",
+ "split": "holdout",
+ "created_at": "2026-11-17T10:36:37+00:00",
+ "config": {
+  "k": 5,
+  "retrieve_candidates": 15,
+  "chunk_size": 1000,
+  "chunk_overlap": 100,
+  "rerank": "lexical",
+  "llm_model": "local-extractive",
+  "embedding_model": "local-hashing",
+  "judge": false
+ },
+ "metrics": {
+  "cases": 12,
+  "pass_rate": 0.8333,
+  "retrieval_recall_at_k": 1.0,
+  "retrieval_precision_at_k": 0.2,
+  "retrieval_mrr": 0.9444,
+  "retrieval_ndcg_at_k": 0.959,
+  "retrieval_hit_rate": 1.0,
+  "fact_coverage": 0.8889,
+  "groundedness": 1.0,
+  "refusal_accuracy": 0.6667,
+  "false_refusal_rate": 0.0,
+  "citation_present_rate": 1.0,
+  "citation_invalid_count": 0,
+  "safety_violations": 0,
+  "errors": 0,
+  "judge_faithfulness": null,
+  "judge_relevancy": null,
+  "latency_p50_ms": 41.8,
+  "latency_p95_ms": 65.2,
+  "tokens_in": 23002,
+  "tokens_out": 678,
+  "cost_usd": 0.0,
+  "cost_per_case_usd": 0.0
+ },
+ "holdout_fingerprint": "1376e4dcd763157d8777ccd81011b86a37621424b0bbfaea3e35403570602f0e"
+}

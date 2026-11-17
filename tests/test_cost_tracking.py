@@ -177,7 +177,7 @@ def test_metered_embeddings_estimates_tokens(cost_db):
         emb.embed_query("c" * 8)
     with cost_db() as db:
         rows = db.query(LlmUsageEvent).order_by(LlmUsageEvent.id).all()
-    assert [(r.feature, r.input_tokens) for r in rows] == [("embed_ingest", 110), ("embed_query", 2)]
+    assert [(r.feature, r.input_tokens) for r in rows] == [("embed_ingest", 176), ("embed_query", 4)]  # ký tự / 2.5
     assert all(r.estimated and r.workspace_id == 3 for r in rows)
 
 

@@ -63,7 +63,7 @@ def test_daily_kpis_aggregate_raw_data_idempotently(factory):
     assert (row.thumbs_up, row.thumbs_down) == (1, 1)
     assert row.judge_faithfulness_avg == pytest.approx(0.7)
     assert row.llm_cost_usd == pytest.approx(0.0012) and row.llm_errors == 1
-    assert row.tokens_in == 1500 and row.llm_latency_p95_ms == 1500
+    assert row.tokens_in == 1500 and row.llm_latency_p95_ms == 1470.0  # nội suy tuyến tính như báo cáo eval
 
 
 def test_data_quality_flags_bad_rows(factory):

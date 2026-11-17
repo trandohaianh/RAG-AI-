@@ -88,7 +88,10 @@ def test_disconnect_with_full_buffer_closes_provider(monkeypatch, evidence):
 
 
 def test_disconnect_during_provider_read_keeps_capacity_until_worker_exits(monkeypatch, evidence):
+    # The provider THREAD permit stays held until the worker exits (bounded zombie threads);
+    # the client-facing slot is covered by test_audit_regressions_round6.
     slots = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(chain, "_STREAM_SLOTS", threading.BoundedSemaphore(8))
     entered_read, release_read, closed = (threading.Event() for _ in range(3))
     def provider(prompt):
         try:
@@ -98,7 +101,7 @@ def test_disconnect_during_provider_read_keeps_capacity_until_worker_exits(monke
             yield "late"
         finally:
             closed.set()
-    monkeypatch.setattr(chain, "_STREAM_SLOTS", slots)
+    monkeypatch.setattr(chain, "_STREAM_THREADS", slots)
     monkeypatch.setattr(chain, "_iter_tokens", provider)
     async def run():
         stream = chain.stream_rag_answer(1, "question")

@@ -12,7 +12,9 @@ VÀO — POST /public/field/integrations/{public_id}/events
 
 RA — khi ca có nguồn từ một kết nối đổi trạng thái/người phụ trách/lịch: một bản ghi outbox
     (field_webhook_deliveries) được gửi tới outbound_url với cùng kiểu chữ ký. Lỗi -> thử lại
-    với backoff 30s·2^n (tối đa 6 giờ), sau 8 lần -> dead-letter (xem và gửi lại trong giao diện).
+    với backoff 30s·2^(n-1) ±20% jitter (lần thử lại đầu sau ~30 s, tối đa 6 giờ), sau 8 lần ->
+    dead-letter (xem và gửi lại trong giao diện). Lỗi 4xx vĩnh viễn (trừ 408/429) -> dead ngay.
+    Mỗi lần gửi có hạn chót tổng WEBHOOK_DEADLINE_SECONDS và chỉ đọc tối đa 4 KB phản hồi.
     URL ra phải là https và không trỏ vào mạng nội bộ (chống SSRF).
 """
 from __future__ import annotations
@@ -57,6 +59,10 @@ public_router = APIRouter(prefix="/public/field", tags=["field integrations (pub
 MAX_SKEW_SECONDS = 300
 MAX_ATTEMPTS = 8
 CLAIM_LEASE = timedelta(minutes=5)
+# Hạn chót cho CẢ một lần gửi (kết nối + gửi + đọc phản hồi). Timeout của httpx tính theo từng lần
+# đọc, nên một receiver "nhỏ giọt" 1 byte/9 s giữ dispatcher mãi, quá CLAIM_LEASE thì bị gửi trùng.
+WEBHOOK_DEADLINE_SECONDS = float(os.getenv("FIELD_WEBHOOK_DEADLINE_SECONDS", "20"))
+MAX_RESPONSE_BYTES = 4096
 MAX_INBOUND_BYTES = 256 * 1024
 EVENT_TYPES = {"ticket.created", "ticket.updated", "ticket.closed", "alarm.raised", "alarm.cleared"}
 SEVERITY = {"critical": "urgent", "major": "high", "minor": "normal", "warning": "low", "info": "low",
@@ -448,12 +454,54 @@ def enqueue_case_event(db: Session, case: ServiceCase, event_type: str, extra: d
 
 
 def _backoff(attempts: int) -> timedelta:
-    return timedelta(seconds=min(30 * 2 ** attempts, 6 * 3600))
+    """Chờ trước lần thử thứ attempts+1: 30 s, 60 s, 120 s… (±20% jitter để các delivery hỏng
+    cùng lúc không dội lại đối tác cùng một giây), tối đa 6 giờ."""
+    import random
+
+    base = min(30 * 2 ** max(attempts - 1, 0), 6 * 3600)
+    return timedelta(seconds=base * random.uniform(0.8, 1.2))
+
+
+def _permanent_failure(status_code: int | None) -> bool:
+    """4xx là lỗi của chính yêu cầu (URL sai, bị từ chối): gửi lại y hệt 8 lần không thay đổi gì.
+    408 (timeout) và 429 (quá tải) là tạm thời nên vẫn thử lại."""
+    return status_code is not None and 400 <= status_code < 500 and status_code not in (408, 429)
+
+
+class _DeadlineClient:
+    """Client mặc định: mỗi POST chạy trong asyncio với hạn chót tổng và đọc giới hạn phản hồi.
+
+    Huỷ (cancel) trong asyncio cắt được cả lúc đang chờ header lẫn body, điều mà timeout theo
+    từng lần đọc của client đồng bộ không làm được.
+    """
+
+    def post(self, url, content, headers, extensions=None):
+        import asyncio
+
+        return asyncio.run(asyncio.wait_for(
+            self._post(url, content, headers, extensions or {}), WEBHOOK_DEADLINE_SECONDS))
+
+    @staticmethod
+    async def _post(url, content, headers, extensions):
+        from types import SimpleNamespace
+
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+            async with client.stream("POST", url, content=content, headers=headers,
+                                     extensions=extensions) as response:
+                received = 0
+                async for chunk in response.aiter_raw():
+                    received += len(chunk)
+                    if received >= MAX_RESPONSE_BYTES:
+                        break
+                return SimpleNamespace(status_code=response.status_code)
+
+    def close(self) -> None:
+        """Mỗi POST tự mở/đóng AsyncClient của nó; không có gì để đóng."""
 
 
 def dispatch_due(db: Session, *, now: datetime | None = None, client=None, limit: int = 50) -> dict:
-    import httpx
-
     from metrics import FIELD_WEBHOOKS
 
     now = now or datetime.now(timezone.utc)
@@ -462,7 +510,7 @@ def dispatch_due(db: Session, *, now: datetime | None = None, client=None, limit
         .order_by(FieldWebhookDelivery.id).limit(limit)).all()
     summary = defaultdict(int)
     own_client = client is None
-    client = client or httpx.Client(timeout=10.0, follow_redirects=False)
+    client = client or _DeadlineClient()
     try:
         for delivery in rows:
             # Container pipeline và kick() trong API (hoặc nhiều worker) cùng quét hàng đợi.
@@ -504,7 +552,8 @@ def dispatch_due(db: Session, *, now: datetime | None = None, client=None, limit
                 delivery.status, delivery.delivered_at, delivery.last_error = "delivered", now, None
                 summary["delivered"] += 1
                 FIELD_WEBHOOKS.labels("outbound", "delivered").inc()
-            elif delivery.attempts >= MAX_ATTEMPTS:
+            elif delivery.attempts >= MAX_ATTEMPTS or _permanent_failure(delivery.response_code if error and
+                                                                          error.startswith("HTTP ") else None):
                 delivery.status, delivery.last_error = "dead", error
                 summary["dead"] += 1
                 FIELD_WEBHOOKS.labels("outbound", "dead").inc()

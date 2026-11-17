@@ -134,10 +134,10 @@ async def v1_ask(
     if LLM_PROVIDER != "ollama" and not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="Thiếu GEMINI_API_KEY")
     plan = api_user.subscription_plan or "free"
-    from costs.budget import enforce_budget
+    from costs.budget import enforce_budget_async
     from costs.context import set_request_usage
 
-    with enforce_budget(db, api_user.id):
+    async with await enforce_budget_async(db, api_user.id):
         set_request_usage(user_id=api_user.id, feature="public_api")
         enforce_query_quota(db, api_user.id, plan)
         evidence_bundle = {}

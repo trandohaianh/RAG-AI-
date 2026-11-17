@@ -53,8 +53,13 @@ jobs:
       - name: FieldOps lexical retrieval regression gate
         run: python -B backend/scripts/run_eval_benchmark.py --offline --output fieldops_eval_results.json --fail-on-regression
 
-      - name: FieldOps eval suite (offline gate — full pipeline, no API calls)
-        run: python -B backend/scripts/run_evals.py --mode offline --output-dir reports/evals
+      # Chỉnh tham số trên dev (chỉ báo cáo); CHỈ chặn merge trên holdout đóng băng — baseline cũ
+      # chốt trên "all" gồm cả holdout, nên mọi tinh chỉnh đều "nhìn thấy" bài kiểm tra.
+      - name: FieldOps eval suite — dev split (report only)
+        run: python -B backend/scripts/run_evals.py --mode offline --split dev --no-gates --output-dir reports/evals
+
+      - name: FieldOps eval suite — frozen holdout gate (full pipeline, no API calls)
+        run: python -B backend/scripts/run_evals.py --mode offline --split holdout --output-dir reports/evals
 
       - name: Upload eval report
         if: always() && matrix.python == '3.12'

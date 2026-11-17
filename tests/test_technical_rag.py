@@ -89,9 +89,11 @@ def test_exact_anchors(query, text, expected):
     assert exact_match(query, text) is expected
 
 
-def test_comma_decimal_abstains(indexed):
-    result = service(indexed).answer("E01 0,5 A", SCOPE)
-    assert result.text == REFUSAL and result.status == "abstained"
+def test_comma_decimal_is_read_as_decimal(indexed):
+    # Owner decision 2026-11-17: Vietnamese decimal comma == decimal point (was: always abstain).
+    comma = service(indexed).answer("E01 0,5 A", SCOPE)
+    point = service(indexed).answer("E01 0.5 A", SCOPE)
+    assert (comma.status, comma.reason) == (point.status, point.reason)
 
 
 def test_bm25_does_not_execute_query_operators(indexed):

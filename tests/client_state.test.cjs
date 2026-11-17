@@ -593,3 +593,75 @@ test("mobile sync moves an action that keeps failing with 5xx to rejected and se
   assert.equal(result.pending, 0);
   assert.ok(sent.includes("later"));
 });
+
+// ---------------------------------------------------------------- audit 2026-11-17 (round 6)
+function authHarness(post) {
+  const local = new Map([["rag_token", "legacy-token"], ["rag_user", JSON.stringify({ id: 7, email: "t@example.com" })]]);
+  const storage = {
+    getItem: (key) => local.get(key) ?? null,
+    setItem: (key, value) => local.set(key, value),
+    removeItem: (key) => local.delete(key),
+  };
+  const api = {
+    __esModule: true,
+    default: { post },
+    SESSION_KEY: "rag_session",
+    USER_KEY: "rag_user",
+    currentSession: () => local.get("rag_session") ?? null,
+    peekLegacyToken: () => local.get("rag_token") ?? null,
+    dropLegacyToken: () => local.delete("rag_token"),
+  };
+  const react = { createContext: () => ({}), useCallback: (f) => f, useContext: () => null, useEffect: () => {},
+    useMemo: (f) => f(), useState: (v) => [v, () => {}] };
+  const auth = load("frontend/lib/auth.tsx", { react, "next/navigation": { useRouter: () => ({}) }, "./api": api },
+    { window: {}, localStorage: storage, crypto: { randomUUID: () => "epoch-1" } });
+  return { auth, local };
+}
+
+test("legacy token survives an offline first launch and is dropped only after the server answers", async () => {
+  let online = false;
+  const calls = [];
+  const h = authHarness(async (url, _body, options) => {
+    calls.push([url, options.headers.Authorization]);
+    if (!online) throw Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" });
+    return { data: { id: 7, email: "t@example.com" } };
+  });
+  await h.auth.migrateLegacyToken();
+  assert.equal(h.local.get("rag_token"), "legacy-token", "offline: the only credential must not be deleted");
+  assert.ok(h.local.has("rag_user"), "offline: cached profile kept for the outbox");
+  online = true;
+  await h.auth.migrateLegacyToken();
+  assert.equal(calls.length, 2, "a failed migration is retried on the next load");
+  assert.equal(h.local.has("rag_token"), false);
+  assert.equal(h.local.get("rag_session"), "epoch-1");
+});
+
+test("a rejected legacy token is dropped and signs out", async () => {
+  const h = authHarness(async () => { throw Object.assign(new Error("401"), { response: { status: 401 } }); });
+  await h.auth.migrateLegacyToken();
+  assert.equal(h.local.has("rag_token"), false);
+  assert.equal(h.local.has("rag_user"), false);
+});
+
+test("same-origin /api deploy: axios, offline scope and Next rewrites all accept a relative API URL", async () => {
+  const axiosStub = { create: (options) => { axiosStub.options = options; return {
+    defaults: { headers: { common: {} } },
+    interceptors: { request: { use() {} }, response: { use() {} } } }; }, isAxiosError: () => false };
+  load("frontend/lib/api.ts", { axios: { __esModule: true, default: axiosStub } }, {
+    window: { location: { pathname: "/field" } }, localStorage: { getItem: () => null },
+    process: { env: { NEXT_PUBLIC_API_URL: "/api" } },
+  });
+  assert.equal(axiosStub.options.baseURL, "/api", "a relative API URL must not become https:///api");
+  const q = load("frontend/lib/offlineQueue.ts", {}, { window: { location: { origin: "https://web.example.test" } } });
+  assert.equal(q.createQueueScope("/api", 1, 2).apiOrigin, "https://web.example.test");
+  const configPath = require.resolve("../frontend/next.config.js");
+  const previous = process.env.API_PROXY_TARGET;
+  process.env.API_PROXY_TARGET = "rag-api.onrender.com";
+  try {
+    delete require.cache[configPath];
+    const rewrites = await require(configPath).rewrites();
+    assert.deepEqual(plain(rewrites), [{ source: "/api/:path*", destination: "https://rag-api.onrender.com/:path*" }]);
+  } finally {
+    if (previous === undefined) delete process.env.API_PROXY_TARGET; else process.env.API_PROXY_TARGET = previous;
+  }
+});

@@ -46,7 +46,7 @@ _LOCK = threading.Lock()
 def tokenize(text: str) -> list[str]:
     """Tách token, giữ nguyên mã kỹ thuật và BỔ SUNG các phần con của chúng.
 
-    "Lỗi E-204 trên GPON-2412B" -> ['lỗi', 'e-204', '204', 'gpon-2412b', 'gpon', '2412b']
+    "Lỗi E-204 trên GPON-2412B" -> ['lỗi', 'loi', 'e-204', '204', 'e204', 'trên', 'tren', ...]
 
     Phần con được thêm vào để câu hỏi chỉ gõ "204" vẫn chạm được đoạn viết "E-204",
     token đầy đủ được giữ để lọc đúng mã khi query chứa mã kỹ thuật.
@@ -62,7 +62,29 @@ def tokenize(text: str) -> list[str]:
         tokens.append(match)
         if "-" in match or "/" in match:
             tokens.extend(part for part in re.split(r"[-/]", match) if len(part) > 1)
+            tokens.append(re.sub(r"[-/]", "", match))          # "e-204" cũng là "e204"
+        else:
+            code = _BARE_CODE_RE.fullmatch(match)
+            if code:                                             # "e204" cũng là "e-204", "204"
+                tokens.append(f"{code.group(1)}-{code.group(2)}")
+                if len(code.group(2)) > 1:
+                    tokens.append(code.group(2))
+        folded = fold_accents(match)
+        if folded != match:
+            # Thợ gõ trên điện thoại hay bỏ dấu ("loi mat nguon"): thêm bản không dấu để vẫn khớp.
+            # Bản có dấu vẫn còn nên câu hỏi có dấu khớp đúng từ được cộng điểm cao hơn.
+            tokens.append(folded)
     return tokens
+
+
+# Mã viết liền "E204", "GPON2412B": chữ cái rồi tới số.
+_BARE_CODE_RE = re.compile(r"([a-z]+)(\d[a-z0-9]*)")
+
+
+def fold_accents(text: str) -> str:
+    """Bỏ dấu tiếng Việt: "nguồn" -> "nguon", "đèn" -> "den"."""
+    text = text.replace("đ", "d").replace("Đ", "D")
+    return "".join(ch for ch in unicodedata.normalize("NFD", text) if unicodedata.category(ch) != "Mn")
 
 
 def invalidate(collection_name: str) -> None:
@@ -144,8 +166,10 @@ def bm25_search(
         # terms. Okapi IDF may be zero/negative for these valid matches.
         scores = bm25.get_scores(tokens)
         query_terms = set(tokens)
+        # Dùng token đã chuẩn hoá: "E204" và "E-204" cùng sinh "e-204", nên cổng khớp mã áp dụng
+        # cho cả hai cách viết.
         exact_codes = {
-            term for term in _TOKEN_RE.findall(query.lower())
+            term for term in tokens
             if ("-" in term or "/" in term)
             and any(ch.isdigit() for ch in term)
             and any(ch.isalpha() for ch in term)

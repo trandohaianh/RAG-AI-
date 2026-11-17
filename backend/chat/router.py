@@ -8,7 +8,6 @@ from contextlib import aclosing
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from fastapi.responses import StreamingResponse
 
 from sqlalchemy.orm import Session
 
@@ -41,21 +40,27 @@ def _schedule_eval(message_id: int, question: str, context: str, answer: str,
 
     if random.random() >= JUDGE_SAMPLE_RATE:
         return
+    from evals.graders import is_refusal
+
+    # Lời từ chối được judge cho faithfulness 1.0 theo định nghĩa (không bịa): đưa chúng vào trung
+    # bình làm KPI "độ bám nguồn" đẹp lên khi hệ thống từ chối nhiều. Không chấm, không tốn tiền.
+    if is_refusal(answer):
+        return
 
     async def _run() -> None:
         from fastapi import HTTPException
 
-        from costs.budget import enforce_budget
+        from costs.budget import enforce_budget_async
         from database import SessionLocal
 
         # Judge chạy SAU khi request chat đã trả khoản đặt trước: nó cần khoản riêng, và khi
         # ngân sách đã cạn thì bỏ qua lần chấm (chất lượng đo bằng mẫu, thiếu một mẫu không sao).
         with SessionLocal() as budget_db:
             try:
-                reservation = enforce_budget(budget_db, user_id)
+                reservation = await enforce_budget_async(budget_db, user_id)
             except HTTPException:
                 return
-        with reservation:
+        async with reservation:
             result = await judge_answer(question, context, answer)
         if not result:
             return
@@ -206,20 +211,20 @@ async def chat_stream(
 
 
 
-    from costs.budget import enforce_budget
+    from costs.budget import enforce_budget_async
 
-    budget = enforce_budget(db, user.id)
+    budget = await enforce_budget_async(db, user.id)
     try:
         reservation = enforce_query_quota(db, user.id, user.subscription_plan)
     except Exception:
-        budget.release()
+        await budget.release_async()
         raise
     try:
         chat_service.add_message(db, conv_id, "user", body.question)
         history = chat_service.get_history_for_rag(db, conv_id)
     except Exception:
         release_query_quota(db, reservation)
-        budget.release()
+        await budget.release_async()
         raise
 
 
@@ -313,13 +318,15 @@ async def chat_stream(
 
         finally:
             # Chi phí thật đã được ghi khi stream kết thúc: trả lại khoản đặt trước.
-            budget.release()
+            await budget.release_async()
 
 
 
-    return StreamingResponse(
+    from costs.budget import budgeted_stream
 
-        event_generator(),
+    return budgeted_stream(
+
+        event_generator(), budget,
 
         media_type="text/event-stream",
 

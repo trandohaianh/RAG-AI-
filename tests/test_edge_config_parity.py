@@ -47,3 +47,12 @@ def test_streaming_chat_is_not_buffered_by_either_edge():
     assert "flush_interval -1" in CADDY
     chat_block = re.search(r"location ~ \^/\(chat/\|embed/chat\$\) \{(.*?)\}", NGINX, re.S)
     assert chat_block and "proxy_buffering off" in chat_block.group(1)
+
+
+def test_caddy_never_compresses_the_sse_chat_stream():
+    # `encode` không có match khớp text/* (gồm text/event-stream): token chat bị nén và dồn lại.
+    block = re.search(r"\bencode\s*\{(.*?)\n\t\}", CADDY, re.S)
+    assert block, "encode must declare an explicit content-type match list"
+    matched = re.findall(r"header\s+Content-Type\s+(\S+)", block.group(1))
+    assert matched and all(not m.startswith(("text/*", "text/event-stream")) for m in matched)
+    assert not re.search(r"^\s*encode\s+zstd", CADDY, re.M)

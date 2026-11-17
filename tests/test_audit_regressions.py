@@ -146,7 +146,7 @@ def test_interrupted_gemini_stream_still_meters_generated_output(monkeypatch):
     monkeypatch.setattr(llm, "record_usage", lambda **kw: recorded.append(kw))
     partial = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=900, candidates_token_count=None))
     llm._record_gemini(partial, "prompt", "x" * 400, 0.0, "chat", status="partial")
-    assert recorded[0]["input_tokens"] == 900 and recorded[0]["output_tokens"] == 100
+    assert recorded[0]["input_tokens"] == 900 and recorded[0]["output_tokens"] == 160   # 400 ký tự / 2.5 (ước lượng tiếng Việt, 2026-11-17)
 
 
 def test_ollama_stream_closed_by_client_is_metered_once(monkeypatch):

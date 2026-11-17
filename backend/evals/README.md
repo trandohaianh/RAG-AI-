@@ -54,3 +54,14 @@ thật đầu tiên.
   sai từ những từ đúng. Muốn kiểm tra kỹ hơn thì bật `--judge`.
 - Muốn thêm câu hỏi: thêm vào JSON, chạy test `tests/test_evals.py::test_golden_set_is_well_formed`,
   rồi `--update-baseline`.
+
+## Dev / holdout (từ 2026-11-17)
+
+- **dev**: dùng để chỉnh tham số (chunk, top-k, rerank, ngưỡng). CI chỉ báo cáo, không chặn.
+- **holdout**: đóng băng. CI chỉ chặn merge trên split này (`--split holdout`). Baseline
+  `baselines/offline-holdout.json` lưu `holdout_fingerprint`; sửa bất kỳ câu holdout nào làm CI
+  báo "holdout đã bị sửa". Muốn đổi holdout: tạo phiên bản dataset mới, rồi chốt baseline có chủ đích.
+- Dung sai hồi quy tự nâng lên tối thiểu 1/n (một câu), vì 12 câu holdout thì một câu = 8 điểm.
+- **Duyệt chuyên gia:** mỗi câu holdout cần `"reviewed_by"` (tên/đơn vị kỹ thuật viên duyệt) và
+  `"reviewed_at"` (YYYY-MM-DD). `run_evals.py` in ra số câu đã duyệt / tổng, mục tiêu ≥100 câu do
+  người nghiệp vụ viết và duyệt (hiện 0/12: nhãn do dev tự viết, chỉ đo được pipeline).

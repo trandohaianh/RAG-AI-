@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import api, { SESSION_KEY, USER_KEY, currentSession, takeLegacyToken } from "./api";
+import api, { SESSION_KEY, USER_KEY, currentSession, dropLegacyToken, peekLegacyToken } from "./api";
 
 export type User = {
   id: number;
@@ -66,16 +66,26 @@ export function loadUser(): User | null {
  * khi mount) và lượt chạy thứ hai không được kết luận "chưa đăng nhập" khi lượt đầu chưa xong. */
 let legacyMigration: Promise<void> | null = null;
 
-function migrateLegacyToken(): Promise<void> {
+/** Chỉ xoá token cũ khi server đã đổi xong sang cookie, hoặc khi server nói token hỏng (401).
+ * Trước đây token bị xoá TRƯỚC khi gọi và mọi lỗi (kể cả mất mạng) đều đăng xuất: kỹ thuật
+ * viên mở PWA vừa cập nhật lúc không có sóng mất phiên và không vào được hàng đợi offline. */
+export function migrateLegacyToken(): Promise<void> {
   if (!legacyMigration) {
     legacyMigration = (async () => {
-      const token = takeLegacyToken();
+      const token = peekLegacyToken();
       if (!token) return;
       try {
         const res = await api.post<User>("/auth/session", {}, { headers: { Authorization: `Bearer ${token}` } });
+        dropLegacyToken();
         saveAuth(res.data);
-      } catch {
-        clearAuth();
+      } catch (err) {
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 401 || status === 403) {
+          dropLegacyToken();
+          clearAuth();
+        } else {
+          legacyMigration = null;   // mất mạng / server lỗi: giữ token, thử lại lần sau
+        }
       }
     })();
   }
@@ -91,6 +101,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await migrateLegacyToken();
     const epoch = currentSession();
     if (!epoch) {
+      // Token cũ chưa đổi được vì đang mất mạng: tạm dùng hồ sơ đã lưu để vẫn mở được outbox.
+      const pending = peekLegacyToken() ? loadUser() : null;
+      if (pending) {
+        setUser(pending);
+        setLoading(false);
+        return;
+      }
       // Trình duyệt này chưa đăng nhập: không hỏi server (tránh 401 cho khách vãng lai).
       setUser(null);
       setLoading(false);

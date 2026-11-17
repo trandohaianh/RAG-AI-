@@ -142,6 +142,16 @@ def _check_zip_bomb(file_path: Path) -> None:
         )
 
 
+def _check_extracted_size(file_path: Path, docs: list[Document]) -> None:
+    from config import MAX_TEXT_CHARS_PER_BYTE
+
+    limit = max(file_path.stat().st_size, 1) * MAX_TEXT_CHARS_PER_BYTE
+    if sum(len(doc.page_content or "") for doc in docs) > limit:
+        raise UnsafeDocumentError(
+            "Văn bản trích ra dài bất thường so với kích thước file (nén quá mức) — đã từ chối."
+        )
+
+
 def _load_sync(file_path: Path) -> list[Document]:
 
     suffix = file_path.suffix.lower()
@@ -188,6 +198,8 @@ def _load_sync(file_path: Path) -> list[Document]:
 
 
     docs = loader.load()
+
+    _check_extracted_size(file_path, docs)
 
     for doc in docs:
 

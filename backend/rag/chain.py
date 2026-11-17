@@ -16,7 +16,12 @@ logger = logging.getLogger(__name__)
 RAG_ERROR_MESSAGE = "Không thể hoàn tất câu trả lời RAG. Vui lòng thử lại."
 _STREAM_BUFFER_SIZE = 16
 _STREAM_CHUNK_CHARS = 512
+# Hai giới hạn tách nhau: _STREAM_SLOTS là số luồng trả lời ĐANG phục vụ client (trả lại ngay khi
+# client ngắt), _STREAM_THREADS là số luồng provider còn sống (một luồng có thể kẹt trong lệnh đọc
+# socket tới LLM_REQUEST_TIMEOUT_SEC sau khi client đã đi). Trước đây chỉ có một semaphore do luồng
+# provider giữ: 8 client ngắt giữa chừng làm RAG từ chối mọi người trên worker đó tới 60 s.
 _STREAM_SLOTS = threading.BoundedSemaphore(8)
+_STREAM_THREADS = threading.BoundedSemaphore(32)
 
 
 class RagGenerationError(RuntimeError):
@@ -100,6 +105,15 @@ async def stream_rag_answer(
 
     if not _STREAM_SLOTS.acquire(blocking=False):
         raise RagGenerationError()
+    if not _STREAM_THREADS.acquire(blocking=False):
+        _STREAM_SLOTS.release()
+        raise RagGenerationError()
+    slot = threading.Lock()   # trả _STREAM_SLOTS đúng một lần, dù consumer hay producer xong trước
+
+    def release_slot() -> None:
+        if slot.acquire(blocking=False):
+            _STREAM_SLOTS.release()
+
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue(maxsize=_STREAM_BUFFER_SIZE)
     stopped = threading.Event()
@@ -163,16 +177,18 @@ async def stream_rag_answer(
             except Exception as exc:
                 logger.warning("RAG stream cleanup failed (%s)", type(exc).__name__)
             finally:
-                _STREAM_SLOTS.release()
+                release_slot()
+                _STREAM_THREADS.release()
 
     try:
         # bind_context: thread mới không tự kế thừa contextvars (user/feature để tính chi phí).
         threading.Thread(target=bind_context(producer), daemon=True, name="rag-generation").start()
     except BaseException:
-        _STREAM_SLOTS.release()
+        release_slot()
+        _STREAM_THREADS.release()
         raise
     answer_parts = []
-    released = 0   # số ký tự của câu trả lời đã gửi cho client
+    pending = ""   # phần câu trả lời chưa gửi (chỉ là đuôi ngắn đang giữ một nhãn chưa đóng)
     try:
         while True:
             kind, payload = await queue.get()
@@ -183,30 +199,34 @@ async def stream_rag_answer(
                     # Không gửi một nhãn 【E#】 trước khi biết nó có thật: giữ lại phần từ ngoặc
                     # mở chưa đóng, và kiểm tra mọi nhãn đã đóng trước khi phát phần văn bản đó.
                     # Nhãn sai -> dừng ngay, người dùng không bao giờ thấy trích dẫn bịa.
+                    # Chỉ kiểm phần mới (pending), không ghép và kiểm lại cả câu trả lời mỗi token:
+                    # cách cũ tốn O(n²) với Ollama (mỗi token một sự kiện).
                     answer_parts.append(payload)
-                    text = "".join(answer_parts)
-                    cutoff = _safe_release_point(text, released)
-                    if cutoff > released:
-                        if audit_citations(text[:cutoff], bundle)['status'] == "invalid":
+                    pending += payload
+                    cutoff = _safe_release_point(pending, 0)
+                    if cutoff > 0:
+                        if audit_citations(pending[:cutoff], bundle)['status'] == "invalid":
                             raise RagGenerationError()
-                        yield "token", text[released:cutoff]
-                        released = cutoff
+                        yield "token", pending[:cutoff]
+                        pending = pending[cutoff:]
                     continue
                 if kind == "done":
                     text = "".join(answer_parts)
                     bundle['citation_audit'] = audit_citations(text, bundle)
                     if bundle['citation_audit']['status'] == "invalid":
                         raise RagGenerationError()
-                    if len(text) > released:
-                        yield "token", text[released:]
+                    if pending:
+                        yield "token", pending
                     yield "evidence", bundle
             yield kind, payload
             if kind == "done":
                 return
     finally:
         # Do not join here: a provider may still be in a synchronous socket read.
-        # It retains its worker slot until read/cleanup actually finishes.
+        # It keeps its _STREAM_THREADS permit until read/cleanup actually finishes, but the
+        # client-facing slot is returned now.
         stopped.set()
+        release_slot()
 
 
 async def answer_rag_once(

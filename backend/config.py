@@ -152,3 +152,9 @@ def validate_security_config() -> None:
         }
     ):
         raise RuntimeError("Production requires a unique SECRET_KEY of at least 32 characters")
+
+# Văn bản trích ra tối đa bao nhiêu ký tự trên mỗi byte tệp gốc. DOCX/PDF nén (Flate) nên văn bản
+# có thể dài hơn tệp; tài liệu thật hiếm khi quá ~3 ký tự/byte. rag/ingest.py từ chối tệp vượt mức
+# và costs/budget.ingest_reserve_amount đặt trước theo đúng mức này, nên chi phí embedding không
+# thể vượt phần đã giữ chỗ.
+MAX_TEXT_CHARS_PER_BYTE = int(os.getenv("MAX_TEXT_CHARS_PER_BYTE", "5"))
