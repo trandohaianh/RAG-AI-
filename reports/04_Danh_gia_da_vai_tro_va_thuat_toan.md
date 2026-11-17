@@ -318,7 +318,7 @@ Chủ sản phẩm được hỏi một lần. Mỗi câu có mô tả cụ th�
 | Kiểm tra SSE qua rewrite của Next trên Render thật | Chỉ kiểm được bằng deploy thật. Build với `NEXT_PUBLIC_API_URL=/api API_PROXY_TARGET=…` đã sinh đúng luật rewrite trong `routes-manifest.json`. |
 | Tính năng sản phẩm ở mục 1 (mobile "Lịch hôm nay", push, biên bản đóng ca, geocoding, giá theo đội) | Là roadmap, không phải lỗi. |
 
-**Ghi chú về Next.js:** lần `next build` đầu tiên dừng lại vì công cụ Next.js báo phiên bản đang dùng có cảnh báo bảo mật đã công bố; chạy lại thì build thành công. Nâng cấp Next.js nên làm thành việc riêng, sau khi đọc advisory.
+**Ghi chú về Next.js:** lần `next build` đầu tiên dừng lại vì công cụ Next.js báo phiên bản đang dùng có cảnh báo bảo mật đã công bố; chạy lại thì build thành công. Đã nâng cấp sau đó, xem mục 12.
 
 ---
 
@@ -336,3 +336,21 @@ Chủ sản phẩm được hỏi một lần. Mỗi câu có mô tả cụ th�
 | Eval offline — all | `run_evals.py --mode offline --split all` | Đạt. 68 câu, pass 0.7206, recall@5 1.0, **MRR 0.9636** (trước 0.9121), phủ dữ kiện 0.7727, từ chối đúng 0.6923, 0 vi phạm. |
 | Eval offline — dev (chỉ báo cáo) | `--split dev --no-gates` | 56 câu, pass 0.6964, MRR 0.9674 |
 | Eval offline — holdout (cổng CI) | `--split holdout` | **Đạt cổng.** 12 câu, pass 0.8333, MRR 0.9444, phủ dữ kiện 0.8889, 0 vi phạm. |
+
+---
+
+## 12. Nâng cấp Next.js (sau vòng 6, chủ sản phẩm đồng ý)
+
+- **Advisory:** `npm audit` trên lockfile cũ báo **GHSA-mfr8-8qww-v76h**, mức *moderate*. Next.js có thể làm lộ thông tin giữa các root params khi một hàm `'use cache'` được gọi qua `unstable_cache()`. Advisory ảnh hưởng `next` 16.3.0 – 16.4.4.
+- **Thay đổi:** `next` **16.4.2 → 16.4.5**. Đây là bản vá gần nhất trong cùng dòng 16.4; `npm audit fix --force` sẽ cài 16.4.6, nhưng 16.4.5 đã đủ để vá.
+  - Lockfile chỉ đổi `next` và các gói `@next/env`, `@next/swc-*` mà `next` kéo theo đúng phiên bản.
+  - Dự án không dùng `eslint-config-next`. Mobile (Expo) không dùng Next.
+- **Kiểm tra sau nâng cấp:**
+
+| Bộ | Kết quả |
+|---|---|
+| `npm audit` | **found 0 vulnerabilities** |
+| `tsc --noEmit` | 0 lỗi |
+| `next build` (bình thường) | thành công ngay lần đầu, không còn cảnh báo bảo mật |
+| `next build` (`NEXT_PUBLIC_API_URL=/api`, `API_PROXY_TARGET=…`) | thành công; luật rewrite `/api/:path*` có trong `routes-manifest.json` |
+| Client tests | 23/23 pass |
