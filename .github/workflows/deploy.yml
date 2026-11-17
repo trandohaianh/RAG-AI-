@@ -15,7 +15,8 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # Chỉ deploy khi CI xanh cho một lần PUSH lên main (không phải lần chạy CI của PR).
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     environment: production
@@ -33,8 +34,19 @@ jobs:
           HOST: ${{ secrets.DEPLOY_HOST }}
           USER: ${{ secrets.DEPLOY_USER }}
           PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          # Đúng commit mà CI vừa kiểm, không phải "origin/main lúc này" (có thể có commit mới chưa qua CI).
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           install -m 600 /dev/null key && printf '%s\n' "$SSH_KEY" > key
-          ssh -i key -p "$PORT" -o StrictHostKeyChecking=accept-new "$USER@$HOST" \
-            'bash -lc "cd ~/fieldops && bash deploy/cloud/deploy.sh"'
-          rm -f key
+          # Ghim khoá host khi có secret DEPLOY_KNOWN_HOSTS (ssh-keyscan -p PORT HOST); không có thì
+          # giữ hành vi cũ accept-new (tin khoá ở lần kết nối đầu).
+          if [ -n "$KNOWN_HOSTS" ]; then
+            printf '%s\n' "$KNOWN_HOSTS" > known_hosts
+            HOSTOPT="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=known_hosts"
+          else
+            HOSTOPT="-o StrictHostKeyChecking=accept-new"
+          fi
+          ssh -i key -p "$PORT" $HOSTOPT "$USER@$HOST" \
+            "bash -lc 'cd ~/fieldops && DEPLOY_SHA=$DEPLOY_SHA bash deploy/cloud/deploy.sh'"
+          rm -f key known_hosts

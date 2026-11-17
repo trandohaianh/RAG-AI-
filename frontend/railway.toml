@@ -1,3 +1,9 @@
+# Railway — service web. Settings → Root Directory = frontend.
+# up.railway.app nằm trong Public Suffix List: web và API ở hai subdomain là hai site khác nhau,
+# cookie đăng nhập SameSite=Lax không được gửi. Gọi API cùng origin qua /api (next.config.js):
+# đặt hai biến (Railway truyền chúng làm build arg, rewrites tính lúc build):
+#   NEXT_PUBLIC_API_URL=/api
+#   API_PROXY_TARGET=https://<api>.up.railway.app
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"

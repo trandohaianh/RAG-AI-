@@ -4,7 +4,8 @@ set -euo pipefail
 APP_DIR="${APP_DIR:-$HOME/fieldops}"
 cd "$APP_DIR"
 git fetch --prune origin
-git reset --hard "origin/${DEPLOY_BRANCH:-main}"
+# DEPLOY_SHA (workflow deploy truyền vào) = đúng commit CI đã kiểm; chạy tay thì lấy đầu nhánh.
+git reset --hard "${DEPLOY_SHA:-origin/${DEPLOY_BRANCH:-main}}"
 cd deploy/cloud
 set -a; source .env; set +a
 # Caddyfile dùng `email {$ACME_EMAIL}`: biến rỗng làm Caddy lỗi cú pháp và cả site sập.

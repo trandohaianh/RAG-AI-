@@ -34,7 +34,7 @@ class Message(Base):
     eval_faithfulness: Mapped[float | None] = mapped_column(nullable=True)  # LLM-judge 0-1
     eval_relevancy: Mapped[float | None] = mapped_column(nullable=True)  # LLM-judge 0-1
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True), server_default=func.now(), index=True
     )
 
     conversation = relationship("Conversation", back_populates="messages")

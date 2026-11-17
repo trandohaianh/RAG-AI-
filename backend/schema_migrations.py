@@ -204,6 +204,23 @@ def _add_case_resolved_at(conn: Connection) -> None:
                       "WHERE status = 'resolved' AND resolved_at IS NULL"))
 
 
+# create_all KHÔNG thêm index vào bảng đã tồn tại: DB cũ cần migration. Tên trùng với tên
+# SQLAlchemy sinh từ index=True / Index(...) trong models để DB mới và DB nâng cấp giống nhau.
+_HOT_INDEXES = (
+    ("messages", "ix_messages_created_at", "created_at"),            # KPI ngày, kiểm chất lượng mỗi giờ
+    ("llm_usage_events", "ix_llm_usage_user_created", "user_id, created_at"),  # ngân sách mỗi lượt AI
+    ("field_service_cases", "ix_field_service_cases_created_at", "created_at"),
+    ("field_service_cases", "ix_field_service_cases_resolved_at", "resolved_at"),
+)
+
+
+def _add_hot_query_indexes(conn: Connection) -> None:
+    tables = set(inspect(conn).get_table_names())
+    for table, name, columns in _HOT_INDEXES:
+        if table in tables:
+            conn.execute(text(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({columns})"))
+
+
 _MIGRATIONS = (
     Migration(1, "legacy_identity_and_message_columns", _upgrade_legacy_columns),
     Migration(2, "reserve_historic_identities", repair_legacy_accounts),
@@ -211,6 +228,7 @@ _MIGRATIONS = (
     Migration(4, "google_identity_and_email_verification", _add_identity_providers),
     Migration(5, "field_dispatch_and_integrations", _add_dispatch_and_integration_columns),
     Migration(6, "field_case_resolved_at", _add_case_resolved_at),
+    Migration(7, "hot_query_indexes", _add_hot_query_indexes),
 )
 
 

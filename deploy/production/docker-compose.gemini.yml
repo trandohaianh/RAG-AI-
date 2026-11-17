@@ -5,6 +5,13 @@ services:
       GEMINI_API_KEY_FILE: /run/secrets/gemini_api_key
     secrets:
       - gemini_api_key
+  # Bộ lập lịch cũng gọi AI (judge/embedding khi job cần): cùng cấu hình provider với API.
+  rag-pipeline:
+    environment:
+      LLM_PROVIDER: gemini
+      GEMINI_API_KEY_FILE: /run/secrets/gemini_api_key
+    secrets:
+      - gemini_api_key
 secrets:
   gemini_api_key:
     file: ./secrets/gemini_api_key

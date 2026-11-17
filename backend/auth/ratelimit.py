@@ -11,11 +11,14 @@ from collections import deque
 
 from fastapi import HTTPException, Request
 
-from config import AUTH_RATE_LIMIT_ENABLED
+from config import AUTH_RATE_LIMIT_ENABLED, TRUSTED_PROXY_HOPS
 
 # (số lần, cửa sổ giây)
 LIMITS: dict[str, tuple[int, int]] = {
-    "login:email": (10, 15 * 60),
+    # Sai mật khẩu đếm theo cặp (IP, email): đếm chỉ theo email thì người lạ gõ sai 10 lần là
+    # khoá được tài khoản của bất kỳ ai. Trần theo riêng email cao hơn nhiều, chặn dò phân tán.
+    "login:ip_email": (10, 15 * 60),
+    "login:email": (50, 15 * 60),
     "login:ip": (30, 15 * 60),
     "register:ip": (10, 60 * 60),
     "google:ip": (30, 15 * 60),
@@ -28,10 +31,24 @@ _hits: dict[tuple[str, str], deque[float]] = {}
 
 
 def client_ip(request: Request | None) -> str:
-    if request is None or request.client is None:
+    """IP của người dùng để đếm giới hạn.
+
+    Mặc định dùng client.host: uvicorn chạy với --proxy-headers + --forwarded-allow-ips=<IP proxy>
+    (Caddy/nginx) thì đó đã là IP thật. Trên Render/Railway, peer luôn là proxy của nền tảng nên
+    mọi người dùng chung một IP — 30 lần đăng nhập sai ở bất kỳ đâu khoá đăng nhập của tất cả.
+    Đặt TRUSTED_PROXY_HOPS=N (số proxy tin cậy phía trước API) để lấy phần tử thứ N TÍNH TỪ
+    PHẢI của X-Forwarded-For: các proxy tin cậy tự nối thêm vào bên phải, nên client không giả
+    được phần đó (giả ở bên trái thì bị bỏ qua). Không lấy phần tử trái nhất như --forwarded-allow-ips=*.
+    """
+    if request is None:
         return "unknown"
-    # Uvicorn chạy với --proxy-headers + --forwarded-allow-ips=<IP proxy> thì client.host
-    # đã là IP thật; không tự đọc X-Forwarded-For ở đây để tránh bị giả mạo.
+    hops = TRUSTED_PROXY_HOPS
+    if hops > 0:
+        chain = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+        if len(chain) >= hops:
+            return chain[-hops]
+    if request.client is None:
+        return "unknown"
     return request.client.host or "unknown"
 
 

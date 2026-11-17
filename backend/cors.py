@@ -20,7 +20,9 @@ _LAN_ORIGIN = (
 
 
 def cors_options(app_env: str, environ: Mapping[str, str]) -> dict:
-    local = app_env.strip().lower() in {"dev", "development", "local", "test"}
+    from config import is_production
+
+    local = not is_production(app_env)
     origins = environ.get("CORS_ORIGINS", _LOCAL_ORIGINS if local else "")
     regex = environ.get("CORS_ORIGIN_REGEX", _LAN_ORIGIN if local else "")
     return {

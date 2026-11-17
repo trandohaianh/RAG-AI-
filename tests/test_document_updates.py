@@ -293,14 +293,17 @@ def test_publication_lock_blocks_a_separate_process(prepared):
     with storage_lock(ingest.CHROMA_DIR, "user_1"):
         process.start()
         try:
-            assert attempting.wait(15)
+            # Tiến trình con (spawn) phải import lại chromadb/langchain: 6–9 s trên WSL, lâu hơn khi
+            # máy bận. 15 s từng làm test chập chờn; hạn chờ KHỞI ĐỘNG dài hơn không nới điều kiện
+            # được kiểm (con không lấy được khoá khi cha đang giữ).
+            assert attempting.wait(60)
             assert not acquired.wait(0.1)
         except BaseException:
             process.terminate()
             process.join(5)
             raise
-    assert acquired.wait(5)
-    process.join(5)
+    assert acquired.wait(30)
+    process.join(30)
     assert process.exitcode == 0
 
 

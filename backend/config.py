@@ -112,6 +112,10 @@ FIELD_PHOTO_WORKSPACE_QUOTA_MB: int = int(os.getenv("FIELD_PHOTO_WORKSPACE_QUOTA
 FIELD_PHOTO_RETENTION_DAYS: int = int(os.getenv("FIELD_PHOTO_RETENTION_DAYS", "365"))
 DATABASE_PATH: Path = DATA_ROOT / "app.db"
 DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{DATABASE_PATH}")
+# Heroku/Render/Railway có thể đưa "postgres://…" — SQLAlchemy 2 không còn nhận tên đó và sập
+# ngay lúc import. POSTGRES_URL bên dưới đã được chuẩn hoá cùng cách.
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
 
 # PostgreSQL Medallion (DE warehouse)
 _postgres = os.getenv(
@@ -142,19 +146,59 @@ STRIPE_WEBHOOK_SECRET: str = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 STRIPE_PRICE_PRO: str = os.getenv("STRIPE_PRICE_PRO", "")
 
 
+DEV_ENVS = frozenset({"dev", "development", "local", "test"})
+
+
+def is_production(app_env: str | None = None) -> bool:
+    """MỘT định nghĩa cho mọi kiểm tra "production": mọi APP_ENV không phải môi trường dev.
+
+    Trước đây khoá ký/metrics chỉ coi {prod, production, staging} là production, còn cookie/CORS
+    coi mọi giá trị ngoài dev là production: APP_ENV=prd/live chấp nhận SECRET_KEY mặc định (ai
+    cũng giả được JWT) và mở /metrics, trong khi cookie lại chạy như production.
+    """
+    return (APP_ENV if app_env is None else app_env).strip().lower() not in DEV_ENVS
+
+
+def _public_url_problem(name: str, value: str) -> str | None:
+    from urllib.parse import urlparse
+
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or not parsed.hostname:
+        return f"{name} must be an https:// URL in production (got {value!r})"
+    if parsed.hostname in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
+        return f"{name} must be the public URL, not {parsed.hostname}"
+    return None
+
+
 def validate_security_config() -> None:
-    """Require a deployment-specific signing key outside local development."""
-    if APP_ENV in {"prod", "production", "staging"} and (
-        len(SECRET_KEY) < 32
-        or SECRET_KEY in {
-            "dev-secret-change-in-production-32ch",
-            "your_jwt_secret_32chars_minimum",
-        }
-    ):
+    """Từ chối khởi động production khi cấu hình nguy hiểm hoặc thiếu.
+
+    - SECRET_KEY riêng, ≥ 32 ký tự.
+    - APP_PUBLIC_URL / API_PUBLIC_URL là https công khai: mặc định localhost làm link đặt lại mật
+      khẩu, xác thực email, ảnh ký URL và URL webhook vào trỏ về localhost, widget nhúng bị 403.
+    - CORS_ORIGINS không có "*", "null" hay http://: cookie phiên đi kèm credentials.
+    """
+    if not is_production():
+        return
+    if len(SECRET_KEY) < 32 or SECRET_KEY in {
+        "dev-secret-change-in-production-32ch",
+        "your_jwt_secret_32chars_minimum",
+    }:
         raise RuntimeError("Production requires a unique SECRET_KEY of at least 32 characters")
+    problems = [p for p in (_public_url_problem("APP_PUBLIC_URL", APP_PUBLIC_URL),
+                            _public_url_problem("API_PUBLIC_URL", API_PUBLIC_URL)) if p]
+    for origin in (o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()):
+        if origin in {"*", "null"} or not origin.startswith("https://"):
+            problems.append(f"CORS_ORIGINS must list exact https:// origins in production (got {origin!r})")
+    if problems:
+        raise RuntimeError("; ".join(problems))
 
 # Văn bản trích ra tối đa bao nhiêu ký tự trên mỗi byte tệp gốc. DOCX/PDF nén (Flate) nên văn bản
 # có thể dài hơn tệp; tài liệu thật hiếm khi quá ~3 ký tự/byte. rag/ingest.py từ chối tệp vượt mức
 # và costs/budget.ingest_reserve_amount đặt trước theo đúng mức này, nên chi phí embedding không
 # thể vượt phần đã giữ chỗ.
 MAX_TEXT_CHARS_PER_BYTE = int(os.getenv("MAX_TEXT_CHARS_PER_BYTE", "5"))
+
+# Số reverse proxy tin cậy đứng trước API (Render/Railway: edge của nền tảng; thêm 1 nếu đi qua
+# proxy /api của Next). 0 = dùng IP kết nối trực tiếp (Caddy/nginx đã đặt qua --proxy-headers).
+TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS", "0"))

@@ -100,13 +100,16 @@ async def register(data: UserCreate, request: Request, response: Response, db: S
 
 @router.post("/login", response_model=AuthResponse)
 def login(data: UserLogin, request: Request, response: Response, db: Session = Depends(get_db)):
-    ratelimit.hit("login:ip", ratelimit.client_ip(request))
+    ip = ratelimit.client_ip(request)
+    ratelimit.hit("login:ip", ip)
+    ratelimit.hit("login:ip_email", f"{ip}|{data.email}")
     ratelimit.hit("login:email", data.email)
     user = authenticate_user(db, data.email, data.password)
     if not user:
         _auth_event("login", "failed")
         raise HTTPException(status_code=401, detail="Email hoặc mật khẩu sai")
-    # Đăng nhập đúng → xoá bộ đếm theo email để người dùng thật không bị khoá oan.
+    # Đăng nhập đúng → xoá bộ đếm để người dùng thật không bị khoá oan.
+    ratelimit.reset("login:ip_email", f"{ip}|{data.email}")
     ratelimit.reset("login:email", data.email)
     _auth_event("login", "ok")
     return _issue(request, response, user)

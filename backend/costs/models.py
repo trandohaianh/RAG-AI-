@@ -1,7 +1,7 @@
 """Bảng lưu sự kiện dùng AI và chi phí hạ tầng theo tháng."""
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from database import Base
@@ -11,6 +11,8 @@ class LlmUsageEvent(Base):
     """Một lần gọi model (sinh văn bản, embedding, OCR, rerank)."""
 
     __tablename__ = "llm_usage_events"
+    # spent_today(user) chạy ở MỌI lượt AI, trong khoá ghi ngân sách: lọc user_id + created_at.
+    __table_args__ = (Index("ix_llm_usage_user_created", "user_id", "created_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     created_at: Mapped[datetime] = mapped_column(

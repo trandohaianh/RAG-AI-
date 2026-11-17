@@ -289,6 +289,8 @@ services:
       API_PUBLIC_URL: https://${RAG_API_DOMAIN:-api-rag.localhost}
       CORS_ORIGINS: https://${RAG_DOMAIN:-rag.localhost}
       JUDGE_SAMPLE_RATE: '0'
+      LLM_DAILY_BUDGET_USD: ${LLM_DAILY_BUDGET_USD:-2}
+      LLM_USER_DAILY_BUDGET_USD: ${LLM_USER_DAILY_BUDGET_USD:-0.2}
     networks:
     - rag_edge
     - rag_data_net
@@ -304,6 +306,9 @@ services:
       init-volumes: *id002
       postgres-rag:
         condition: service_healthy
+      # Request đầu tiên không chạy thiếu cache.
+      redis-rag:
+        condition: service_healthy
     mem_limit: 2g
     cpus: '2.0'
     stop_grace_period: 40s
@@ -317,6 +322,64 @@ services:
       timeout: 3s
       retries: 5
       start_period: 60s
+  # Bộ lập lịch FieldOps (KPI ngày, kiểm chất lượng, retention, xoá ảnh hết hạn, backup, gửi
+  # webhook ra). Trước đây stack này không có service nào chạy nó: các job không bao giờ chạy.
+  rag-pipeline:
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    image: ai-systems-rag:audited
+    entrypoint: *id003
+    command:
+    - python
+    - -m
+    - pipeline.jobs.runner
+    - --schedule
+    environment:
+      APP_ENV: production
+      DATA_DIR: /app/data
+      MEDALLION_ENABLED: 'false'
+      SECRET_KEY_FILE: /run/secrets/rag_signing_key
+      DATABASE_URL_FILE: /run/secrets/rag_database_url
+      REDIS_URL_FILE: /run/secrets/rag_redis_url
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      APP_PUBLIC_URL: https://${RAG_DOMAIN:-rag.localhost}
+      API_PUBLIC_URL: https://${RAG_API_DOMAIN:-api-rag.localhost}
+      CORS_ORIGINS: https://${RAG_DOMAIN:-rag.localhost}
+      JUDGE_SAMPLE_RATE: '0'
+      LLM_DAILY_BUDGET_USD: ${LLM_DAILY_BUDGET_USD:-2}
+      LLM_USER_DAILY_BUDGET_USD: ${LLM_USER_DAILY_BUDGET_USD:-0.2}
+      PIPELINE_DAILY_AT: ${PIPELINE_DAILY_AT:-02:00}
+    networks:
+    - rag_data_net
+    - rag_egress
+    volumes:
+    - rag_data:/app/data
+    - ./runtime:/opt/runtime:ro
+    secrets:
+    - rag_signing_key
+    - rag_database_url
+    - rag_redis_url
+    depends_on:
+      rag-backend:
+        condition: service_healthy
+    mem_limit: 768m
+    cpus: '1.0'
+    stop_grace_period: 40s
+
   rag-frontend:
     restart: unless-stopped
     init: true

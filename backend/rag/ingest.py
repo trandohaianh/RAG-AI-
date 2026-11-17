@@ -44,6 +44,7 @@ from config import (
 )
 
 from rag.embed_utils import _is_quota_error, embed_texts_with_retry
+from rag.errors import PublicIngestError
 from rag.document_lifecycle import (
     DocumentCommitUncertainError, DocumentRecoveryError, advance_revision, begin_transaction, collection_read_lock,
     commit_transaction, delete_raw, publication_lock, publish_raw,
@@ -123,7 +124,7 @@ DOCX_MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
 DOCX_MAX_RATIO = 100
 
 
-class UnsafeDocumentError(ValueError):
+class UnsafeDocumentError(PublicIngestError):
     """Tài liệu bị từ chối trước khi đọc (zip bomb...). Thông điệp an toàn để trả cho người dùng."""
 
 
@@ -177,7 +178,7 @@ def _load_sync(file_path: Path) -> list[Document]:
 
         if not text.strip():
 
-            raise ValueError("OCR không trích được chữ từ ảnh (thử ảnh rõ nét hơn)")
+            raise PublicIngestError("OCR không trích được chữ từ ảnh (thử ảnh rõ nét hơn)")
 
         return [
 
@@ -193,7 +194,7 @@ def _load_sync(file_path: Path) -> list[Document]:
 
     else:
 
-        raise ValueError(f"Định dạng không hỗ trợ: {suffix}")
+        raise PublicIngestError(f"Định dạng không hỗ trợ: {suffix}")
 
 
 
@@ -267,7 +268,7 @@ def _store_sync(
     process termination. Readers recover or fail closed before exposing chunks.
     """
     if not chunks:
-        raise ValueError("Document contains no readable text")
+        raise PublicIngestError("Document contains no readable text")
     if publish_path is not None and staged_path is None:
         raise ValueError("Missing staged document")
     texts = [chunk.page_content for chunk in chunks]
@@ -329,7 +330,7 @@ def _ingest_prepared_sync(
     if is_medallion_enabled():
         result = run_medallion_for_file(user_id, file_path, dag_run_id)
         if not result.get("skipped") and not result.get("success", True):
-            raise ValueError("Document validation failed")
+            raise PublicIngestError("Document validation failed")
     documents = _load_sync(file_path)
     chunks = _split_sync(documents)
     return _store_sync(
@@ -522,5 +523,10 @@ def format_ingest_error(exc: BaseException) -> str:
 
         return str(exc).replace("Error embedding content", "Lỗi embedding").split("\n")[0][:500]
 
-    return str(exc)[:500]
+    if isinstance(exc, PublicIngestError):
+        return str(exc)[:500]
+    # Lỗi không lường trước (đường dẫn /app/data/…, lỗi SQLite/Chroma, lỗi thư viện đọc PDF):
+    # ghi log cho người vận hành, người dùng chỉ thấy thông báo chung.
+    logger.warning("Ingest failed (%s): %s", type(exc).__name__, str(exc)[:300])
+    return "Không xử lý được tài liệu này. Kiểm tra file có mở được bình thường không rồi thử lại."
 

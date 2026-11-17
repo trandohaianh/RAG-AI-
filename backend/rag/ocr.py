@@ -5,6 +5,7 @@ import mimetypes
 from pathlib import Path
 
 from config import GEMINI_API_KEY
+from rag.errors import PublicIngestError
 from rag.llm import read_image_text
 
 
@@ -13,7 +14,7 @@ def extract_text_from_image_file(file_path: Path) -> str:
     Đọc toàn bộ chữ trong ảnh (PNG/JPG/WebP/GIF) bằng Gemini multimodal.
     """
     if not GEMINI_API_KEY:
-        raise ValueError("Thiếu GEMINI_API_KEY cho OCR")
+        raise PublicIngestError("Thiếu GEMINI_API_KEY cho OCR")
 
     mime, _ = mimetypes.guess_type(str(file_path))
     mime = mime or "image/png"

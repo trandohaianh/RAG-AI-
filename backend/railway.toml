@@ -1,0 +1,23 @@
+# Railway — service API. Settings → Root Directory = backend (file này nằm trong backend/ nên
+# Railway đọc nó khi Root Directory là backend). Trước đây file ở gốc repo với
+# dockerfilePath="backend/Dockerfile": build context là gốc repo, `COPY requirements.txt .` không
+# tìm thấy file và build hỏng.
+# Tạo project → Deploy from GitHub → thêm PostgreSQL plugin → set env vars.
+# BẮT BUỘC đặt trong Variables:
+#   APP_ENV=production, SECRET_KEY (≥32 ký tự ngẫu nhiên), METRICS_TOKEN,
+#   CORS_ORIGINS=https://<web>.up.railway.app,
+#   APP_PUBLIC_URL=https://<web>.up.railway.app, API_PUBLIC_URL=https://<web>.up.railway.app/api,
+#   DATABASE_URL=${{Postgres.DATABASE_URL}} (dữ liệu app không được nằm trên ổ tạm),
+#   LLM_DAILY_BUDGET_USD=2, LLM_USER_DAILY_BUDGET_USD=0.2.
+# Tuỳ chọn: TRUSTED_PROXY_HOPS (giới hạn đăng nhập theo IP thật; kiểm tra trên bản deploy thật).
+# Thiếu APP_ENV thì API chạy chế độ dev và /metrics mở công khai.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

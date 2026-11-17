@@ -17,8 +17,14 @@ x-api-env: &api-env
   LLM_MODEL: ${LLM_MODEL:-gemini-2.5-flash}
   EMBEDDING_MODEL: ${EMBEDDING_MODEL:-gemini-embedding-001}
   LLM_BILLING_TIER: ${LLM_BILLING_TIER:-free}
-  LLM_DAILY_BUDGET_USD: ${LLM_DAILY_BUDGET_USD:-0}
-  LLM_USER_DAILY_BUDGET_USD: ${LLM_USER_DAILY_BUDGET_USD:-0}
+  # Trần chi phí AI mặc định khi chủ hệ thống không đặt (chủ sản phẩm chọn 2026-11-17): đăng ký
+  # công khai nên 0 = không giới hạn để một tài khoản lạm dụng đốt hoá đơn Gemini vô hạn.
+  LLM_DAILY_BUDGET_USD: ${LLM_DAILY_BUDGET_USD:-2}
+  LLM_USER_DAILY_BUDGET_USD: ${LLM_USER_DAILY_BUDGET_USD:-0.2}
+  LLM_PRICING_JSON: ${LLM_PRICING_JSON:-}
+  MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
+  SMTP_USE_SSL: ${SMTP_USE_SSL:-false}
+  EMAIL_SENDER_NAME: ${EMAIL_SENDER_NAME:-FieldOps}
   JUDGE_SAMPLE_RATE: ${JUDGE_SAMPLE_RATE:-0.1}
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   SMTP_HOST: ${SMTP_HOST:-}
@@ -44,7 +50,7 @@ services:
     image: fieldops-api:local
     restart: unless-stopped
     environment: *api-env
-    # 1 worker: SQLite + rate-limit trong bộ nhớ. --root-path để /api/docs chạy đúng sau proxy.
+    # 1 worker: SQLite + rate-limit trong bộ nhớ. --root-path để các route chạy đúng sau proxy /api.
     command: >
       uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
       --proxy-headers --forwarded-allow-ips=* --root-path /api

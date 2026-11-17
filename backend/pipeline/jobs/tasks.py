@@ -176,20 +176,33 @@ def backup(db: Session, *, keep: int | None = None, **_) -> tuple[int, dict, str
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(CHROMA_DIR, arcname="chroma_db")
         made.append(archive.name)
-    from config import FIELD_PHOTO_DIR
+    from config import FIELD_PHOTO_DIR, UPLOAD_DIR
 
-    if FIELD_PHOTO_DIR.exists() and any(FIELD_PHOTO_DIR.iterdir()):
-        archive = target / f"photos-{stamp}.tar.gz"
-        with tarfile.open(archive, "w:gz") as tar:
-            tar.add(FIELD_PHOTO_DIR, arcname="field_photos")
-        made.append(archive.name)
-    for prefix in ("app-", "chroma-", "photos-"):
+    # Tài liệu gốc người dùng tải lên: thiếu chúng thì không lập chỉ mục lại được (đổi model
+    # embedding, khôi phục Chroma hỏng). Trước đây không được sao lưu.
+    for prefix, source, arcname in (("photos-", FIELD_PHOTO_DIR, "field_photos"),
+                                    ("uploads-", UPLOAD_DIR, "uploads")):
+        if source.exists() and any(source.iterdir()):
+            archive = target / f"{prefix}{stamp}.tar.gz"
+            with tarfile.open(archive, "w:gz") as tar:
+                tar.add(source, arcname=arcname)
+            made.append(archive.name)
+    for prefix in ("app-", "chroma-", "photos-", "uploads-"):
         olds = sorted(p for p in target.iterdir() if p.name.startswith(prefix))
         for stale in olds[:-keep]:
             stale.unlink(missing_ok=True) if stale.is_file() else shutil.rmtree(stale, ignore_errors=True)
     size = sum(p.stat().st_size for p in target.iterdir() if p.is_file())
     status = "ok" if made else "warn"
-    note = None if DATABASE_URL.startswith("sqlite") else "DB không phải SQLite: dùng backup của nhà cung cấp (Neon PITR / pg_dump)"
+    notes = []
+    if not DATABASE_URL.startswith("sqlite"):
+        notes.append("DB không phải SQLite: dùng backup của nhà cung cấp (Neon PITR / pg_dump)")
+    try:
+        target.resolve().relative_to(DATA_ROOT.resolve())
+        # Cùng volume với dữ liệu: mất volume/VM là mất luôn bản sao lưu.
+        notes.append("BACKUP_DIR nằm trong DATA_DIR: đặt BACKUP_DIR ra volume/ổ khác hoặc đồng bộ ra ngoài máy")
+    except ValueError:
+        pass
+    note = "; ".join(notes) or None
     return len(made), {"files": made, "dir": str(target), "total_bytes": size, "note": note}, status
 
 

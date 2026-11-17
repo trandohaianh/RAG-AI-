@@ -83,14 +83,14 @@ class ServiceCase(Base):
     external_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     external_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True), server_default=func.now(), index=True
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     # Thời điểm ca chuyển sang "resolved" (KPI ca hoàn tất theo ngày). Không dùng updated_at:
     # mọi lần sửa sau đó (điều phối, ghi chú) làm ca "hoàn tất" nhảy sang ngày sửa cuối.
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
     workspace = relationship("FieldWorkspace", back_populates="cases")
     steps = relationship(

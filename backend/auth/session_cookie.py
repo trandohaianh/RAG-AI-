@@ -19,7 +19,7 @@ def wants_cookie(request: Request) -> bool:
 
 def _secure() -> bool:
     # SameSite=None bắt buộc Secure; ngoài môi trường dev luôn chỉ gửi qua HTTPS.
-    return config.APP_ENV not in {"dev", "development", "local", "test"} or config.AUTH_COOKIE_SAMESITE == "none"
+    return config.is_production() or config.AUTH_COOKIE_SAMESITE == "none"
 
 
 def set_session_cookie(response: Response, token: str, max_age: int | None = None) -> None:

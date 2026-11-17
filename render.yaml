@@ -34,6 +34,26 @@ services:
         fromDatabase:
           name: rag-postgres
           property: connectionString
+      # Dữ liệu ứng dụng (user, đội, ca sửa) PHẢI ở Postgres: web service free không có ổ đĩa, mọi
+      # thứ ghi vào /app/data (SQLite mặc định) mất sau mỗi lần deploy/ngủ. Chroma, tài liệu tải
+      # lên và ảnh hiện trường vẫn nằm trên ổ tạm: cần Render Disk (gói trả phí) để giữ chúng.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: rag-postgres
+          property: connectionString
+      # Link đặt lại mật khẩu / xác thực email / widget nhúng: https://<tên-rag-web>.onrender.com
+      # (API từ chối khởi động production nếu thiếu hoặc là localhost).
+      - key: APP_PUBLIC_URL
+        sync: false
+      # Trần chi phí AI mặc định (chủ sản phẩm chọn 2026-11-17); 0 = không giới hạn.
+      - key: LLM_DAILY_BUDGET_USD
+        value: "2"
+      - key: LLM_USER_DAILY_BUDGET_USD
+        value: "0.2"
+      # Số proxy tin cậy trước API, để giới hạn đăng nhập theo IP thật thay vì IP của edge Render
+      # (xem auth/ratelimit.py). Kiểm tra trên bản deploy thật trước khi đặt (README deploy).
+      - key: TRUSTED_PROXY_HOPS
+        sync: false
       # Sau deploy: set = https://<tên-rag-web>.onrender.com (trình duyệt gọi API qua /api cùng
       # origin nên CORS chỉ còn cần cho công cụ khác; vẫn bắt buộc ở production).
       - key: CORS_ORIGINS
@@ -53,8 +73,9 @@ services:
       # hai subdomain onrender.com là hai site khác nhau nên cookie đăng nhập không được gửi.
       - key: NEXT_PUBLIC_API_URL
         value: /api
+      # URL CÔNG KHAI của rag-api: https://rag-api-xxxx.onrender.com. Không dùng fromService
+      # property: host — đó là hostname mạng nội bộ (không TLS; service free không nhận được
+      # lưu lượng nội bộ), nên mọi request /api/* sẽ hỏng. Đặt trước lần build đầu: rewrites của
+      # Next được tính lúc build.
       - key: API_PROXY_TARGET
-        fromService:
-          type: web
-          name: rag-api
-          property: host
+        sync: false

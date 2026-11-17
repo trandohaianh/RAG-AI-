@@ -34,6 +34,7 @@ from field.integrations import router as field_integrations_router, public_route
 from pipeline.jobs.router import router as pipeline_router
 from metrics import metrics_response
 from middleware_metrics import PrometheusMiddleware
+from security_headers import SecurityHeadersMiddleware
 from pipeline.db import init_medallion_schema
 from rag.document_lifecycle import recover_all_pending
 from rag.cache import close_cache
@@ -69,15 +70,45 @@ async def lifespan(_app: FastAPI):
         await asyncio.to_thread(close_cache)
 
 
+def _api_docs_urls() -> dict:
+    """Swagger/ReDoc/OpenAPI chỉ bật ngoài production (chủ sản phẩm chọn 2026-11-17).
+
+    nginx (deploy/production) vốn đã chặn chúng; Caddy cloud, Render, Railway thì không, nên bản
+    đồ toàn bộ endpoint bị công khai. Đọc tài liệu API khi chạy local (APP_ENV=development).
+    """
+    from config import is_production
+
+    if is_production():
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {}
+
+
 app = FastAPI(
     title="Field Service Intelligence API",
     description="Field-service workspaces, case workflows, and grounded RAG assistance.",
     version="5.0.0",
     lifespan=lifespan,
+    **_api_docs_urls(),
 )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_error(request: Request, exc: Exception):
+    """Lỗi không lường trước: ghi log đầy đủ, trả JSON {detail} như mọi lỗi khác.
+
+    Mặc định Starlette trả text "Internal Server Error" — frontend đọc `detail` nên hiện thông báo
+    rỗng/khó hiểu. Không đưa chi tiết lỗi ra ngoài (đường dẫn, câu SQL, lỗi provider).
+    """
+    from fastapi.responses import JSONResponse
+
+    logging.getLogger("fieldops.errors").exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse({"detail": "Lỗi máy chủ. Vui lòng thử lại sau."}, status_code=500)
 
 app.add_middleware(PrometheusMiddleware)
 app.add_middleware(CORSMiddleware, **cors_options(APP_ENV, os.environ))
+# Thêm sau cùng = lớp ngoài cùng: cả phản hồi lỗi CORS/preflight cũng mang header bảo mật.
+# HSTS chỉ ở production (HTTPS); dev chạy http://127.0.0.1 sẽ bị trình duyệt nhớ nhầm.
+app.add_middleware(SecurityHeadersMiddleware, hsts=APP_ENV == "production")
 
 app.include_router(auth_router)
 app.include_router(chat_router)
@@ -109,7 +140,9 @@ def _metrics_authorized(request: Request) -> bool:
     """
     expected = os.getenv("METRICS_TOKEN", "").strip()
     if not expected:
-        return APP_ENV not in {"prod", "production", "staging"}
+        from config import is_production
+
+        return not is_production()
     header = request.headers.get("authorization", "")
     scheme, _, value = header.partition(" ")
     if scheme.lower() == "bearer":
@@ -134,6 +167,22 @@ def prometheus_metrics(request: Request):
     return Response(content=body, media_type=content_type)
 
 
+def _llm_readiness(provider: str, gemini_key: str) -> str:
+    """Ollama: phải gọi được thật. Trước đây chỉ cần LLM_PROVIDER=ollama là báo "ok", kể cả khi
+    stack production không có service ollama nào (OLLAMA_URL trỏ vào tên DNS không tồn tại)."""
+    if provider != "ollama":
+        return "ok" if gemini_key else "missing_key"
+    import httpx
+
+    from config import OLLAMA_URL
+
+    try:
+        httpx.get(f"{OLLAMA_URL.rstrip('/')}/api/tags", timeout=2.0).raise_for_status()
+        return "ok"
+    except Exception as exc:
+        return f"unreachable:{type(exc).__name__}"
+
+
 @app.get("/health/ready")
 def readiness():
     """Kiểm tra sâu cho uptime monitor: DB đọc được, thư mục dữ liệu ghi được, cấu hình AI."""
@@ -156,7 +205,7 @@ def readiness():
         checks["storage"] = "ok"
     except Exception as exc:
         checks["storage"] = f"error:{type(exc).__name__}"
-    checks["llm"] = "ok" if (LLM_PROVIDER == "ollama" or GEMINI_API_KEY) else "missing_key"
+    checks["llm"] = _llm_readiness(LLM_PROVIDER, GEMINI_API_KEY)
 
     # Tính năng tuỳ chọn: "disabled" là hợp lệ; chỉ lỗi khi ĐÃ cấu hình mà không dùng được.
     from auth.email_utils import email_channel

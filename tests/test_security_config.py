@@ -17,6 +17,10 @@ def test_production_refuses_weak_or_placeholder_secret(monkeypatch, secret):
 def test_production_accepts_deployment_specific_key(monkeypatch):
     monkeypatch.setattr(config, "APP_ENV", "production")
     monkeypatch.setattr(config, "SECRET_KEY", "test-only-unique-signing-key-of-32-or-more-characters")
+    # Production cũng cần URL công khai https và CORS chính xác (tests/test_production_readiness.py).
+    monkeypatch.setattr(config, "APP_PUBLIC_URL", "https://fieldops.example.com")
+    monkeypatch.setattr(config, "API_PUBLIC_URL", "https://fieldops.example.com/api")
+    monkeypatch.setenv("CORS_ORIGINS", "https://fieldops.example.com")
     config.validate_security_config()
 
 
