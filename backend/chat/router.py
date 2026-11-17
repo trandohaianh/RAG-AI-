@@ -33,7 +33,8 @@ from rag.judge import judge_answer
 _background_tasks: set = set()
 
 
-def _schedule_eval(message_id: int, question: str, context: str, answer: str) -> None:
+def _schedule_eval(message_id: int, question: str, context: str, answer: str,
+                   user_id: int | None = None) -> None:
     """Chấm điểm faithfulness/relevancy chạy nền, không chặn response."""
     import asyncio
     import random
@@ -42,10 +43,22 @@ def _schedule_eval(message_id: int, question: str, context: str, answer: str) ->
         return
 
     async def _run() -> None:
-        result = await judge_answer(question, context, answer)
+        from fastapi import HTTPException
+
+        from costs.budget import enforce_budget
+        from database import SessionLocal
+
+        # Judge chạy SAU khi request chat đã trả khoản đặt trước: nó cần khoản riêng, và khi
+        # ngân sách đã cạn thì bỏ qua lần chấm (chất lượng đo bằng mẫu, thiếu một mẫu không sao).
+        with SessionLocal() as budget_db:
+            try:
+                reservation = enforce_budget(budget_db, user_id)
+            except HTTPException:
+                return
+        with reservation:
+            result = await judge_answer(question, context, answer)
         if not result:
             return
-        from database import SessionLocal
 
         db = SessionLocal()
         try:
@@ -285,7 +298,7 @@ async def chat_stream(
                         # faithfulness=1.0 và làm lệch trung bình chất lượng, nên không lấy mẫu.
                         if answer_text.strip() and str(retrieved_context[0] or "").strip():
 
-                            _schedule_eval(saved_id, question, retrieved_context[0], answer_text)
+                            _schedule_eval(saved_id, question, retrieved_context[0], answer_text, user_id)
 
                         yield f"data: {json.dumps({'done': True, 'sources': sources, 'message_id': saved_id, **public_bundle(evidence_bundle)}, ensure_ascii=False)}\n\n"
 

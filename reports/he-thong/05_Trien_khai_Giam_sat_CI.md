@@ -82,7 +82,7 @@ Thiếu `APP_ENV` thì API chạy ở chế độ dev: `/metrics` mở công kha
 
 ## 4. Hạn chế còn lại
 
-- **Hai cấu hình edge** (Caddy và nginx) phải được giữ đồng bộ bằng tay. F1 chính là hậu quả của việc lệch nhau.
+- **Hai cấu hình edge (đã có chốt chặn ở vòng 4):** `tests/test_edge_config_parity.py` so khớp header nền, Permissions-Policy, chính sách khung `/embed` và việc tắt buffer SSE giữa Caddy và nginx. Lần so khớp đầu tiên phát hiện nginx gửi `geolocation=()`, chặn nút "lấy vị trí hiện tại" của màn điều phối. Đã sửa: cả hai gửi `camera=(self), geolocation=(self)`.
 - **`deploy/production`** đóng gói chung với hai dự án khác; nên tách repo hoặc dùng submodule.
 - **Chưa chạy được cục bộ:** Caddy thật, promtool và Docker daemon. Sau khi deploy, nên kiểm bằng:
 

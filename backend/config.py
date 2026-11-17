@@ -23,6 +23,14 @@ OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 # Per-provider I/O timeout, not a hard deadline for an entire streamed answer.
 LLM_REQUEST_TIMEOUT_SEC: float = float(os.getenv("LLM_REQUEST_TIMEOUT_SEC", "60"))
+# Trần token đầu ra (gồm cả token "thinking" của Gemini 2.5) cho mọi lời gọi sinh văn bản.
+# Cùng với trần độ dài prompt, nó chặn trên chi phí thật của MỘT request — khoản đặt trước
+# ngân sách (costs/budget.py) được tính từ chính con số này.
+LLM_MAX_OUTPUT_TOKENS: int = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "4096"))
+if LLM_MAX_OUTPUT_TOKENS < 256:
+    raise ValueError("LLM_MAX_OUTPUT_TOKENS must be at least 256")
+# Trần token đầu vào của một prompt sinh văn bản (prompt dài hơn bị từ chối trước khi gọi API).
+LLM_MAX_INPUT_TOKENS: int = int(os.getenv("LLM_MAX_INPUT_TOKENS", "16000"))
 if not math.isfinite(LLM_REQUEST_TIMEOUT_SEC) or LLM_REQUEST_TIMEOUT_SEC < 0.001:
     raise ValueError("LLM_REQUEST_TIMEOUT_SEC must be finite and at least 0.001")
 # Tỉ lệ câu trả lời được LLM-as-judge chấm điểm (0–1). Mỗi lần chấm tốn thêm 1 lượt gọi Gemini.

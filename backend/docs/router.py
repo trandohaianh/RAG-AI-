@@ -179,7 +179,10 @@ async def upload_doc(
     from costs.budget import enforce_budget
 
     # Embedding (và OCR ảnh) tốn tiền như một lượt hỏi: cùng chịu trần ngân sách ngày.
-    with enforce_budget(db, user.id):
+    from costs.budget import ingest_reserve_amount
+
+    # Đặt trước theo kích thước tài liệu: một tệp lớn tốn embedding hơn hẳn một câu hỏi.
+    with enforce_budget(db, user.id, ingest_reserve_amount(len(content))):
         try:
             chunks = await ingest_file(user.id, dest, workspace_id=workspace_id, content=content)
         except Exception as exc:

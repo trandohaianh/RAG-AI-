@@ -92,7 +92,11 @@ Thoả cả ba thì ràng buộc bị xoá, và lần ghi tiếp theo gắn vào
 
 ## 4. Hạn chế còn lại
 
-- **Trường hợp biên khi gỡ ràng buộc:** SecureStore không liệt kê được khoá, nên code chỉ kiểm được dữ liệu của người dùng **đang đăng nhập**. Nếu cùng máy còn dữ liệu của *người khác* từ máy chủ cũ, và sau này một tài khoản trùng ID trên máy chủ mới đăng nhập, dữ liệu đó có thể đọc được. Trường hợp này rất hiếm vì mỗi máy thường thuộc một kỹ thuật viên.
+- **Dữ liệu cũ của người dùng khác (đã sửa ở vòng 4):**
+  - Manifest mới ghi `origin` của máy chủ đã ghi ra bản ghi.
+  - Bản ghi không có origin (của bản cũ) chỉ hiển thị ở máy chủ cũ đã được ghi nhận (`legacy_origin`) lúc gỡ ràng buộc. Ở máy chủ khác, bản ghi đó coi như không tồn tại, và lệnh ghi hay xoá không chạm vào nội dung của nó.
+  - Test: `client_state: after releasing an old binding, another user's legacy records stay hidden on the new server` (FAIL trên `845aec1`).
+- **Còn lại:** nếu một tài khoản trùng ID trên máy chủ mới ghi dữ liệu cùng khoá, bản ghi cũ bị thay (không bị lộ). Muốn giữ cả hai thì phải di trú toàn bộ kiểu khoá; đây là trường hợp rất hiếm nên chấp nhận.
 - **Chưa chạy trên thiết bị thật.** Mới chạy `tsc` và các test Node mô phỏng SecureStore và `fetch`.
 
 ---

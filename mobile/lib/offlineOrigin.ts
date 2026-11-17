@@ -71,9 +71,25 @@ export function releaseUnusedLegacyBinding(
     if (!existing || existing === origin) return false;
     if (await SecureStore.getItemAsync(MARKER_KEY)) return false;
     if (await hasOwnRecords()) return false;
+    // Ghi nhớ máy chủ cũ: bản ghi của bản cũ (manifest không có origin) — kể cả của NGƯỜI
+    // DÙNG KHÁC trên cùng máy — chỉ đọc được khi quay lại đúng máy chủ đó (legacyRecordVisible).
+    await SecureStore.setItemAsync(LEGACY_ORIGIN_KEY, existing);
     await SecureStore.deleteItemAsync(ORIGIN_KEY);
     return true;
   });
+}
+
+const LEGACY_ORIGIN_KEY = "fieldops.offline.v1.legacy_origin";
+
+/** Bản ghi không mang origin (do bản cũ ghi) có được đọc ở máy chủ hiện tại không. */
+export async function legacyRecordVisible(apiUrl: string): Promise<boolean> {
+  if (!(await secureAvailable())) return true;
+  const legacy = await SecureStore.getItemAsync(LEGACY_ORIGIN_KEY);
+  return !legacy || legacy === originOf(apiUrl);
+}
+
+export function offlineOriginOf(apiUrl: string): string {
+  return originOf(apiUrl);
 }
 
 const OTHER_SERVER =

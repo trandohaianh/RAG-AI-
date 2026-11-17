@@ -12,7 +12,16 @@ import httpx
 from google import genai
 from google.genai import types
 
-from config import GEMINI_API_KEY, LLM_MODEL, LLM_PROVIDER, LLM_REQUEST_TIMEOUT_SEC, OLLAMA_MODEL, OLLAMA_URL
+from config import (
+    GEMINI_API_KEY,
+    LLM_MAX_INPUT_TOKENS,
+    LLM_MAX_OUTPUT_TOKENS,
+    LLM_MODEL,
+    LLM_PROVIDER,
+    LLM_REQUEST_TIMEOUT_SEC,
+    OLLAMA_MODEL,
+    OLLAMA_URL,
+)
 from costs.recorder import estimate_tokens, gemini_usage, record_usage
 
 _OLLAMA_TIMEOUT = httpx.Timeout(LLM_REQUEST_TIMEOUT_SEC, connect=min(5.0, LLM_REQUEST_TIMEOUT_SEC))
@@ -50,6 +59,17 @@ def _metered_text(prompt) -> str:
     """Văn bản dùng để ước lượng token đầu vào: gồm cả phần system."""
     system = _system_of(prompt)
     return f"{system}\n\n{prompt}" if system else str(prompt)
+
+
+def _bounded(prompt, max_tokens: int | None) -> int:
+    """Kiểm trần đầu vào và trả trần đầu ra cho lời gọi này.
+
+    Chi phí một request ≤ LLM_MAX_INPUT_TOKENS·giá_vào + LLM_MAX_OUTPUT_TOKENS·giá_ra — đúng
+    khoản đặt trước ngân sách, nên một request không thể tiêu nhiều hơn phần đã giữ chỗ.
+    """
+    if estimate_tokens(_metered_text(prompt)) > LLM_MAX_INPUT_TOKENS:
+        raise ValueError("Prompt vượt trần token đầu vào (LLM_MAX_INPUT_TOKENS)")
+    return min(max_tokens or LLM_MAX_OUTPUT_TOKENS, LLM_MAX_OUTPUT_TOKENS)
 
 
 def _elapsed_ms(start: float) -> int:
@@ -93,6 +113,7 @@ def generate_text(
     feature: str | None = None,
 ) -> str:
     start = time.perf_counter()
+    max_tokens = _bounded(prompt, max_tokens)
     if LLM_PROVIDER == "ollama":
         resp = httpx.post(
             f"{OLLAMA_URL}/api/generate",
@@ -125,6 +146,7 @@ def generate_text(
 
 def stream_text(prompt: str, *, feature: str | None = None) -> Iterator[str]:
     start = time.perf_counter()
+    max_tokens = _bounded(prompt, None)
     if LLM_PROVIDER == "ollama":
         produced: list[str] = []
         recorded = started = False
@@ -132,7 +154,7 @@ def stream_text(prompt: str, *, feature: str | None = None) -> Iterator[str]:
             with httpx.stream(
                 "POST",
                 f"{OLLAMA_URL}/api/generate",
-                json=_ollama_body(prompt, True, False, None, None),
+                json=_ollama_body(prompt, True, False, None, max_tokens),
                 timeout=_OLLAMA_TIMEOUT,
             ) as resp:
                 resp.raise_for_status()
@@ -161,7 +183,7 @@ def stream_text(prompt: str, *, feature: str | None = None) -> Iterator[str]:
 
     stream = client().models.generate_content_stream(
         model=LLM_MODEL, contents=str(prompt),
-        config=types.GenerateContentConfig(system_instruction=_system_of(prompt)),
+        config=types.GenerateContentConfig(system_instruction=_system_of(prompt), max_output_tokens=max_tokens),
     )
     completed = False
     last_with_usage = None

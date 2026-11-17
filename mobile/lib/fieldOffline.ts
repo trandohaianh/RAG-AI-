@@ -1,7 +1,13 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import * as api from "./api";
-import { assertOfflineApiOrigin, bindOfflineApiOriginForWrite, releaseUnusedLegacyBinding } from "./offlineOrigin";
+import {
+  assertOfflineApiOrigin,
+  bindOfflineApiOriginForWrite,
+  legacyRecordVisible,
+  offlineOriginOf,
+  releaseUnusedLegacyBinding,
+} from "./offlineOrigin";
 
 const STORAGE_PREFIX = "fieldops.offline.v1";
 const CHUNK_BYTE_LIMIT = 1200;
@@ -49,7 +55,16 @@ export type CachedFieldOverview = {
   cached_at: string;
 };
 
-type RecordManifest = { generation: string; chunks: number };
+// origin: máy chủ đã ghi bản ghi (bản cũ không ghi trường này — xem legacyRecordVisible).
+type RecordManifest = { generation: string; chunks: number; origin?: string };
+
+/** Một bản ghi chỉ "tồn tại" với máy chủ đã ghi ra nó. Bản ghi không có origin là của bản cũ:
+ * chỉ đọc được ở máy chủ cũ đã ghi nhận khi gỡ ràng buộc (hoặc khi chưa từng gỡ). */
+async function manifestVisible(manifest: RecordManifest): Promise<boolean> {
+  const apiUrl = await api.getApiUrl();
+  if (typeof manifest.origin === "string") return manifest.origin === offlineOriginOf(apiUrl);
+  return legacyRecordVisible(apiUrl);
+}
 
 // SecureStore has no transactions, so every read-modify-write of offline
 // records goes through this queue. Never hold it across a network call.
@@ -130,14 +145,19 @@ async function writeRecord<T>(key: string, value: T): Promise<void> {
     }
     await SecureStore.setItemAsync(
       manifestKey,
-      JSON.stringify({ generation, chunks: chunks.length } satisfies RecordManifest)
+      JSON.stringify({
+        generation,
+        chunks: chunks.length,
+        origin: offlineOriginOf(await api.getApiUrl()),
+      } satisfies RecordManifest)
     );
   } catch (error) {
     await removeGeneration(key, generation, chunks.length);
     throw error;
   }
 
-  if (oldManifest) {
+  // Bản ghi cũ của máy chủ khác (trùng ID người dùng): không đọc, cũng không đụng tới nội dung.
+  if (oldManifest && (await manifestVisible(oldManifest))) {
     await removeGeneration(key, oldManifest.generation, oldManifest.chunks);
   }
 }
@@ -161,6 +181,7 @@ async function readRecord<T>(key: string): Promise<T | null> {
   ) {
     throw new Error("Dữ liệu offline không hợp lệ; cần kết nối mạng để tải lại.");
   }
+  if (!(await manifestVisible(manifest))) return null;
 
   const chunks: string[] = [];
   for (let index = 0; index < manifest.chunks; index += 1) {
@@ -186,6 +207,7 @@ async function removeRecord(key: string): Promise<void> {
   if (raw) {
     try {
       const manifest = JSON.parse(raw) as RecordManifest;
+      if (!(await manifestVisible(manifest))) return;  // bản ghi của máy chủ khác: để nguyên
       await removeGeneration(key, manifest.generation, manifest.chunks);
     } catch (error) {
       throw new Error(`Không thể xóa bản lưu offline: ${api.getErrorMessage(error)}`);

@@ -1,6 +1,9 @@
 # Báo cáo kiểm toán mã nguồn kỹ thuật — FieldOps (`D:\self`)
 
-- **Ngày kiểm toán:** 2026-11-16, ba vòng. Vòng 1 và 2 đã commit trong `7f0955a`; vòng 3 là phần xử lý dứt điểm, xem §3.4.
+- **Ngày kiểm toán:** 2026-11-16 đến 17, bốn vòng:
+  - vòng 1 và 2 commit trong `7f0955a`;
+  - vòng 3 commit trong `845aec1`;
+  - vòng 4 đóng các hạn chế còn lại (§3.5).
 - **Nhánh:** `fullstack/fieldops-production`.
 - **Mốc mã nguồn:** gốc `7569b27`, sau đó các vòng sửa: `7f0955a` (vòng 1 và 2), rồi commit vòng 3.
 - **Thay thế:** báo cáo ngày 2026-11-13. Báo cáo đó không chạy được backend vì môi trường thiếu thư viện.
@@ -181,16 +184,27 @@ Chủ dự án yêu cầu xử lý năm hạn chế mà vòng 2 mới chỉ gi�
 
 ---
 
-## 4. Hạn chế còn lại (sau vòng 3)
+### 3.5 Vòng 4 (17/11/2026): đóng các hạn chế còn lại của §4
 
-| Vấn đề | Lý do | Ghi chú |
+Test: `R4` là `tests/test_audit_regressions_round4.py`, `EP` là `tests/test_edge_config_parity.py`, `CS` là `tests/client_state.test.cjs`. Các test mới FAIL trên `845aec1` (8 test backend và 1 test client); 2 test trong EP là chốt chặn cho bản sửa F1 và nhánh SSE, nên PASS trên cả hai bản.
+
+| ID | Trước | Sau | Test |
+|---|---|---|---|
+| W1 | Một request có thể tiêu nhiều hơn khoản đặt trước, vì đầu ra không có trần, Cohere không được tính, upload đặt trước như một câu hỏi, và judge chạy nền không chịu ngân sách | `LLM_MAX_OUTPUT_TOKENS` (mặc định 4096, gồm cả token thinking) áp cho mọi lời gọi; prompt vượt `LLM_MAX_INPUT_TOKENS` (16.000) bị từ chối trước khi gọi API; khoản đặt trước mặc định = chi phí tối đa (vào + ra), cộng một lượt Cohere khi được bật; upload đặt trước theo kích thước tệp; judge xin khoản riêng và bỏ qua khi hết ngân sách | R4 (6 test) |
+| W2 | Sau khi gỡ ràng buộc offline cũ, dữ liệu của **người dùng khác** từ máy chủ cũ có thể bị một tài khoản trùng ID trên máy chủ mới đọc | Manifest mới ghi `origin`. Bản ghi không có origin (của bản cũ) chỉ hiển thị ở máy chủ cũ đã được ghi nhận lúc gỡ ràng buộc; ghi đè hay xoá không chạm vào bản ghi của máy chủ khác | CS |
+| W3 | Hai cấu hình biên viết tay lệch nhau: nginx gửi `Permissions-Policy: geolocation=()`, **chặn nút "lấy vị trí hiện tại"** của màn điều phối; Caddy không gửi Permissions-Policy | Cả hai gửi `camera=(self), geolocation=(self)`; test so khớp các header nền, chính sách khung `/embed` và việc tắt buffer SSE giữa hai cấu hình | EP (4 test) |
+
+---
+
+## 4. Hạn chế còn lại (sau vòng 4)
+
+| Vấn đề | Vì sao không sửa trong code | Cần ai làm |
 |---|---|---|
-| Trần ngân sách vẫn có thể vượt bằng phần chi phí thật của **một** request vượt quá khoản đặt trước | Không biết trước số token thật | Đặt `LLM_BUDGET_RESERVE_USD` theo request lớn nhất chấp nhận được |
-| `style-src` vẫn có `'unsafe-inline'` | Thuộc tính `style` của React/Leaflet không mang nonce được | CSS không thực thi mã |
-| Eval **live** sau khi tách system prompt chưa chạy | Cần `GEMINI_API_KEY` trong `.env` cục bộ, mà kiểm toán không đọc file này | Lệnh chạy ở §9 |
-| Gỡ ràng buộc offline cũ: nếu cùng máy có dữ liệu của **người dùng khác** từ máy chủ cũ, và sau này một tài khoản trùng ID trên máy chủ mới đăng nhập, dữ liệu đó có thể đọc được | SecureStore không liệt kê được khoá | Rất hiếm (máy thường thuộc một kỹ thuật viên) |
-| `allowed_origins` của embed không chặn được client không phải trình duyệt | Embed token vốn là công khai | Không phải lớp xác thực |
-| Hai cấu hình edge (Caddy, nginx) phải đồng bộ bằng tay | Kiến trúc triển khai | Sinh header từ một nguồn chung |
+| Eval **live** sau khi tách system prompt chưa chạy | Cần `GEMINI_API_KEY` trong `.env` cục bộ; kiểm toán không đọc file này | Chủ dự án chạy `python -B backend/scripts/run_evals.py --mode live --limit 20` (§9) |
+| `style-src` vẫn có `'unsafe-inline'` | Không phải lỗi: thuộc tính `style` trong HTML do SSR sinh ra không mang nonce được, và CSS không thực thi mã. Script đã bị chặn bằng nonce | Không cần |
+| `allowed_origins` của embed không chặn được client không phải trình duyệt | Không phải lỗi: embed token vốn là công khai, `allowed_origins` chỉ ngăn website khác nhúng widget | Không cần; đã ghi rõ trong tài liệu |
+| Bản ghi offline cũ trùng khoá bị ghi đè khi người dùng trùng ID ghi dữ liệu mới (dữ liệu cũ không lộ nhưng có thể bị thay) | Kiểu khoá của bản cũ không chứa origin; muốn giữ được cả hai thì phải di trú toàn bộ khoá | Chấp nhận (trường hợp biên của trường hợp biên) |
+| Test PostgreSQL, Caddy thật, thiết bị di động, provider thật | Giới hạn môi trường của máy kiểm toán | CI (PostgreSQL, promtool) và kiểm tra sau deploy |
 
 ---
 
@@ -249,6 +263,11 @@ Môi trường:
 | `docker compose config` (root) | **FAIL** | PASS sau bootstrap | PASS | PASS | F2 |
 | Trình duyệt, end-to-end (API WSL + `next start`, DB tạm) | — | — | Trang render; CSP chặn domain lạ | Xem dưới | |
 
+**Sau vòng 4:**
+- Backend: **537 passed, 12 skipped** (thêm 6 test R4 và 4 test EP, không có hồi quy).
+- `client_state`: **20/20**.
+- Mobile `tsc`: PASS.
+
 Kiểm tra end-to-end sau vòng 3:
 
 - Đăng ký và đăng nhập rồi vào `/chat`. `localStorage` chỉ còn `rag_user` và `rag_session`; `document.cookie` rỗng (cookie là httpOnly).
@@ -300,8 +319,8 @@ Kiểm tra end-to-end sau vòng 3:
 | Ngay | Sau deploy: kiểm header `/embed` và `/` bằng `curl -I`; đăng nhập web lại (phiên cũ tự chuyển sang cookie) | Cao |
 | Ngay | Đặt `EXPO_PUBLIC_API_URL` cho bản mobile phát hành | Cao |
 | Triển khai | API và web khác site (khác tên miền gốc): đặt `AUTH_COOKIE_SAMESITE=none` (tự bật Secure) và cấu hình `CORS_ORIGINS` | TB |
-| 1 | Đặt `LLM_BUDGET_RESERVE_USD` theo request lớn nhất chấp nhận được | Thấp |
-| 2 | Sinh cấu hình Caddy và nginx từ một nguồn | Thấp |
+| 1 | Điều chỉnh `LLM_MAX_OUTPUT_TOKENS` / `LLM_MAX_INPUT_TOKENS` theo câu trả lời dài nhất cần hỗ trợ (khoản đặt trước tự tính theo hai giá trị này) | Thấp |
+| 2 | Nếu thêm header mới ở một biên (Caddy/nginx), thêm luôn vào `tests/test_edge_config_parity.py` | Thấp |
 | 3 | Tách RAG/embedding ra worker; tách `deploy/production` đa dự án | Thấp |
 
 ---

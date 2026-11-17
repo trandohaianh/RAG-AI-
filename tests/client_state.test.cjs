@@ -532,6 +532,26 @@ test("device locked to the dev server by an old version recovers offline mode un
   assert.equal(await offlineHarness(holding).isSecureOfflineStorageAvailable(), false);
 });
 
+test("after releasing an old binding, another user's legacy records stay hidden on the new server", async () => {
+  const devOrigin = "http://100.121.99.57:8001";
+  const h = mobileHarness();
+  h.secure.set("fieldops.offline.v1.api_origin", devOrigin);
+  // Old version stored user 2's queued edit (no origin in the manifest) on the dev server.
+  h.secure.set("fieldops.offline.v1.2.actions.manifest", JSON.stringify({ generation: "g", chunks: 1 }));
+  h.secure.set("fieldops.offline.v1.2.actions.g.0", JSON.stringify([
+    { id: "legacy-1", case_id: 8, created_at: "2026-01-01T00:00:00Z", kind: "note", detail: "old server" },
+  ]));
+  await h.api.setApiUrl("https://fieldops.example.test");
+  await h.api.saveAuth("one", user);                       // user 1 has nothing offline → release
+  const offline = offlineHarness(h);
+  assert.equal(await offline.isSecureOfflineStorageAvailable(), true);
+  await h.api.saveAuth("two", { ...user, id: 2 });          // a different person with id 2 here
+  assert.equal(await offline.getPendingFieldActionCount(2), 0, "legacy data of the old server must not leak");
+  await h.api.setApiUrl(devOrigin);                          // back on the old server it is still there
+  await h.api.saveAuth("two-old", { ...user, id: 2 });
+  assert.equal(await offline.getPendingFieldActionCount(2), 1);
+});
+
 test("web outbox moves an action that keeps failing with 5xx to rejected and unblocks later ones", async () => {
   const h = queueHarness(indexedStorage([record("a"), { ...record("b"), createdAt: 2 }]));
   const sent = [];

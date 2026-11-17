@@ -42,14 +42,33 @@ def daily_limits() -> tuple[float, float]:
 
 
 def reserve_amount() -> float:
-    """Khoản đặt trước cho một request: mặc định ≈ chi phí của 16k token vào + 2k token ra."""
+    """Khoản đặt trước cho một request hỏi đáp = chi phí TỐI ĐA của nó.
+
+    llm.py từ chối prompt quá LLM_MAX_INPUT_TOKENS và giới hạn đầu ra ở LLM_MAX_OUTPUT_TOKENS,
+    nên chi phí sinh câu trả lời không thể vượt con số này; cộng thêm một lượt Cohere rerank khi
+    được bật. Đặt LLM_BUDGET_RESERVE_USD để ghi đè.
+    """
     configured = _limit("LLM_BUDGET_RESERVE_USD")
     if configured:
         return configured
-    from config import LLM_MODEL
+    from config import COHERE_API_KEY, COHERE_RERANK_MODEL, LLM_MAX_INPUT_TOKENS, LLM_MAX_OUTPUT_TOKENS, LLM_MODEL
     from costs.pricing import compute_cost
 
-    return max(compute_cost(LLM_MODEL, 16_000, 2_048), 0.001)
+    amount = compute_cost(LLM_MODEL, LLM_MAX_INPUT_TOKENS, LLM_MAX_OUTPUT_TOKENS)
+    if COHERE_API_KEY:
+        amount += compute_cost(COHERE_RERANK_MODEL, units=1)
+    return max(amount, 0.001)
+
+
+def ingest_reserve_amount(content_bytes: int) -> float:
+    """Đặt trước cho một lần nạp tài liệu: embedding tối đa ≈ số byte / 4 token (văn bản trích
+    ra không dài hơn tệp gốc), cộng một lượt OCR có trần đầu ra cho ảnh."""
+    from config import EMBEDDING_MODEL, LLM_MAX_OUTPUT_TOKENS, LLM_MODEL
+    from costs.pricing import compute_cost
+
+    embedding = compute_cost(EMBEDDING_MODEL, max(1, content_bytes // 4))
+    ocr = compute_cost(LLM_MODEL, 1_000, LLM_MAX_OUTPUT_TOKENS)
+    return max(embedding + ocr, 0.001)
 
 
 def _ttl() -> timedelta:
@@ -109,16 +128,17 @@ class BudgetReservation:
         self.release()
 
 
-def enforce_budget(db: Session, user_id: int | None) -> BudgetReservation:
+def enforce_budget(db: Session, user_id: int | None, amount: float | None = None) -> BudgetReservation:
     """Đặt chỗ ngân sách cho một request AI, hoặc raise 429 nếu không còn đủ.
 
+    `amount`: chi phí tối đa của request (mặc định reserve_amount() cho một lượt hỏi đáp).
     Gọi trước mọi thay đổi chưa commit của request: hàm tự commit giao dịch đặt chỗ.
     """
     global_limit, user_limit = daily_limits()
     if not global_limit and not user_limit:
         return BudgetReservation()
     now = datetime.now(timezone.utc)
-    amount = reserve_amount()
+    amount = amount if amount is not None else reserve_amount()
     bind = db.get_bind()
     try:
         if bind.dialect.name == "postgresql":

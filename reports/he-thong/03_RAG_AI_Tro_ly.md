@@ -118,7 +118,12 @@ Ví dụ: `gemini-2.5-flash`, 3000 token vào và 400 token ra cho 0,0009 + 0,00
 
   **Ví dụ:** trần 0,015 USD, $r$ = 0,01 USD. Request A được nhận (0 + 0,01 ≤ 0,015). Request B đến khi A đang chạy bị từ chối (0,02 > 0,015). Sau khi A xong và ghi chi phí thật 0,003 USD, B được nhận (0,003 + 0,01 = 0,013 ≤ 0,015).
 
-  Vượt trần chỉ còn xảy ra khi chi phí thật của **một** request lớn hơn $r$ của chính nó.
+  **Một request không thể tiêu quá $r$ (vòng 4):**
+  - Mọi lời gọi sinh văn bản có trần đầu ra `LLM_MAX_OUTPUT_TOKENS` (4096, gồm cả token thinking).
+  - Prompt vượt `LLM_MAX_INPUT_TOKENS` (16.000) bị từ chối trước khi gọi API.
+  - $r$ mặc định = cost(16.000 vào, 4096 ra), cộng một lượt Cohere khi được bật. Với gemini-2.5-flash, $r$ ≈ 0,0048 + 0,0102 = 0,015 USD.
+  - Upload đặt trước theo kích thước tệp: embedding ≈ số byte / 4 token, cộng một lượt OCR.
+  - Judge chạy nền xin khoản riêng; khi hết ngân sách thì bỏ qua lần chấm.
 
 ### 2.4 Bộ đánh giá offline và live (`evals/`)
 
@@ -159,7 +164,7 @@ Ví dụ: `gemini-2.5-flash`, 3000 token vào và 400 token ra cho 0,0009 + 0,00
 - **System prompt đã tách (vòng 3):** `build_gemini_prompt` trả về `RagPrompt`, một `str` chứa context, lịch sử và câu hỏi, kèm thuộc tính `.system` chứa quy tắc. Gemini nhận quy tắc qua `GenerateContentConfig.system_instruction`; Ollama nhận qua trường `system`. Tài liệu có câu "bỏ qua các quy tắc trên…" không còn đứng cùng cấp với quy tắc. Eval offline cho kết quả giống hệt. **Eval live chưa chạy** vì cần `GEMINI_API_KEY` trong `.env` cục bộ; lệnh chạy nằm ở báo cáo 01 §9.
 - **Audit chỉ kiểm danh tính nhãn:** `audit_citations` không kiểm tra nội dung có đúng nghĩa với đoạn trích (`semantic_support_verified = False`).
 - **Nhãn quá dài:** nhãn dài hơn 64 ký tự có thể đã được phát một phần trước khi đóng ngoặc. Audit cuối vẫn chặn việc lưu câu trả lời đó.
-- **Ngân sách:** trần cứng theo đặt chỗ (§2.3). Phần vượt còn lại tối đa bằng mức chênh giữa chi phí thật và khoản đặt trước của một request.
+- **Ngân sách:** trần cứng theo đặt chỗ (§2.3). Từ vòng 4, chi phí của một request bị chặn trên bởi chính khoản đặt trước của nó (trần token vào/ra, Cohere, upload theo kích thước, judge có khoản riêng). Test: `round4::test_*` (6 test, FAIL trên `845aec1`).
 
 **Test vòng 3:**
 
