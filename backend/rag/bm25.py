@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 import threading
 from rag.evidence import EvidenceChunk
 
@@ -55,7 +56,9 @@ def tokenize(text: str) -> list[str]:
     "E-204". Token đầy đủ vẫn còn nên không mất khả năng tìm đúng mã.
     """
     tokens: list[str] = []
-    for match in _TOKEN_RE.findall(text.lower()):
+    # NFC: văn bản tiếng Việt dạng tổ hợp (NFD — macOS, Unikey "Unicode tổ hợp", một số trình
+    # trích PDF) bị \w cắt vụn ở dấu, nên "Lỗi" NFD không bao giờ khớp "Lỗi" NFC.
+    for match in _TOKEN_RE.findall(unicodedata.normalize("NFC", text).lower()):
         tokens.append(match)
         if "-" in match or "/" in match:
             tokens.extend(part for part in re.split(r"[-/]", match) if len(part) > 1)

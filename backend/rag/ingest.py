@@ -117,6 +117,31 @@ def get_vectorstore(user_id: int, workspace_id: int | None = None):
 
 
 
+# DOCX là zip: docx2txt giải nén cả word/document.xml vào RAM. XML lặp nén được ~1000:1, nên một
+# file 20 MB có thể nở thành ~20 GB và giết tiến trình API (container giới hạn 2 GB).
+DOCX_MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+DOCX_MAX_RATIO = 100
+
+
+class UnsafeDocumentError(ValueError):
+    """Tài liệu bị từ chối trước khi đọc (zip bomb...). Thông điệp an toàn để trả cho người dùng."""
+
+
+def _check_zip_bomb(file_path: Path) -> None:
+    import zipfile
+
+    if not zipfile.is_zipfile(file_path):
+        return
+    with zipfile.ZipFile(file_path) as archive:
+        infos = archive.infolist()
+    total = sum(info.file_size for info in infos)
+    packed = sum(info.compress_size for info in infos)
+    if total > DOCX_MAX_UNCOMPRESSED_BYTES or total > DOCX_MAX_RATIO * max(packed, 1):
+        raise UnsafeDocumentError(
+            "File DOCX giải nén quá lớn hoặc tỉ lệ nén bất thường — có thể là zip bomb, đã từ chối."
+        )
+
+
 def _load_sync(file_path: Path) -> list[Document]:
 
     suffix = file_path.suffix.lower()
@@ -127,6 +152,7 @@ def _load_sync(file_path: Path) -> list[Document]:
 
     elif suffix in (".docx", ".doc"):
 
+        _check_zip_bomb(file_path)
         loader = Docx2txtLoader(str(file_path))
 
     elif suffix == ".txt":

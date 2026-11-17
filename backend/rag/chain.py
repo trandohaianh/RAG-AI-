@@ -217,7 +217,13 @@ async def answer_rag_once(
     *, evidence_out: dict | None = None,
 ) -> tuple[str, list[str]]:
     """Trả lời RAG một lần (không stream) — cho Public API."""
-    chunks = await retrieve(user_id, question, workspace_id=workspace_id)
+    try:
+        chunks = await retrieve(user_id, question, workspace_id=workspace_id)
+    except Exception as exc:
+        # Truy hồi lỗi (embedding/Chroma/BM25 cùng hỏng) phải thành lỗi công khai 503 như lỗi
+        # sinh câu trả lời; trước đây nó lọt ra thành 500 trần ở /v1/ask và trợ lý ca.
+        logger.warning("RAG retrieval failed (%s)", type(exc).__name__)
+        raise RagGenerationError() from exc
     if not chunks:
         if evidence_out is not None:
             bundle = capture_evidence(chunks)

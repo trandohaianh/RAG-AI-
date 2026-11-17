@@ -84,7 +84,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
     { href: "/field", label: "Ca hiện trường", icon: ClipboardList },
     { href: "/field/schedule", label: "Điều phối tuyến", icon: Route },
     { href: "/field/integrations", label: "Kết nối CRM/NMS", icon: Plug },
-    { href: "/docs", label: "Tài liệu", icon: FileText },
+    { href: "/docs", label: "Tài liệu cá nhân", icon: FileText },
     { href: "/analytics", label: "Thống kê", icon: BarChart3 },
     { href: "/settings", label: "Cài đặt", icon: Settings },
     ...(user?.role === "admin"
@@ -169,7 +169,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
         </ul>
 
         {docs.length > 0 && (
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 px-2 py-1">Tài liệu của đội</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 px-2 py-1">Tài liệu cá nhân</p>
         )}
         <ul className="space-y-0.5 pb-3">
           {docs.slice(0, 8).map((d) => (

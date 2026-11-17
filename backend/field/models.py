@@ -1,7 +1,7 @@
 """Shared field-service workspace, cases, checklists, and audit events."""
-from datetime import datetime
+from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import event, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -88,6 +88,9 @@ class ServiceCase(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    # Thời điểm ca chuyển sang "resolved" (KPI ca hoàn tất theo ngày). Không dùng updated_at:
+    # mọi lần sửa sau đó (điều phối, ghi chú) làm ca "hoàn tất" nhảy sang ngày sửa cuối.
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     workspace = relationship("FieldWorkspace", back_populates="cases")
     steps = relationship(
@@ -242,3 +245,12 @@ class FieldClientAction(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+@event.listens_for(ServiceCase.status, "set")
+def _track_resolved_at(target: ServiceCase, value, oldvalue, _initiator) -> None:
+    # Mọi đường đóng ca (giao diện, ticket.closed, alarm.cleared) đều đi qua thuộc tính status.
+    if value == "resolved" and oldvalue != "resolved":
+        target.resolved_at = datetime.now(timezone.utc)
+    elif value != "resolved":
+        target.resolved_at = None

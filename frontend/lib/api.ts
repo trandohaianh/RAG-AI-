@@ -6,7 +6,9 @@ function resolveApiUrl(): string {
   return `https://${raw}`;
 }
 
-const API_URL = resolveApiUrl();
+// Dùng chung cho mọi lời gọi không qua axios (XHR upload, fetch SSE): Render truyền host không
+// có scheme, nên ghép thẳng process.env tạo URL tương đối hỏng.
+export const API_URL = resolveApiUrl();
 
 /**
  * Phiên web nằm trong cookie httpOnly do API đặt (JS không đọc được token → XSS không lấy

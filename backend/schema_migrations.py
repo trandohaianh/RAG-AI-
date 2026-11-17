@@ -190,12 +190,27 @@ class Migration:
     apply: Callable[[Connection], None]
 
 
+def _add_case_resolved_at(conn: Connection) -> None:
+    """KPI "ca hoàn tất" theo ngày đóng ca, không theo lần sửa cuối (updated_at)."""
+    inspector = inspect(conn)
+    if "field_service_cases" not in set(inspector.get_table_names()):
+        return
+    columns = {column["name"] for column in inspector.get_columns("field_service_cases")}
+    if "resolved_at" not in columns:
+        timestamp = "TIMESTAMP WITH TIME ZONE" if conn.dialect.name == "postgresql" else "DATETIME"
+        conn.execute(text(f"ALTER TABLE field_service_cases ADD COLUMN resolved_at {timestamp}"))
+    # Ca đã đóng trước khi có cột: updated_at là ước lượng tốt nhất còn lại.
+    conn.execute(text("UPDATE field_service_cases SET resolved_at = updated_at "
+                      "WHERE status = 'resolved' AND resolved_at IS NULL"))
+
+
 _MIGRATIONS = (
     Migration(1, "legacy_identity_and_message_columns", _upgrade_legacy_columns),
     Migration(2, "reserve_historic_identities", repair_legacy_accounts),
     Migration(3, "immutable_rag_evidence_snapshots", _add_evidence_snapshots),
     Migration(4, "google_identity_and_email_verification", _add_identity_providers),
     Migration(5, "field_dispatch_and_integrations", _add_dispatch_and_integration_columns),
+    Migration(6, "field_case_resolved_at", _add_case_resolved_at),
 )
 
 

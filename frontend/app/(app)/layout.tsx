@@ -42,7 +42,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const SECTIONS: { href: string; label: string }[] = [
     { href: "/field", label: "Ca hiện trường" },
     { href: "/chat", label: "Trợ lý tài liệu" },
-    { href: "/docs", label: "Tài liệu của đội" },
+    { href: "/docs", label: "Tài liệu cá nhân" },
     { href: "/analytics", label: "Thống kê" },
     { href: "/settings", label: "Cài đặt" },
     { href: "/admin/costs", label: "Chi phí AI & hạ tầng" },

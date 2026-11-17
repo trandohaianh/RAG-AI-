@@ -79,7 +79,7 @@ def compute_day(db: Session, day: date) -> AnalyticsDaily:
     row.llm_latency_p95_ms = _p95(latencies)
     row.cases_opened = db.query(ServiceCase).filter(*in_day(ServiceCase.created_at)).count()
     row.cases_resolved = db.query(ServiceCase).filter(
-        ServiceCase.status == "resolved", *in_day(ServiceCase.updated_at)).count()
+        ServiceCase.status == "resolved", *in_day(ServiceCase.resolved_at)).count()
     row.computed_at = datetime.now(timezone.utc)
     db.merge(row)
     return row

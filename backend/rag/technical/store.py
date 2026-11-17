@@ -9,6 +9,7 @@ import json
 import math
 import os
 import re
+import unicodedata
 import sqlite3
 import uuid
 from contextlib import closing
@@ -22,7 +23,8 @@ from .models import RETRIEVAL_FORMAT, Child, LayoutBundle, Parent, Scope, Techni
 
 def lexical_tokens(text: str) -> list[str]:
     # Token encoding prevents FTS syntax injection and FTS hyphen splitting.
-    raw = re.findall(r"[\w]+(?:[-_/][\w]+)*", text.casefold(), re.UNICODE)
+    # NFC trước casefold: dạng tổ hợp (NFD) cho token khác hẳn dạng dựng sẵn.
+    raw = re.findall(r"[\w]+(?:[-_/][\w]+)*", unicodedata.normalize("NFC", text).casefold(), re.UNICODE)
     return ["t" + token.encode("utf-8").hex() for token in raw]
 
 

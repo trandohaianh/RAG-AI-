@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from auth.schemas import CurrentUser
 from config import ALLOWED_EXTENSIONS, UPLOAD_DIR
 from database import get_db
-from dependencies import get_current_user
+from dependencies import get_current_user, require_csrf_header
 from field.models import FieldWorkspaceMember
 from pipeline.lineage import get_lineage_map
 from rag.ingest import delete_doc, format_ingest_error, ingest_file, list_user_docs
@@ -48,7 +48,8 @@ class UploadResult(BaseModel):
     filename: str
 
 
-@router.get("/suggested-questions", response_model=SuggestedQuestionsOut)
+@router.get("/suggested-questions", response_model=SuggestedQuestionsOut,
+            dependencies=[Depends(require_csrf_header)])
 async def suggested_questions(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -186,6 +187,10 @@ async def upload_doc(
         try:
             chunks = await ingest_file(user.id, dest, workspace_id=workspace_id, content=content)
         except Exception as exc:
+            from rag.ingest import UnsafeDocumentError
+
+            if isinstance(exc, UnsafeDocumentError):
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             status = 429 if "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc) else 500
             raise HTTPException(status_code=status, detail=format_ingest_error(exc)) from exc
 

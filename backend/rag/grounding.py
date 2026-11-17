@@ -5,6 +5,7 @@ simple polarity reversal against the closest source sentence. Paraphrases, scope
 double negation, quantities and more complex contradictions remain unverified.
 """
 import re
+import unicodedata
 
 _SENT_SPLIT_RE = re.compile(r"(?<=[.!?…])\s+|\n+")
 _WORD_RE = re.compile(r"[0-9a-zA-ZÀ-ỹà-ỹ]+", re.UNICODE)
@@ -18,6 +19,8 @@ _STOPWORDS = {
 
 
 def _words(text: str) -> set[str]:
+    # NFC: câu trả lời/ngữ cảnh dạng tổ hợp (NFD) bị cắt vụn ở dấu và trượt chấm điểm.
+    text = unicodedata.normalize("NFC", text)
     return {w.lower() for w in _WORD_RE.findall(text) if w.lower() not in _STOPWORDS and len(w) > 1}
 
 

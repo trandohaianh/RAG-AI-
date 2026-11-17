@@ -14,6 +14,7 @@ phép bỏ qua việc xếp lại.
 from __future__ import annotations
 
 import re
+import unicodedata
 import time
 
 import httpx
@@ -33,7 +34,8 @@ _ASK_MARKER = "Câu hỏi kỹ thuật viên:"
 
 
 def _tokens(text: str) -> set[str]:
-    return {w.lower() for w in _WORD.findall(text) if w.lower() not in _STOP}
+    # NFC: dạng tổ hợp (NFD) nằm ngoài dải À-ỹ nên từ có dấu bị cắt vụn.
+    return {w.lower() for w in _WORD.findall(unicodedata.normalize("NFC", text)) if w.lower() not in _STOP}
 
 
 def _section_title(text: str) -> str:

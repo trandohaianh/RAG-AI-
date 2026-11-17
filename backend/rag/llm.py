@@ -219,6 +219,8 @@ def read_image_text(data: bytes, mime: str, prompt: str) -> str:
     resp = client().models.generate_content(
         model=LLM_MODEL,
         contents=[types.Part.from_bytes(data=data, mime_type=mime), prompt],
+        # Cùng trần output như mọi lượt gọi khác: ingest_reserve_amount giả định OCR ≤ trần này.
+        config=types.GenerateContentConfig(max_output_tokens=LLM_MAX_OUTPUT_TOKENS),
     )
     text = resp.text or ""
     # Ảnh ≈ 258 token/ô 768px theo tài liệu Gemini; chỉ dùng khi API không trả usage.

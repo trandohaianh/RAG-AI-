@@ -46,7 +46,9 @@ def content_tokens(text: str) -> list[str]:
 # "tắt nguồn". Trước đây cụm bị phủ định vẫn tính là khớp: dữ kiện đúng nghĩa ngược vẫn "đạt",
 # và lời cảnh báo an toàn lại bị tính là nội dung cấm.
 # Chỉ dùng "không ...": sau khi bỏ dấu, "đừng/đúng", "chưa/chứa", "cấm/cầm" trùng chữ nhau.
-_NEGATION_TAIL = re.compile(r"(?:^|\s)(?:khong(?: duoc| nen| the| bao gio)?|never|do not|don t|not)\s*$")
+# Cho phép các trợ từ tình thái chen giữa ("không được PHÉP tắt nguồn", "không NÊN tự ý ...").
+_NEGATION_TAIL = re.compile(
+    r"(?:^|\s)(?:khong(?:\s+(?:duoc|phep|nen|the|bao|gio|can|tu|y|hay))*|never|do not|don t|not)\s*$")
 
 
 def _contains(haystack_norm: str, phrase: str) -> bool:
@@ -103,14 +105,34 @@ def groundedness(answer: str, contexts: list[str], threshold: float = 0.6) -> fl
     if not sentences:
         return None
     vocab = set()
+    ctx_sentences = []
     for ctx in contexts:
         vocab.update(content_tokens(ctx))
+        ctx_sentences.extend(set(content_tokens(s)) | ({"khong"} if _negated(s) else set()) for s in _sentences(ctx))
     supported = 0
     for sentence in sentences:
         tokens = content_tokens(sentence)
-        if tokens and sum(t in vocab for t in tokens) / len(tokens) >= threshold:
+        if tokens and sum(t in vocab for t in tokens) / len(tokens) >= threshold                 and not _flips_polarity(set(tokens), _negated(sentence), ctx_sentences):
             supported += 1
     return supported / len(sentences)
+
+
+def _negated(text: str) -> bool:
+    return re.search(r"(?<![\w])khong(?![\w])", normalize(text)) is not None
+
+
+def _flips_polarity(tokens: set[str], negated: bool, ctx_sentences: list[set[str]]) -> bool:
+    """Câu trả lời đảo nghĩa câu nguồn gần nhất ("Không tắt nguồn" vs "Tắt nguồn").
+
+    "khong" là stopword nên phép đếm từ ở trên không thấy nó; trước đây câu trả lời phủ định
+    ngược tài liệu vẫn được tính là "có căn cứ" 100%.
+    """
+    if not ctx_sentences:
+        return False
+    best = max(ctx_sentences, key=lambda c: len(tokens & c))
+    if not tokens & best:
+        return False
+    return negated != ("khong" in best)
 
 
 # --------------------------------------------------------------------------- retrieval

@@ -32,6 +32,15 @@ def request_token(request: Request, bearer: str | None) -> str | None:
     return token
 
 
+def require_csrf_header(request: Request) -> None:
+    """Cho route GET có tác dụng phụ tốn tiền (gọi LLM): cookie Lax vẫn được gửi khi điều hướng
+    cấp cao nhất, nên một trang lạ mở link lặp lại có thể đốt ngân sách AI ngày của nạn nhân."""
+    if request.headers.get("authorization", "").lower().startswith("bearer "):
+        return
+    if request.cookies.get(config.AUTH_COOKIE_NAME) and             request.headers.get(config.CSRF_HEADER, "").strip().lower() != config.CSRF_HEADER_VALUE:
+        raise HTTPException(status_code=403, detail="Thiếu header chống CSRF")
+
+
 def email_verification_required() -> bool:
     """Chỉ bắt buộc khi đã bật cờ VÀ có cấu hình gửi email (nếu không sẽ không ai xác thực được)."""
     import config

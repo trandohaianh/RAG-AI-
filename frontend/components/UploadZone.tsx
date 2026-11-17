@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Upload, Trash2, FileText, MessageSquare } from "lucide-react";
-import api, { SESSION_HEADERS, getApiErrorMessage, type Conversation, type DocItem, type LineageMap } from "@/lib/api";
+import api, { API_URL, SESSION_HEADERS, getApiErrorMessage, type Conversation, type DocItem, type LineageMap } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import LineageBadge from "@/components/LineageBadge";
@@ -60,7 +60,7 @@ export default function UploadZone({
           const xhr = new XMLHttpRequest();
           xhr.open(
             "POST",
-            `${process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000"}/documents/upload`
+            `${API_URL}/documents/upload`
           );
           // Phiên nằm trong cookie httpOnly; header chống CSRF bắt buộc cho request ghi.
           xhr.withCredentials = true;
