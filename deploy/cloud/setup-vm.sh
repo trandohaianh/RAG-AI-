@@ -60,10 +60,15 @@ if [ -n "${DUCKDNS_TOKEN:-}" ] && [[ "$APP_DOMAIN" == *.duckdns.org ]]; then
 fi
 
 log "6/6 Build và chạy"
-sudo docker network inspect edge >/dev/null 2>&1 || sudo docker network create edge
-sudo mkdir -p /opt/edge/sites
 cd "$APP_DIR/deploy/cloud"
-sudo docker compose --env-file .env up -d --build
+if [ "${SHARED_EDGE:-0}" = "1" ]; then
+  # Tuỳ chọn: Caddy này làm edge dùng chung cho dự án khác trên cùng VM (README: HTTPS riêng…).
+  sudo docker network inspect edge >/dev/null 2>&1 || sudo docker network create edge
+  sudo mkdir -p /opt/edge/sites
+  sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.shared-edge.yml up -d --build
+else
+  sudo docker compose --env-file .env up -d --build
+fi
 bash "$APP_DIR/deploy/cloud/smoke.sh" "https://$APP_DOMAIN" || true
 echo
 echo "Xong. Mở https://$APP_DOMAIN — tài khoản đăng ký đầu tiên là admin."

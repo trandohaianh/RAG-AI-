@@ -1,0 +1,15 @@
+# Opt-in: Caddy của FieldOps làm edge dùng chung cho dự án khác trên cùng VM (xem Caddyfile.shared-edge).
+# docker compose --env-file .env -f docker-compose.yml -f docker-compose.shared-edge.yml up -d
+services:
+  caddy:
+    volumes:
+      - ./Caddyfile.shared-edge:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile:/etc/caddy/fieldops.caddy:ro
+      - /opt/edge/sites:/etc/caddy/sites:ro
+    networks: [default, edge]
+
+networks:
+  # Dự án khác gắn container của họ vào mạng này để Caddy gọi được (docker network create edge).
+  edge:
+    external: true
+    name: edge

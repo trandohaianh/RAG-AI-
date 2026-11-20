@@ -316,3 +316,40 @@ def test_cloud_scheduler_container_does_not_inherit_the_http_healthcheck():
 
     compose = yaml.safe_load((ROOT / "deploy/cloud/docker-compose.yml").read_text(encoding="utf-8"))
     assert compose["services"]["pipeline"]["healthcheck"] == {"disable": True}
+
+
+# ============================================================================ per-project HTTPS (2026-11-20)
+def test_fieldops_caddy_serves_only_fieldops_by_default():
+    import yaml
+
+    caddyfile = (ROOT / "deploy/cloud/Caddyfile").read_text(encoding="utf-8")
+    assert "import /etc/caddy/sites" not in caddyfile, "other projects' sites only in the opt-in shared edge"
+    compose = yaml.safe_load((ROOT / "deploy/cloud/docker-compose.yml").read_text(encoding="utf-8"))
+    caddy = compose["services"]["caddy"]
+    assert "networks" not in caddy and "networks" not in compose
+    assert not any("/opt/edge" in v for v in caddy["volumes"])
+
+
+def test_shared_edge_is_an_opt_in_overlay():
+    import yaml
+
+    overlay = yaml.safe_load((ROOT / "deploy/cloud/docker-compose.shared-edge.yml").read_text(encoding="utf-8"))
+    assert overlay["networks"]["edge"]["external"] is True
+    assert "./Caddyfile:/etc/caddy/fieldops.caddy:ro" in overlay["services"]["caddy"]["volumes"]
+    shared = (ROOT / "deploy/cloud/Caddyfile.shared-edge").read_text(encoding="utf-8")
+    assert "import /etc/caddy/fieldops.caddy" in shared and "import /etc/caddy/sites/*.caddy" in shared
+    for script in ("deploy.sh", "setup-vm.sh"):
+        text = (ROOT / "deploy/cloud" / script).read_text(encoding="utf-8")
+        assert 'SHARED_EDGE:-0' in text, script
+        before, _, _ = text.partition('if [ "${SHARED_EDGE:-0}" = "1" ]')
+        assert "network create edge" not in before, f"{script} must not create the shared network by default"
+
+
+def test_api_image_runs_as_non_root_and_deploy_can_roll_back():
+    dockerfile = (BACKEND / "Dockerfile").read_text(encoding="utf-8")
+    assert "USER app" in dockerfile and "useradd --uid 1000" in dockerfile
+    deploy = (ROOT / "deploy/cloud/deploy.sh").read_text(encoding="utf-8")
+    assert 'docker tag "$image:local" "$image:previous"' in deploy
+    assert "chown -R 1000:1000 /app/data" in deploy
+    assert deploy.index("previous") < deploy.index("compose build") < deploy.index("smoke.sh")
+    assert "docker tag fieldops-api:previous fieldops-api:local" in deploy

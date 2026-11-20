@@ -105,22 +105,15 @@ services:
       APP_DOMAIN: ${APP_DOMAIN:?Thiếu APP_DOMAIN trong .env}
       # Bắt buộc: `email {$ACME_EMAIL}` rỗng là lỗi cú pháp Caddyfile.
       ACME_EMAIL: ${ACME_EMAIL:?Thiếu ACME_EMAIL trong .env}
+    # Mặc định Caddy CHỈ phục vụ FieldOps (mỗi dự án tự có HTTPS). Chế độ edge dùng chung cho dự
+    # án khác trên cùng VM là tuỳ chọn: docker-compose.shared-edge.yml + Caddyfile.shared-edge.
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      # Site của các dự án khác trên cùng VM (VD Telecom) được thả vào đây rồi `caddy reload`.
-      - /opt/edge/sites:/etc/caddy/sites:ro
       - caddy_data:/data
       - caddy_config:/config
-    networks: [default, edge]
     depends_on: [api, web]
 
 volumes:
   fieldops_data:
   caddy_data:
   caddy_config:
-
-networks:
-  # Mạng dùng chung với các dự án khác trên VM (setup-vm.sh tạo: docker network create edge).
-  edge:
-    external: true
-    name: edge

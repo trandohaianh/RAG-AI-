@@ -1,3 +1,5 @@
 # Shell script/Caddyfile chạy trên Linux: luôn LF kể cả khi checkout trên Windows.
 *.sh text eol=lf
 Caddyfile text eol=lf
+Caddyfile.* text eol=lf
+*.caddy text eol=lf

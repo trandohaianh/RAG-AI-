@@ -13,6 +13,12 @@ RUN python -m pip install --no-cache-dir --upgrade pip==26.2.2 \
 
 COPY . .
 
+# Chạy bằng user thường (uid 1000), không phải root. Volume mới tự nhận quyền của /app/data trong
+# image; volume CŨ (tạo khi còn chạy root) cần chown một lần — deploy/cloud/deploy.sh tự làm.
+# Railway: volume gắn vào luôn thuộc root → đặt RAILWAY_RUN_UID=0 nếu dùng volume.
+RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin app     && mkdir -p /app/data && chown -R app:app /app/data
+USER app
+
 ENV DATA_DIR=/app/data
 ENV PYTHONUNBUFFERED=1
 

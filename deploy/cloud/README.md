@@ -142,12 +142,36 @@ bash smoke.sh https://$APP_DOMAIN
   (và `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` cho bản web) khi build app. Phía server, thêm các client ID
   này vào `GOOGLE_CLIENT_ID`, phân tách bằng dấu phẩy.
 
-## Chạy thêm dự án khác trên cùng VM
+## HTTPS riêng cho mỗi dự án (mặc định) và edge dùng chung (tuỳ chọn)
 
-Caddy của FieldOps là "cổng" HTTPS chung. Nó nối vào mạng Docker `edge` (do `setup-vm.sh` tạo) và đọc
-thêm các file `/opt/edge/sites/*.caddy`. Mỗi dự án khác (Telecom, EduDSS…) tự thả một file site vào
-đó rồi chạy `docker exec fieldops-caddy-1 caddy reload --config /etc/caddy/Caddyfile`; script cài
-đặt của từng dự án đã làm sẵn bước này.
+**Mặc định:** Caddy trong `docker-compose.yml` chỉ phục vụ FieldOps (`$APP_DOMAIN`). FieldOps không
+phụ thuộc Caddy của dự án nào, và dự án khác (Telecom, EduDSS…) cũng không phụ thuộc Caddy này: mỗi
+dự án tự có reverse proxy và chứng chỉ trong compose của chính nó, deploy độc lập.
+
+Muốn nhiều dự án trên **cùng một VM** thì chúng không thể cùng nghe cổng 80/443. Hai cách:
+
+1. **Mỗi dự án một VM** (khuyến nghị nếu có VM miễn phí): độc lập hoàn toàn.
+2. **Edge dùng chung (tuỳ chọn, tiết kiệm một VM):** Caddy của FieldOps phục vụ thêm site của dự án
+   khác trên cùng VM.
+   - Bật bằng `SHARED_EDGE=1 bash deploy.sh` (hoặc `SHARED_EDGE=1` khi chạy `setup-vm.sh`). Lệnh này
+     dùng thêm `docker-compose.shared-edge.yml`: tạo mạng `edge`, gắn `/opt/edge/sites`, và
+     `Caddyfile.shared-edge` import cả `Caddyfile` của FieldOps lẫn `/opt/edge/sites/*.caddy`.
+   - Dự án kia tắt Caddy của chính nó, gắn container vào mạng `edge`, thả `<tên>.caddy` vào
+     `/opt/edge/sites`, rồi chạy:
+     `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile`
+   - Tắt chế độ này: chạy lại `bash deploy.sh` (không có `SHARED_EDGE`). Site của dự án kia sẽ
+     ngừng được phục vụ, nên trước đó dự án kia phải bật lại Caddy riêng của nó.
+
+## Rollback và chạy không phải root
+
+- `deploy.sh` gắn tag `:previous` cho image đang chạy trước khi build. Nếu `smoke.sh` thất bại, nó
+  quay về image cũ và trả mã lỗi.
+  - Nếu bản mới đã chạy migration CSDL, bản cũ sẽ từ chối khởi động vì gặp migration lạ. Khi đó
+    khôi phục `app.db` từ bản backup tạo ngay trước lần deploy:
+    `docker compose run --rm --no-deps api ls /app/data/backups`, rồi chép `app-<thời điểm>.db` đè
+    lên `/app/data/app.db` khi API đang dừng.
+- API chạy bằng uid 1000. Volume tạo từ thời còn chạy root được `deploy.sh` tự `chown` một lần
+  (lệnh `compose run --user root … chown`).
 
 ## Khi không lấy được VM Oracle
 

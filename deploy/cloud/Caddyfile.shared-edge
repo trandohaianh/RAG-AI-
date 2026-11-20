@@ -1,0 +1,7 @@
+# CHẾ ĐỘ TUỲ CHỌN "edge dùng chung" (tiết kiệm một VM): Caddy của FieldOps phục vụ thêm site của
+# dự án khác trên CÙNG VM. Mặc định KHÔNG dùng file này: mỗi dự án tự có HTTPS riêng.
+# Bật: SHARED_EDGE=1 bash deploy.sh  (dùng thêm docker-compose.shared-edge.yml).
+# Dự án khác thả file <tên>.caddy vào /opt/edge/sites rồi chạy:
+#   docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+import /etc/caddy/fieldops.caddy
+import /etc/caddy/sites/*.caddy
