@@ -62,9 +62,7 @@ function ResetPasswordForm() {
       ) : (
         <form onSubmit={onSubmit} className="mt-8 space-y-3 text-left">
           {error && (
-            <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-              {error}
-            </p>
+            <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>
           )}
           <div>
             <label className="mb-1.5 block text-xs font-medium text-white/60">Mật khẩu mới</label>

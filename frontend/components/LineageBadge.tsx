@@ -48,7 +48,8 @@ function resolve(lineage: LineageMap, filename: string): { label: string; tone: 
     return {
       label: "Chưa qua kiểm định",
       tone: "warning",
-      title: "Great Expectations phát hiện vấn đề chất lượng dữ liệu (chunk rỗng/trùng lặp/độ dài bất thường) — dữ liệu bị chặn ở tầng Silver, chưa lên Gold.",
+      title:
+        "Great Expectations phát hiện vấn đề chất lượng dữ liệu (chunk rỗng/trùng lặp/độ dài bất thường) — dữ liệu bị chặn ở tầng Silver, chưa lên Gold.",
     };
   }
   return {
@@ -78,7 +79,7 @@ export default function LineageBadge({ lineage, filename }: { lineage: LineageMa
       title={title}
       className={cn(
         "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap",
-        TONE_CLASS[tone]
+        TONE_CLASS[tone],
       )}
     >
       <Icon className="h-3 w-3" />

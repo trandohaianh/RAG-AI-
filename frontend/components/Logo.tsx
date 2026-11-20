@@ -4,7 +4,10 @@ import { cn } from "@/lib/utils";
 export function LogoMark({ size = 32, className }: { size?: number; className?: string }) {
   return (
     <div
-      className={cn("brand-gradient flex items-center justify-center rounded-[28%] shadow-xs shadow-black/20", className)}
+      className={cn(
+        "brand-gradient flex items-center justify-center rounded-[28%] shadow-xs shadow-black/20",
+        className,
+      )}
       style={{ width: size, height: size }}
     >
       <svg width={size * 0.56} height={size * 0.56} viewBox="0 0 24 24" fill="none">
@@ -22,7 +25,15 @@ export function LogoMark({ size = 32, className }: { size?: number; className?: 
   );
 }
 
-export default function Logo({ size = 32, textClassName, className }: { size?: number; textClassName?: string; className?: string }) {
+export default function Logo({
+  size = 32,
+  textClassName,
+  className,
+}: {
+  size?: number;
+  textClassName?: string;
+  className?: string;
+}) {
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
       <LogoMark size={size} />

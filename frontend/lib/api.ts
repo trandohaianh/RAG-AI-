@@ -76,8 +76,9 @@ function expireSession(epoch: string | null | undefined) {
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(USER_KEY);
   // Cookie không còn hợp lệ: xoá nó luôn (không cần chờ kết quả).
-  void fetch(`${API_URL}/auth/logout`, { method: "POST", credentials: "include", headers: SESSION_HEADERS })
-    .catch(() => undefined);
+  void fetch(`${API_URL}/auth/logout`, { method: "POST", credentials: "include", headers: SESSION_HEADERS }).catch(
+    () => undefined,
+  );
   // Tải lại hẳn trang (không dùng router): xoá mọi state trong bộ nhớ của phiên vừa hết hạn.
   // eslint-disable-next-line @next/next/no-location-assign-relative-destination
   if (!window.location.pathname.startsWith("/login")) window.location.href = "/login";
@@ -93,14 +94,27 @@ api.interceptors.response.use(
     const isAuthEndpoint = url.includes("/auth/login") || url.includes("/auth/register");
     if (status === 401 && !isAuthEndpoint) expireSession(err.config?.sessionEpoch);
     return Promise.reject(err);
-  }
+  },
 );
 
 export default api;
 
-export type Evidence = { reference_id: string; chunk_id: string | null; source: string; page: number | null;
-  document_version: string | null; collection_revision: string | null; content_sha256: string; quote: string };
-export type CitationAudit = { status: string; cited_references: string[]; invalid_references: string[]; semantic_support_verified: boolean };
+export type Evidence = {
+  reference_id: string;
+  chunk_id: string | null;
+  source: string;
+  page: number | null;
+  document_version: string | null;
+  collection_revision: string | null;
+  content_sha256: string;
+  quote: string;
+};
+export type CitationAudit = {
+  status: string;
+  cited_references: string[];
+  invalid_references: string[];
+  semantic_support_verified: boolean;
+};
 export type EvidenceBundle = { evidence?: Evidence[]; citation_audit?: CitationAudit | null };
 export type Conversation = { id: number; title: string; created_at: string };
 export type Message = EvidenceBundle & {
@@ -211,7 +225,13 @@ export type PlanStop = {
 
 export type SchedulePlan = {
   date: string;
-  routes: { technician_id: number; technician: string | null; travel_minutes: number; distance_km: number; stops: PlanStop[] }[];
+  routes: {
+    technician_id: number;
+    technician: string | null;
+    travel_minutes: number;
+    distance_km: number;
+    stops: PlanStop[];
+  }[];
   unassigned: { case_id: number; title: string | null; reason: string }[];
   travel_minutes: number;
   distance_km: number;
@@ -261,10 +281,7 @@ export async function getDocLineage(): Promise<LineageMap> {
 }
 
 export async function sendFeedback(convId: number, messageId: number, rating: -1 | 0 | 1) {
-  const res = await api.post<Message>(
-    `/conversations/${convId}/messages/${messageId}/feedback`,
-    { rating }
-  );
+  const res = await api.post<Message>(`/conversations/${convId}/messages/${messageId}/feedback`, { rating });
   return res.data;
 }
 
@@ -276,7 +293,7 @@ export async function streamChat(
     onDone: (sources: string[], messageId: number | null, evidence?: Evidence[], audit?: CitationAudit | null) => void;
     onError: (e: string) => void;
   },
-  source?: string | null
+  source?: string | null,
 ) {
   const epoch = currentSession();
   const res = await fetch(`${API_URL}/chat/${convId}`, {
@@ -312,7 +329,13 @@ export async function streamChat(
           return;
         }
         if (data.token) callbacks.onToken(data.token);
-        if (data.done) callbacks.onDone(data.sources ?? [], data.message_id ?? null, data.evidence ?? [], data.citation_audit ?? null);
+        if (data.done)
+          callbacks.onDone(
+            data.sources ?? [],
+            data.message_id ?? null,
+            data.evidence ?? [],
+            data.citation_audit ?? null,
+          );
       } catch {
         /* skip */
       }

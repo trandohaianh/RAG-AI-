@@ -41,10 +41,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
 
   const load = async () => {
     try {
-      const [c, d] = await Promise.all([
-        api.get<Conversation[]>("/conversations"),
-        api.get<DocItem[]>("/documents"),
-      ]);
+      const [c, d] = await Promise.all([api.get<Conversation[]>("/conversations"), api.get<DocItem[]>("/documents")]);
       setConversations(Array.isArray(c.data) ? c.data : []);
       setDocs(Array.isArray(d.data) ? d.data : []);
     } catch {
@@ -119,7 +116,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
             onClick={onMobileClose}
             className={cn(
               "flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-slate-600 hover:bg-white hover:shadow-xs transition-all",
-              activeHref === n.href && "bg-white shadow-xs font-medium text-slate-900"
+              activeHref === n.href && "bg-white shadow-xs font-medium text-slate-900",
             )}
           >
             <n.icon className={cn("h-4 w-4", activeHref === n.href && "text-primary")} />
@@ -140,7 +137,9 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
 
       <ScrollArea className="flex-1 px-3 mt-5">
         {conversations.length > 0 && (
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 px-2 py-1">Hội thoại gần đây</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 px-2 py-1">
+            Hội thoại gần đây
+          </p>
         )}
         <ul className="space-y-0.5 pb-4">
           {conversations.map((c) => (
@@ -150,8 +149,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
                 onClick={onMobileClose}
                 className={cn(
                   "flex-1 min-w-0 rounded-lg px-2.5 py-1.5 text-sm truncate text-slate-600 hover:bg-white hover:shadow-xs transition-all",
-                  pathname === `/chat/${c.id}` &&
-                    "bg-white shadow-xs font-medium text-slate-900"
+                  pathname === `/chat/${c.id}` && "bg-white shadow-xs font-medium text-slate-900",
                 )}
               >
                 {c.title}
@@ -169,7 +167,9 @@ export default function Sidebar({ mobileOpen, onMobileClose }: Props) {
         </ul>
 
         {docs.length > 0 && (
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 px-2 py-1">Tài liệu cá nhân</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 px-2 py-1">
+            Tài liệu cá nhân
+          </p>
         )}
         <ul className="space-y-0.5 pb-3">
           {docs.slice(0, 8).map((d) => (

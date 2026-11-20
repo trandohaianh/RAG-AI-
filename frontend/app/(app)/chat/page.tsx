@@ -48,11 +48,7 @@ export default function ChatIndexPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-        Đang tải...
-      </div>
-    );
+    return <div className="flex h-full items-center justify-center text-muted-foreground text-sm">Đang tải...</div>;
   }
 
   return (

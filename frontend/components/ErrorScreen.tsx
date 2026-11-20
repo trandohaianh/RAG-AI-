@@ -32,9 +32,7 @@ export default function ErrorScreen({ title, message, onRetry, digest }: Props) 
       <div className="max-w-md w-full rounded-xl border border-slate-200 bg-white p-6 text-center shadow-xs">
         <h1 className="text-lg font-semibold text-slate-900">{title}</h1>
         <p className="mt-2 text-sm text-slate-600">{message}</p>
-        <p className="mt-1 text-xs text-slate-400">
-          Các thao tác chưa gửi (chế độ offline) vẫn được giữ trên máy.
-        </p>
+        <p className="mt-1 text-xs text-slate-400">Các thao tác chưa gửi (chế độ offline) vẫn được giữ trên máy.</p>
         <div className="mt-5 flex flex-wrap justify-center gap-2">
           <button
             type="button"

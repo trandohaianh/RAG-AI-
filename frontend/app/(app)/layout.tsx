@@ -21,9 +21,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (!mounted || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-muted-foreground text-sm">
-        Đang tải...
-      </div>
+      <div className="min-h-screen flex items-center justify-center text-muted-foreground text-sm">Đang tải...</div>
     );
   }
 

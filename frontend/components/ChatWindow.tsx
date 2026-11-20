@@ -7,14 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import SuggestionChips from "@/components/SuggestionChips";
-import api, {
-  getDocLineage,
-  sendFeedback,
-  streamChat,
-  type DocItem,
-  type LineageMap,
-  type Message,
-} from "@/lib/api";
+import api, { getDocLineage, sendFeedback, streamChat, type DocItem, type LineageMap, type Message } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -73,8 +66,8 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
                       eval_faithfulness: found.eval_faithfulness,
                       eval_relevancy: found.eval_relevancy,
                     }
-                  : m
-              )
+                  : m,
+              ),
             );
             return;
           }
@@ -83,7 +76,7 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
         }
       }
     },
-    [convId]
+    [convId],
   );
 
   const send = useCallback(
@@ -98,65 +91,69 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
         { role: "assistant", content: "", streaming: true },
       ]);
 
-      await streamChat(convId, question, {
-        onToken: (token) => {
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last?.role === "assistant") {
-              next[next.length - 1] = { ...last, content: last.content + token, streaming: true };
-            }
-            return next;
-          });
-        },
-        onDone: (sources, messageId, evidence, citation_audit) => {
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last?.role === "assistant") {
+      await streamChat(
+        convId,
+        question,
+        {
+          onToken: (token) => {
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant") {
+                next[next.length - 1] = { ...last, content: last.content + token, streaming: true };
+              }
+              return next;
+            });
+          },
+          onDone: (sources, messageId, evidence, citation_audit) => {
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant") {
+                next[next.length - 1] = {
+                  ...last,
+                  sources,
+                  evidence,
+                  citation_audit,
+                  streaming: false,
+                  id: messageId ?? undefined,
+                  rating: null,
+                };
+              }
+              return next;
+            });
+            setLoading(false);
+            if (messageId) pollEvalScore(messageId);
+          },
+          onError: (err) => {
+            setMessages((prev) => {
+              const next = [...prev];
               next[next.length - 1] = {
-                ...last,
-                sources, evidence, citation_audit,
+                role: "assistant",
+                content: `Lỗi: ${err}`,
                 streaming: false,
-                id: messageId ?? undefined,
-                rating: null,
               };
-            }
-            return next;
-          });
-          setLoading(false);
-          if (messageId) pollEvalScore(messageId);
+              return next;
+            });
+            setLoading(false);
+          },
         },
-        onError: (err) => {
-          setMessages((prev) => {
-            const next = [...prev];
-            next[next.length - 1] = {
-              role: "assistant",
-              content: `Lỗi: ${err}`,
-              streaming: false,
-            };
-            return next;
-          });
-          setLoading(false);
-        },
-      }, selectedSource);
+        selectedSource,
+      );
     },
-    [convId, loading, selectedSource, pollEvalScore]
+    [convId, loading, selectedSource, pollEvalScore],
   );
-
 
   const handleRate = useCallback(
     async (messageId: number, rating: -1 | 0 | 1) => {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? { ...m, rating } : m))
-      );
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, rating } : m)));
       try {
         await sendFeedback(convId, messageId, rating);
       } catch {
         /* bỏ qua lỗi feedback — không chặn luồng chat */
       }
     },
-    [convId]
+    [convId],
   );
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -229,7 +226,7 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
                   }}
                   className={cn(
                     "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-slate-50",
-                    selectedSource === null && "bg-primary/5 font-medium text-primary"
+                    selectedSource === null && "bg-primary/5 font-medium text-primary",
                   )}
                 >
                   Tất cả tài liệu
@@ -244,7 +241,7 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
                     }}
                     className={cn(
                       "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-slate-50",
-                      selectedSource === d.name && "bg-primary/5 font-medium text-primary"
+                      selectedSource === d.name && "bg-primary/5 font-medium text-primary",
                     )}
                   >
                     <span className="truncate">{d.name}</span>
@@ -284,4 +281,3 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
     </div>
   );
 }
-

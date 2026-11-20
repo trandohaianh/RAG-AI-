@@ -23,11 +23,12 @@ export default function ChatDetailPage() {
             role: m.role as "user" | "assistant",
             content: m.content,
             sources: m.sources,
-            evidence: m.evidence, citation_audit: m.citation_audit,
+            evidence: m.evidence,
+            citation_audit: m.citation_audit,
             rating: m.rating,
             eval_faithfulness: m.eval_faithfulness,
             eval_relevancy: m.eval_relevancy,
-          }))
+          })),
         );
       })
       .catch(() => setInitial([]))
@@ -35,11 +36,7 @@ export default function ChatDetailPage() {
   }, [convId]);
 
   if (!ready) {
-    return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        Đang tải hội thoại...
-      </div>
-    );
+    return <div className="flex h-full items-center justify-center text-muted-foreground">Đang tải hội thoại...</div>;
   }
 
   return (

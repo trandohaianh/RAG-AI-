@@ -13,16 +13,26 @@ type CostSummary = {
   billing_tier: "free" | "paid";
   pricing_checked_at: string;
   totals: {
-    llm_usd: number; input_tokens: number; output_tokens: number; requests: number;
-    answer_requests: number; cost_per_answer_usd: number; estimated_events: number; error_events: number;
+    llm_usd: number;
+    input_tokens: number;
+    output_tokens: number;
+    requests: number;
+    answer_requests: number;
+    cost_per_answer_usd: number;
+    estimated_events: number;
+    error_events: number;
   };
   by_day: DayPoint[];
   by_feature: (Breakdown & { feature: string })[];
   by_model: (Breakdown & { model: string })[];
   top_users: (Breakdown & { user_id: number; email: string })[];
   month: {
-    month: string; llm_to_date_usd: number; llm_projected_usd: number; infra_usd: number;
-    total_projected_usd: number; infra_items: InfraItem[];
+    month: string;
+    llm_to_date_usd: number;
+    llm_projected_usd: number;
+    infra_usd: number;
+    total_projected_usd: number;
+    infra_items: InfraItem[];
   };
   budget: { daily_limit_usd: number; user_daily_limit_usd: number; spent_today_usd: number };
 };
@@ -87,50 +97,65 @@ function DailyChart({ days }: { days: DayPoint[] }) {
   return (
     <div className="relative">
       <div className="overflow-x-auto">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[560px]" role="img" aria-label="Chi phí AI theo ngày">
-        {ticks.map((t) => {
-          const y = pad.top + innerH - (max ? (t / max) * innerH : 0);
-          return (
-            <g key={t}>
-              <line x1={pad.left} x2={width - pad.right} y1={y} y2={y} stroke="#e2e8f0" strokeWidth={1} />
-              <text x={pad.left - 6} y={y + 4} textAnchor="end" fontSize={10} fill="#64748b">
-                {usd(t)}
-              </text>
-            </g>
-          );
-        })}
-        {days.map((d, i) => {
-          const h = max ? (d.cost_usd / max) * innerH : 0;
-          const x = pad.left + i * slot + (slot - barW) / 2;
-          const y = pad.top + innerH - h;
-          return (
-            <g key={d.date} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
-              {/* vùng hover rộng hơn cột */}
-              <rect x={pad.left + i * slot} y={pad.top} width={slot} height={innerH} fill="transparent" />
-              {h > 0 && (
-                <path
-                  d={roundedTop(x, y, barW, h)}
-                  fill={hover === i ? "hsl(243 75% 48%)" : "hsl(243 75% 59%)"}
-                />
-              )}
-              {(i === 0 || i === days.length - 1 || i === Math.floor(days.length / 2)) && (
-                <text x={pad.left + i * slot + slot / 2} y={height - 6} textAnchor="middle" fontSize={10} fill="#64748b">
-                  {d.date.slice(5)}
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          className="w-full min-w-[560px]"
+          role="img"
+          aria-label="Chi phí AI theo ngày"
+        >
+          {ticks.map((t) => {
+            const y = pad.top + innerH - (max ? (t / max) * innerH : 0);
+            return (
+              <g key={t}>
+                <line x1={pad.left} x2={width - pad.right} y1={y} y2={y} stroke="#e2e8f0" strokeWidth={1} />
+                <text x={pad.left - 6} y={y + 4} textAnchor="end" fontSize={10} fill="#64748b">
+                  {usd(t)}
                 </text>
-              )}
-            </g>
-          );
-        })}
-        <line x1={pad.left} x2={width - pad.right} y1={pad.top + innerH} y2={pad.top + innerH} stroke="#cbd5e1" />
-      </svg>
+              </g>
+            );
+          })}
+          {days.map((d, i) => {
+            const h = max ? (d.cost_usd / max) * innerH : 0;
+            const x = pad.left + i * slot + (slot - barW) / 2;
+            const y = pad.top + innerH - h;
+            return (
+              <g key={d.date} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
+                {/* vùng hover rộng hơn cột */}
+                <rect x={pad.left + i * slot} y={pad.top} width={slot} height={innerH} fill="transparent" />
+                {h > 0 && (
+                  <path d={roundedTop(x, y, barW, h)} fill={hover === i ? "hsl(243 75% 48%)" : "hsl(243 75% 59%)"} />
+                )}
+                {(i === 0 || i === days.length - 1 || i === Math.floor(days.length / 2)) && (
+                  <text
+                    x={pad.left + i * slot + slot / 2}
+                    y={height - 6}
+                    textAnchor="middle"
+                    fontSize={10}
+                    fill="#64748b"
+                  >
+                    {d.date.slice(5)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+          <line x1={pad.left} x2={width - pad.right} y1={pad.top + innerH} y2={pad.top + innerH} stroke="#cbd5e1" />
+        </svg>
       </div>
       {active && (
         <div className="pointer-events-none absolute right-2 top-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
           <p className="font-medium text-slate-900">{active.date}</p>
-          <p className="text-slate-600">Chi phí: <span className="tabular-nums text-slate-900">{usd(active.cost_usd)}</span></p>
-          <p className="text-slate-600">Lượt gọi: <span className="tabular-nums text-slate-900">{active.requests}</span></p>
           <p className="text-slate-600">
-            Token: <span className="tabular-nums text-slate-900">{tokens(active.input_tokens)} vào / {tokens(active.output_tokens)} ra</span>
+            Chi phí: <span className="tabular-nums text-slate-900">{usd(active.cost_usd)}</span>
+          </p>
+          <p className="text-slate-600">
+            Lượt gọi: <span className="tabular-nums text-slate-900">{active.requests}</span>
+          </p>
+          <p className="text-slate-600">
+            Token:{" "}
+            <span className="tabular-nums text-slate-900">
+              {tokens(active.input_tokens)} vào / {tokens(active.output_tokens)} ra
+            </span>
           </p>
         </div>
       )}
@@ -139,8 +164,14 @@ function DailyChart({ days }: { days: DayPoint[] }) {
 }
 
 function BreakdownTable<T extends Breakdown>({
-  rows, label, name,
-}: { rows: T[]; label: string; name: (row: T) => string }) {
+  rows,
+  label,
+  name,
+}: {
+  rows: T[];
+  label: string;
+  name: (row: T) => string;
+}) {
   const total = rows.reduce((s, r) => s + r.cost_usd, 0);
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
@@ -165,7 +196,10 @@ function BreakdownTable<T extends Breakdown>({
                   <td className="py-2 pr-2">
                     <div className="text-slate-800">{name(r)}</div>
                     <div className="mt-1 h-1.5 rounded-full bg-slate-100">
-                      <div className="h-1.5 rounded-full bg-primary" style={{ width: `${Math.max(share * 100, share ? 2 : 0)}%` }} />
+                      <div
+                        className="h-1.5 rounded-full bg-primary"
+                        style={{ width: `${Math.max(share * 100, share ? 2 : 0)}%` }}
+                      />
                     </div>
                   </td>
                   <td className="py-2 text-right tabular-nums text-slate-600">{r.requests}</td>
@@ -206,10 +240,32 @@ function InfraForm({ month, onSaved }: { month: string; onSaved: () => void }) {
   const input = "rounded-md border border-slate-200 px-2.5 py-1.5 text-sm";
   return (
     <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
-      <input className={input} placeholder="Nhà cung cấp (VD Oracle Cloud)" value={provider} onChange={(e) => setProvider(e.target.value)} required />
-      <input className={input} placeholder="Khoản mục (VD VM A1 2 OCPU)" value={item} onChange={(e) => setItem(e.target.value)} required />
-      <input className={`${input} w-28`} type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} aria-label="Số tiền USD" />
-      <button type="submit" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white">Thêm</button>
+      <input
+        className={input}
+        placeholder="Nhà cung cấp (VD Oracle Cloud)"
+        value={provider}
+        onChange={(e) => setProvider(e.target.value)}
+        required
+      />
+      <input
+        className={input}
+        placeholder="Khoản mục (VD VM A1 2 OCPU)"
+        value={item}
+        onChange={(e) => setItem(e.target.value)}
+        required
+      />
+      <input
+        className={`${input} w-28`}
+        type="number"
+        step="0.01"
+        min="0"
+        value={amount}
+        onChange={(e) => setAmount(e.target.value)}
+        aria-label="Số tiền USD"
+      />
+      <button type="submit" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white">
+        Thêm
+      </button>
       {error && <p className="w-full text-xs text-red-600">{error}</p>}
     </form>
   );
@@ -289,8 +345,16 @@ export default function CostsPage() {
       {data && (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label={`Chi phí AI ${days} ngày`} value={usd(data.totals.llm_usd)} hint={`${data.totals.requests} lượt gọi model`} />
-            <Stat label="Chi phí / câu trả lời" value={usd(data.totals.cost_per_answer_usd)} hint={`${data.totals.answer_requests} câu trả lời`} />
+            <Stat
+              label={`Chi phí AI ${days} ngày`}
+              value={usd(data.totals.llm_usd)}
+              hint={`${data.totals.requests} lượt gọi model`}
+            />
+            <Stat
+              label="Chi phí / câu trả lời"
+              value={usd(data.totals.cost_per_answer_usd)}
+              hint={`${data.totals.answer_requests} câu trả lời`}
+            />
             <Stat
               label="Token đã dùng"
               value={tokens(data.totals.input_tokens + data.totals.output_tokens)}
@@ -306,7 +370,11 @@ export default function CostsPage() {
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
             <div className="mb-2 flex items-center">
               <h3 className="text-sm font-medium text-slate-900">Chi phí AI theo ngày (USD)</h3>
-              <button type="button" onClick={() => setShowTable((v) => !v)} className="ml-auto text-xs text-slate-500 hover:text-slate-900">
+              <button
+                type="button"
+                onClick={() => setShowTable((v) => !v)}
+                className="ml-auto text-xs text-slate-500 hover:text-slate-900"
+              >
                 {showTable ? "Xem biểu đồ" : "Xem bảng số"}
               </button>
             </div>
@@ -314,19 +382,25 @@ export default function CostsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs text-slate-500">
-                    <th className="font-normal">Ngày</th><th className="text-right font-normal">Lượt</th>
-                    <th className="text-right font-normal">Token vào</th><th className="text-right font-normal">Token ra</th>
+                    <th className="font-normal">Ngày</th>
+                    <th className="text-right font-normal">Lượt</th>
+                    <th className="text-right font-normal">Token vào</th>
+                    <th className="text-right font-normal">Token ra</th>
                     <th className="text-right font-normal">Chi phí</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.by_day.filter((d) => d.requests > 0).map((d) => (
-                    <tr key={d.date} className="border-t border-slate-100 tabular-nums">
-                      <td className="py-1">{d.date}</td><td className="text-right">{d.requests}</td>
-                      <td className="text-right">{tokens(d.input_tokens)}</td><td className="text-right">{tokens(d.output_tokens)}</td>
-                      <td className="text-right">{usd(d.cost_usd)}</td>
-                    </tr>
-                  ))}
+                  {data.by_day
+                    .filter((d) => d.requests > 0)
+                    .map((d) => (
+                      <tr key={d.date} className="border-t border-slate-100 tabular-nums">
+                        <td className="py-1">{d.date}</td>
+                        <td className="text-right">{d.requests}</td>
+                        <td className="text-right">{tokens(d.input_tokens)}</td>
+                        <td className="text-right">{tokens(d.output_tokens)}</td>
+                        <td className="text-right">{usd(d.cost_usd)}</td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             ) : (
@@ -341,7 +415,11 @@ export default function CostsPage() {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <BreakdownTable rows={data.by_feature} label="Theo tính năng" name={(r) => FEATURE_LABELS[r.feature] ?? r.feature} />
+            <BreakdownTable
+              rows={data.by_feature}
+              label="Theo tính năng"
+              name={(r) => FEATURE_LABELS[r.feature] ?? r.feature}
+            />
             <BreakdownTable rows={data.by_model} label="Theo model" name={(r) => r.model} />
           </div>
 
@@ -351,8 +429,8 @@ export default function CostsPage() {
               <h3 className="text-sm font-medium text-slate-900">Ngân sách AI hôm nay</h3>
               {budgetPct === null ? (
                 <p className="mt-2 text-sm text-slate-500">
-                  Chưa đặt giới hạn. Đặt <code className="text-xs">LLM_DAILY_BUDGET_USD</code> để tự chặn khi vượt.
-                  Đã dùng hôm nay: {usd(data.budget.spent_today_usd)}.
+                  Chưa đặt giới hạn. Đặt <code className="text-xs">LLM_DAILY_BUDGET_USD</code> để tự chặn khi vượt. Đã
+                  dùng hôm nay: {usd(data.budget.spent_today_usd)}.
                 </p>
               ) : (
                 <>
@@ -360,13 +438,22 @@ export default function CostsPage() {
                     {usd(data.budget.spent_today_usd)} / {usd(data.budget.daily_limit_usd)}
                   </p>
                   <div className="mt-2 h-2 rounded-full bg-slate-100">
-                    <div className={`h-2 rounded-full ${budgetPct >= 90 ? "bg-red-500" : "bg-primary"}`} style={{ width: `${budgetPct}%` }} />
+                    <div
+                      className={`h-2 rounded-full ${budgetPct >= 90 ? "bg-red-500" : "bg-primary"}`}
+                      style={{ width: `${budgetPct}%` }}
+                    />
                   </div>
-                  {budgetPct >= 90 && <p className="mt-1 text-xs text-red-600">Sắp chạm giới hạn — yêu cầu mới sẽ bị từ chối khi đạt 100%.</p>}
+                  {budgetPct >= 90 && (
+                    <p className="mt-1 text-xs text-red-600">
+                      Sắp chạm giới hạn — yêu cầu mới sẽ bị từ chối khi đạt 100%.
+                    </p>
+                  )}
                 </>
               )}
               {data.budget.user_daily_limit_usd > 0 && (
-                <p className="mt-2 text-xs text-slate-500">Giới hạn mỗi người dùng: {usd(data.budget.user_daily_limit_usd)}/ngày.</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  Giới hạn mỗi người dùng: {usd(data.budget.user_daily_limit_usd)}/ngày.
+                </p>
               )}
             </div>
           </div>
@@ -374,7 +461,8 @@ export default function CostsPage() {
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
             <h3 className="text-sm font-medium text-slate-900">Chi phí hạ tầng tháng {data.month.month}</h3>
             <p className="mb-3 mt-1 text-xs text-slate-500">
-              Nhập tay từng khoản (VPS, tên miền, dịch vụ ngoài). Gói free vẫn nên ghi $0 để biết đang phụ thuộc vào đâu.
+              Nhập tay từng khoản (VPS, tên miền, dịch vụ ngoài). Gói free vẫn nên ghi $0 để biết đang phụ thuộc vào
+              đâu.
             </p>
             {data.month.infra_items.length > 0 && (
               <table className="mb-3 w-full text-sm">
@@ -385,7 +473,12 @@ export default function CostsPage() {
                       <td className="py-1.5 text-slate-600">{r.item}</td>
                       <td className="py-1.5 text-right tabular-nums">{usd(r.amount_usd)}</td>
                       <td className="w-8 py-1.5 text-right">
-                        <button type="button" onClick={() => removeInfra(r.id)} aria-label="Xoá" className="text-slate-400 hover:text-red-600">
+                        <button
+                          type="button"
+                          onClick={() => removeInfra(r.id)}
+                          aria-label="Xoá"
+                          className="text-slate-400 hover:text-red-600"
+                        >
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </td>

@@ -4,12 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import api, { getApiErrorMessage } from "@/lib/api";
-import {
-  StatsCards,
-  UsersTable,
-  type AdminStats,
-  type AdminUser,
-} from "@/components/AdminTable";
+import { StatsCards, UsersTable, type AdminStats, type AdminUser } from "@/components/AdminTable";
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
@@ -23,10 +18,7 @@ export default function AdminPage() {
     setDataLoading(true);
     setError(null);
     try {
-      const [s, u] = await Promise.all([
-        api.get<AdminStats>("/admin/stats"),
-        api.get<AdminUser[]>("/admin/users"),
-      ]);
+      const [s, u] = await Promise.all([api.get<AdminStats>("/admin/stats"), api.get<AdminUser[]>("/admin/users")]);
       setStats(s.data);
       setUsers(Array.isArray(u.data) ? u.data : []);
     } catch (e) {
@@ -69,15 +61,12 @@ export default function AdminPage() {
         <div className="rounded-md border border-destructive/50 bg-destructive/10 text-destructive text-sm px-4 py-3">
           {error}
           <p className="mt-2 text-xs text-muted-foreground">
-            Chỉ user có role <strong>admin</strong> mới xem được trang này. User đầu tiên đăng ký
-            sẽ là admin.
+            Chỉ user có role <strong>admin</strong> mới xem được trang này. User đầu tiên đăng ký sẽ là admin.
           </p>
         </div>
       )}
 
-      {dataLoading && !stats && !error && (
-        <p className="text-sm text-muted-foreground">Đang tải thống kê...</p>
-      )}
+      {dataLoading && !stats && !error && <p className="text-sm text-muted-foreground">Đang tải thống kê...</p>}
 
       {stats && <StatsCards stats={stats} />}
 

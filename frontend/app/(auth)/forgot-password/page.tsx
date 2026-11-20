@@ -33,17 +33,15 @@ export default function ForgotPasswordPage() {
         <LogoMark size={56} className="mx-auto shadow-lg shadow-black/40" />
 
         <h1 className="mt-6 text-3xl font-semibold tracking-tight">Quên mật khẩu?</h1>
-        <p className="mt-2 text-sm text-white/50">
-          Nhập email đã đăng ký — chúng tôi sẽ gửi link đặt lại mật khẩu.
-        </p>
+        <p className="mt-2 text-sm text-white/50">Nhập email đã đăng ký — chúng tôi sẽ gửi link đặt lại mật khẩu.</p>
 
         {sent ? (
           <div className="mt-8 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-5 text-left">
             <div className="flex items-start gap-3">
               <Mail className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" />
               <p className="text-sm text-emerald-200">
-                Nếu <strong>{email}</strong> tồn tại trong hệ thống, một email chứa link đặt lại mật
-                khẩu đã được gửi tới. Kiểm tra cả mục Spam nếu chưa thấy sau vài phút.
+                Nếu <strong>{email}</strong> tồn tại trong hệ thống, một email chứa link đặt lại mật khẩu đã được gửi
+                tới. Kiểm tra cả mục Spam nếu chưa thấy sau vài phút.
               </p>
             </div>
           </div>

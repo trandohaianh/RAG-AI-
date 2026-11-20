@@ -46,7 +46,7 @@ export default function MessageBubble({ message, onRate, lineage = {}, convId }:
           "max-w-[85%] rounded-xl px-4 py-3 text-[13px] leading-relaxed",
           isUser
             ? "brand-gradient rounded-br-sm text-white shadow-md shadow-black/10"
-            : "rounded-bl-sm border border-slate-200 bg-white text-card-foreground shadow-xs"
+            : "rounded-bl-sm border border-slate-200 bg-white text-card-foreground shadow-xs",
         )}
       >
         {!isUser && message.streaming && !message.content && (
@@ -72,55 +72,73 @@ export default function MessageBubble({ message, onRate, lineage = {}, convId }:
           </div>
         )}
 
-        {!isUser && !message.streaming && <EvidencePanel key={`${convId ?? "embed"}:${message.id ?? "new"}:${message.evidence?.map(item => item.content_sha256).join(",")}`} evidence={message.evidence} audit={message.citation_audit} lineage={lineage}
-          checkVersion={convId && message.id ? async reference => (await api.get(`/conversations/${convId}/messages/${message.id}/evidence/${encodeURIComponent(reference)}`)).data.document_status : undefined} />}
-        {!isUser && !message.evidence?.length && message.sources && message.sources.length > 0 && !message.streaming && (
-          <Collapsible open={open} onOpenChange={setOpen} className="mt-3">
-            <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-              {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-              Nguồn tài liệu
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2 flex flex-wrap items-center gap-1.5">
-              {message.sources.map((s) => (
-                <span key={s} className="inline-flex items-center gap-1">
-                  <Badge variant="outline" className="cursor-default text-xs">
-                    {s}
-                  </Badge>
-                  <LineageBadge lineage={lineage} filename={s} />
-                </span>
-              ))}
-            </CollapsibleContent>
-          </Collapsible>
+        {!isUser && !message.streaming && (
+          <EvidencePanel
+            key={`${convId ?? "embed"}:${message.id ?? "new"}:${message.evidence?.map((item) => item.content_sha256).join(",")}`}
+            evidence={message.evidence}
+            audit={message.citation_audit}
+            lineage={lineage}
+            checkVersion={
+              convId && message.id
+                ? async (reference) =>
+                    (
+                      await api.get(
+                        `/conversations/${convId}/messages/${message.id}/evidence/${encodeURIComponent(reference)}`,
+                      )
+                    ).data.document_status
+                : undefined
+            }
+          />
         )}
-
         {!isUser &&
-          !message.streaming &&
-          (message.eval_faithfulness != null || message.eval_relevancy != null) && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              {message.eval_faithfulness != null && (
-                <span
-                  title="Faithfulness — mức độ câu trả lời bám sát tài liệu nguồn (chấm tự động bởi AI)"
-                  className={cn(
-                    "rounded-full border px-2 py-0.5 text-[10px] font-medium",
-                    scoreColor(message.eval_faithfulness)
-                  )}
-                >
-                  Bám sát nguồn {Math.round(message.eval_faithfulness * 100)}%
-                </span>
-              )}
-              {message.eval_relevancy != null && (
-                <span
-                  title="Relevancy — mức độ câu trả lời đúng trọng tâm câu hỏi (chấm tự động bởi AI)"
-                  className={cn(
-                    "rounded-full border px-2 py-0.5 text-[10px] font-medium",
-                    scoreColor(message.eval_relevancy)
-                  )}
-                >
-                  Đúng trọng tâm {Math.round(message.eval_relevancy * 100)}%
-                </span>
-              )}
-            </div>
+          !message.evidence?.length &&
+          message.sources &&
+          message.sources.length > 0 &&
+          !message.streaming && (
+            <Collapsible open={open} onOpenChange={setOpen} className="mt-3">
+              <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                Nguồn tài liệu
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-2 flex flex-wrap items-center gap-1.5">
+                {message.sources.map((s) => (
+                  <span key={s} className="inline-flex items-center gap-1">
+                    <Badge variant="outline" className="cursor-default text-xs">
+                      {s}
+                    </Badge>
+                    <LineageBadge lineage={lineage} filename={s} />
+                  </span>
+                ))}
+              </CollapsibleContent>
+            </Collapsible>
           )}
+
+        {!isUser && !message.streaming && (message.eval_faithfulness != null || message.eval_relevancy != null) && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {message.eval_faithfulness != null && (
+              <span
+                title="Faithfulness — mức độ câu trả lời bám sát tài liệu nguồn (chấm tự động bởi AI)"
+                className={cn(
+                  "rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                  scoreColor(message.eval_faithfulness),
+                )}
+              >
+                Bám sát nguồn {Math.round(message.eval_faithfulness * 100)}%
+              </span>
+            )}
+            {message.eval_relevancy != null && (
+              <span
+                title="Relevancy — mức độ câu trả lời đúng trọng tâm câu hỏi (chấm tự động bởi AI)"
+                className={cn(
+                  "rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                  scoreColor(message.eval_relevancy),
+                )}
+              >
+                Đúng trọng tâm {Math.round(message.eval_relevancy * 100)}%
+              </span>
+            )}
+          </div>
+        )}
 
         {!isUser && message.id && !message.streaming && onRate && (
           <div className="mt-2 flex items-center gap-1">
@@ -130,7 +148,7 @@ export default function MessageBubble({ message, onRate, lineage = {}, convId }:
               onClick={() => onRate(message.id!, message.rating === 1 ? 0 : 1)}
               className={cn(
                 "rounded-[0.25rem] p-1 hover:bg-success/10 transition-colors",
-                message.rating === 1 && "text-success bg-success/10"
+                message.rating === 1 && "text-success bg-success/10",
               )}
             >
               <ThumbsUp className="h-3.5 w-3.5" />
@@ -141,7 +159,7 @@ export default function MessageBubble({ message, onRate, lineage = {}, convId }:
               onClick={() => onRate(message.id!, message.rating === -1 ? 0 : -1)}
               className={cn(
                 "rounded-[0.25rem] p-1 hover:bg-destructive/10 transition-colors",
-                message.rating === -1 && "text-destructive bg-destructive/10"
+                message.rating === -1 && "text-destructive bg-destructive/10",
               )}
             >
               <ThumbsDown className="h-3.5 w-3.5" />

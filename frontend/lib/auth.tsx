@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import api, { SESSION_KEY, USER_KEY, currentSession, dropLegacyToken, peekLegacyToken } from "./api";
 
@@ -84,7 +76,7 @@ export function migrateLegacyToken(): Promise<void> {
           dropLegacyToken();
           clearAuth();
         } else {
-          legacyMigration = null;   // mất mạng / server lỗi: giữ token, thử lại lần sau
+          legacyMigration = null; // mất mạng / server lỗi: giữ token, thử lại lần sau
         }
       }
     })();
@@ -165,7 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({ user, loading, login, logout, refreshUser }),
-    [user, loading, login, logout, refreshUser]
+    [user, loading, login, logout, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -27,10 +27,7 @@ function EmbedChatInner() {
   const token = params.get("token") ?? "";
   // Bản build đã cấu hình API thì bỏ qua ?api=: nếu không, một link tự chế có thể gửi câu
   // hỏi của khách truy cập tới máy chủ tuỳ ý. Chỉ bản dev (không có biến) mới đọc tham số.
-  const apiBase = (process.env.NEXT_PUBLIC_API_URL || params.get("api") || "http://127.0.0.1:8000").replace(
-    /\/$/,
-    ""
-  );
+  const apiBase = (process.env.NEXT_PUBLIC_API_URL || params.get("api") || "http://127.0.0.1:8000").replace(/\/$/, "");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -105,7 +102,8 @@ function EmbedChatInner() {
                 next[next.length - 1] = {
                   ...last,
                   sources: data.sources ?? [],
-                  evidence: data.evidence ?? [], citation_audit: data.citation_audit ?? null,
+                  evidence: data.evidence ?? [],
+                  citation_audit: data.citation_audit ?? null,
                   streaming: false,
                 };
               }
@@ -132,9 +130,7 @@ function EmbedChatInner() {
   }, [apiBase, input, loading, token]);
 
   if (!token) {
-    return (
-      <div className="p-4 text-sm text-destructive">Thiếu mã nhúng trong đường dẫn.</div>
-    );
+    return <div className="p-4 text-sm text-destructive">Thiếu mã nhúng trong đường dẫn.</div>;
   }
 
   return (
@@ -146,8 +142,8 @@ function EmbedChatInner() {
             <MessageSquare className="h-10 w-10 mb-3 opacity-40" />
             <p className="text-sm font-medium text-foreground">Widget chat (embed)</p>
             <p className="text-xs mt-2 max-w-sm">
-              Giao diện nhỏ để nhúng vào website. Gõ câu hỏi bên dưới — bot trả lời theo tài liệu
-              của tài khoản chủ token.
+              Giao diện nhỏ để nhúng vào website. Gõ câu hỏi bên dưới — bot trả lời theo tài liệu của tài khoản chủ
+              token.
             </p>
             <Button variant="link" size="sm" className="mt-3" asChild>
               <Link href="/chat">Mở ứng dụng đầy đủ (tài liệu, thống kê) →</Link>

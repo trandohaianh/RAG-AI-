@@ -31,7 +31,10 @@ export function StatsCards({ stats }: { stats: AdminStats }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {cards.map((c) => (
-        <div key={c.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:shadow-md transition-shadow">
+        <div
+          key={c.label}
+          className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:shadow-md transition-shadow"
+        >
           <p className="text-sm text-muted-foreground">{c.label}</p>
           <p className="text-2xl font-bold mt-1">{c.value}</p>
         </div>
@@ -40,13 +43,7 @@ export function StatsCards({ stats }: { stats: AdminStats }) {
   );
 }
 
-export function UsersTable({
-  users,
-  onRefresh,
-}: {
-  users: AdminUser[];
-  onRefresh: () => void;
-}) {
+export function UsersTable({ users, onRefresh }: { users: AdminUser[]; onRefresh: () => void }) {
   async function del(id: number, email: string) {
     if (!confirm(`Xóa user ${email} và toàn bộ dữ liệu?`)) return;
     await api.delete(`/admin/users/${id}`);
@@ -82,9 +79,7 @@ export function UsersTable({
               </td>
               <td className="p-3">{u.doc_count}</td>
               <td className="p-3">{u.message_count}</td>
-              <td className="p-3 text-muted-foreground">
-                {u.created_at ? String(u.created_at).slice(0, 10) : "—"}
-              </td>
+              <td className="p-3 text-muted-foreground">{u.created_at ? String(u.created_at).slice(0, 10) : "—"}</td>
               <td className="p-3 text-right">
                 <Button variant="ghost" size="icon" onClick={() => del(u.id, u.email)}>
                   <Trash2 className="h-4 w-4 text-destructive" />

@@ -67,16 +67,25 @@ async function tx<T>(mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRe
     let result: T;
     let requestError: DOMException | null = null;
     const t = db.transaction(STORE, mode);
-    t.oncomplete = () => { db.close(); resolve(result); };
+    t.oncomplete = () => {
+      db.close();
+      resolve(result);
+    };
     t.onabort = () => {
       db.close();
       reject(requestError ?? t.error ?? new Error("Không lưu được thao tác offline; giao dịch đã hủy."));
     };
-    t.onerror = () => { requestError = t.error; };
+    t.onerror = () => {
+      requestError = t.error;
+    };
     try {
       const req = run(t.objectStore(STORE));
-      req.onsuccess = () => { result = req.result; };
-      req.onerror = () => { requestError = req.error; };
+      req.onsuccess = () => {
+        result = req.result;
+      };
+      req.onerror = () => {
+        requestError = req.error;
+      };
     } catch (error) {
       t.abort();
       reject(error);
@@ -94,12 +103,14 @@ async function all(): Promise<QueuedAction[]> {
 }
 
 export async function pending(scope: QueueScope): Promise<QueuedAction[]> {
-  return (await all()).filter((a) => owns(a, scope) && a.state !== "rejected")
+  return (await all())
+    .filter((a) => owns(a, scope) && a.state !== "rejected")
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
 export async function rejected(scope: QueueScope): Promise<QueuedAction[]> {
-  return (await all()).filter((a) => owns(a, scope) && a.state === "rejected")
+  return (await all())
+    .filter((a) => owns(a, scope) && a.state === "rejected")
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
@@ -126,14 +137,20 @@ const locks = new Map<string, Promise<unknown>>();
 function withScopeLock<T>(scope: QueueScope, task: () => Promise<T>): Promise<T> {
   const key = scopeKey(scope);
   const previous = locks.get(key) ?? Promise.resolve();
-  const run: Promise<T> = previous.catch(() => undefined).then(async () => {
-    if (typeof navigator !== "undefined" && navigator.locks) {
-      return await navigator.locks.request(`fieldops:${key}`, task);
-    }
-    return await task();
-  });
+  const run: Promise<T> = previous
+    .catch(() => undefined)
+    .then(async () => {
+      if (typeof navigator !== "undefined" && navigator.locks) {
+        return await navigator.locks.request(`fieldops:${key}`, task);
+      }
+      return await task();
+    });
   locks.set(key, run);
-  void run.finally(() => { if (locks.get(key) === run) locks.delete(key); }).catch(() => undefined);
+  void run
+    .finally(() => {
+      if (locks.get(key) === run) locks.delete(key);
+    })
+    .catch(() => undefined);
   return run;
 }
 
@@ -154,7 +171,10 @@ async function runFlush(scope: QueueScope, sender: Sender) {
           break;
         }
         await put({
-          ...action, serverFailures: failures, state: "rejected", httpStatus: status,
+          ...action,
+          serverFailures: failures,
+          state: "rejected",
+          httpStatus: status,
           error: `Máy chủ lỗi ${status} ${failures} lần liên tiếp với thao tác này. Hãy thử lại sau hoặc huỷ.`,
         });
         continue;
@@ -185,12 +205,18 @@ export function send(
   method: "post" | "patch",
   url: string,
   body: Record<string, unknown>,
-  label: string
+  label: string,
 ): Promise<{ queued: boolean }> {
   return withScopeLock(scope, async () => {
     const id = newActionId();
     const action: QueuedAction = {
-      id, scope, method, url, label, createdAt: Date.now(), state: "pending",
+      id,
+      scope,
+      method,
+      url,
+      label,
+      createdAt: Date.now(),
+      state: "pending",
       body: { ...body, client_action_id: body.client_action_id ?? id },
     };
     // Persist BEFORE the request so a tab closing mid-request cannot lose an edit.

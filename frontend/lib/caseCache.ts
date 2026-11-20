@@ -55,7 +55,11 @@ export async function saveSnapshot(apiOrigin: string, userId: number, data: Omit
   }
 }
 
-export async function loadSnapshot(apiOrigin: string, userId: number, workspaceId?: number | null): Promise<CaseSnapshot | null> {
+export async function loadSnapshot(
+  apiOrigin: string,
+  userId: number,
+  workspaceId?: number | null,
+): Promise<CaseSnapshot | null> {
   if (typeof indexedDB === "undefined") return null;
   try {
     return (await tx("readonly", (s) => s.get(snapshotKey(apiOrigin, userId, workspaceId ?? "last")))) ?? null;

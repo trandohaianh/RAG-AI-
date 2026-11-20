@@ -5,7 +5,15 @@ import api, { getApiErrorMessage, type FieldPhoto } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
 
 /** Ảnh hiện trường của một ca: chụp/chọn ảnh, chú thích, xem lớn, xoá (người chụp hoặc trưởng đội). */
-export default function CasePhotos({ caseId, currentUserId, isOwner }: { caseId: number; currentUserId?: number; isOwner: boolean }) {
+export default function CasePhotos({
+  caseId,
+  currentUserId,
+  isOwner,
+}: {
+  caseId: number;
+  currentUserId?: number;
+  isOwner: boolean;
+}) {
   const [photos, setPhotos] = useState<FieldPhoto[]>([]);
   const [caption, setCaption] = useState("");
   const [busy, setBusy] = useState(false);
@@ -22,7 +30,11 @@ export default function CasePhotos({ caseId, currentUserId, isOwner }: { caseId:
     }
   }, [caseId]);
 
-  useEffect(() => { setPhotos([]); setError(""); void load(); }, [load]);
+  useEffect(() => {
+    setPhotos([]);
+    setError("");
+    void load();
+  }, [load]);
 
   async function upload(files: FileList | null) {
     if (!files?.length) return;
@@ -67,11 +79,24 @@ export default function CasePhotos({ caseId, currentUserId, isOwner }: { caseId:
       {error && <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>}
       <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
         {photos.map((photo) => (
-          <button key={photo.id} type="button" onClick={() => setViewing(photo)}
-            className="group relative aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+          <button
+            key={photo.id}
+            type="button"
+            onClick={() => setViewing(photo)}
+            className="group relative aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
+          >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={photo.thumb_url} alt={photo.caption || `Ảnh #${photo.id}`} className="h-full w-full object-cover" loading="lazy" />
-            {photo.caption && <span className="absolute inset-x-0 bottom-0 truncate bg-black/50 px-1.5 py-0.5 text-[10px] text-white">{photo.caption}</span>}
+            <img
+              src={photo.thumb_url}
+              alt={photo.caption || `Ảnh #${photo.id}`}
+              className="h-full w-full object-cover"
+              loading="lazy"
+            />
+            {photo.caption && (
+              <span className="absolute inset-x-0 bottom-0 truncate bg-black/50 px-1.5 py-0.5 text-[10px] text-white">
+                {photo.caption}
+              </span>
+            )}
           </button>
         ))}
         {!photos.length && (
@@ -81,27 +106,61 @@ export default function CasePhotos({ caseId, currentUserId, isOwner }: { caseId:
         )}
       </div>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-        <input value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={300} placeholder="Chú thích (vd. Đầu ONT trước khi thay)"
-          className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-        <label className={`inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white ${busy ? "opacity-60" : ""}`}>
+        <input
+          value={caption}
+          onChange={(e) => setCaption(e.target.value)}
+          maxLength={300}
+          placeholder="Chú thích (vd. Đầu ONT trước khi thay)"
+          className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+        />
+        <label
+          className={`inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white ${busy ? "opacity-60" : ""}`}
+        >
           {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
           Chụp / chọn ảnh
-          <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple hidden
-            disabled={busy} onChange={(e) => void upload(e.target.files)} />
+          <input
+            ref={input}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            capture="environment"
+            multiple
+            hidden
+            disabled={busy}
+            onChange={(e) => void upload(e.target.files)}
+          />
         </label>
       </div>
       {viewing && (
-        <div role="dialog" aria-modal className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setViewing(null)}>
+        <div
+          role="dialog"
+          aria-modal
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setViewing(null)}
+        >
           <div className="max-h-full max-w-4xl" onClick={(e) => e.stopPropagation()}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={viewing.url} alt={viewing.caption} className="max-h-[80vh] rounded-lg object-contain" />
             <div className="mt-2 flex items-center justify-between gap-3 text-sm text-white">
-              <span>{viewing.caption || "Không có chú thích"} · {formatDateTime(viewing.created_at)}</span>
+              <span>
+                {viewing.caption || "Không có chú thích"} · {formatDateTime(viewing.created_at)}
+              </span>
               <span className="flex gap-2">
                 {(viewing.uploaded_by === currentUserId || isOwner) && (
-                  <button type="button" onClick={() => void remove(viewing)} className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2.5 py-1.5"><Trash2 className="h-4 w-4" /> Xoá</button>
+                  <button
+                    type="button"
+                    onClick={() => void remove(viewing)}
+                    className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2.5 py-1.5"
+                  >
+                    <Trash2 className="h-4 w-4" /> Xoá
+                  </button>
                 )}
-                <button type="button" onClick={() => setViewing(null)} className="inline-flex items-center gap-1 rounded-md bg-white/20 px-2.5 py-1.5"><X className="h-4 w-4" /> Đóng</button>
+                <button
+                  type="button"
+                  onClick={() => setViewing(null)}
+                  className="inline-flex items-center gap-1 rounded-md bg-white/20 px-2.5 py-1.5"
+                >
+                  <X className="h-4 w-4" /> Đóng
+                </button>
               </span>
             </div>
           </div>

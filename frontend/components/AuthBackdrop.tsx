@@ -25,7 +25,15 @@ export default function AuthBackdrop({ children }: { children: React.ReactNode }
         <Sparkle
           key={i}
           className="pointer-events-none absolute animate-pulse text-amber-300"
-          style={{ top: s.top, left: s.left, width: s.size, height: s.size, opacity: s.opacity, animationDelay: s.delay, animationDuration: "3s" }}
+          style={{
+            top: s.top,
+            left: s.left,
+            width: s.size,
+            height: s.size,
+            opacity: s.opacity,
+            animationDelay: s.delay,
+            animationDuration: "3s",
+          }}
           fill="currentColor"
         />
       ))}
@@ -38,9 +46,7 @@ export default function AuthBackdrop({ children }: { children: React.ReactNode }
         Trang chủ
       </Link>
 
-      <div className="relative z-10 flex min-h-screen items-center justify-center p-6">
-        {children}
-      </div>
+      <div className="relative z-10 flex min-h-screen items-center justify-center p-6">{children}</div>
     </div>
   );
 }
@@ -49,6 +55,6 @@ export function darkInputClass(extra?: string) {
   return cn(
     "w-full rounded-full border border-white/10 bg-white/[0.04] px-5 py-3 text-sm text-white placeholder:text-white/30",
     "outline-hidden transition-colors focus:border-white/25 focus:bg-white/[0.06]",
-    extra
+    extra,
   );
 }

@@ -3,7 +3,14 @@
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Upload, Trash2, FileText, MessageSquare } from "lucide-react";
-import api, { API_URL, SESSION_HEADERS, getApiErrorMessage, type Conversation, type DocItem, type LineageMap } from "@/lib/api";
+import api, {
+  API_URL,
+  SESSION_HEADERS,
+  getApiErrorMessage,
+  type Conversation,
+  type DocItem,
+  type LineageMap,
+} from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import LineageBadge from "@/components/LineageBadge";
@@ -58,19 +65,14 @@ export default function UploadZone({
       try {
         await new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
-          xhr.open(
-            "POST",
-            `${API_URL}/documents/upload`
-          );
+          xhr.open("POST", `${API_URL}/documents/upload`);
           // Phiên nằm trong cookie httpOnly; header chống CSRF bắt buộc cho request ghi.
           xhr.withCredentials = true;
           for (const [name, value] of Object.entries(SESSION_HEADERS)) xhr.setRequestHeader(name, value);
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
               const pct = Math.round((e.loaded / e.total) * 100);
-              setRows((prev) =>
-                prev.map((x) => (x.name === file.name ? { ...x, progress: pct } : x))
-              );
+              setRows((prev) => prev.map((x) => (x.name === file.name ? { ...x, progress: pct } : x)));
             }
           };
           xhr.onload = () => {
@@ -78,10 +80,8 @@ export default function UploadZone({
               const data = JSON.parse(xhr.responseText);
               setRows((prev) =>
                 prev.map((x) =>
-                  x.name === file.name
-                    ? { ...x, status: "done", progress: 100, chunks: data.chunks }
-                    : x
-                )
+                  x.name === file.name ? { ...x, status: "done", progress: 100, chunks: data.chunks } : x,
+                ),
               );
               setToast(`${data.chunks} chunks đã được lập chỉ mục — bạn có thể hỏi ngay!`);
               setTimeout(() => setToast(null), 6000);
@@ -104,14 +104,12 @@ export default function UploadZone({
       } catch (e) {
         setRows((prev) =>
           prev.map((x) =>
-            x.name === file.name
-              ? { ...x, status: "error", error: e instanceof Error ? e.message : "Lỗi" }
-              : x
-          )
+            x.name === file.name ? { ...x, status: "error", error: e instanceof Error ? e.message : "Lỗi" } : x,
+          ),
         );
       }
     },
-    [onRefresh]
+    [onRefresh],
   );
 
   async function deleteDoc(name: string) {
@@ -170,7 +168,7 @@ export default function UploadZone({
         }}
         className={cn(
           "relative border-2 border-dashed rounded-xl p-10 text-center transition-colors",
-          dragging ? "border-primary bg-primary/5" : "border-slate-200 bg-slate-50/50"
+          dragging ? "border-primary bg-primary/5" : "border-slate-200 bg-slate-50/50",
         )}
       >
         <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
@@ -238,9 +236,7 @@ export default function UploadZone({
                   <tr key={d.name} className="border-t">
                     <td className="p-3">{d.name}</td>
                     <td className="p-3">{d.chunks}</td>
-                    <td className="p-3 text-muted-foreground">
-                      {d.uploaded_at ? d.uploaded_at.slice(0, 10) : "—"}
-                    </td>
+                    <td className="p-3 text-muted-foreground">{d.uploaded_at ? d.uploaded_at.slice(0, 10) : "—"}</td>
                     <td className="p-3">
                       <LineageBadge lineage={lineage} filename={d.name} />
                     </td>

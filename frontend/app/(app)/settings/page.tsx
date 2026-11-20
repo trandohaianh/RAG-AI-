@@ -113,9 +113,7 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {msg && (
-        <div className="rounded-md border border-primary/30 bg-primary/5 text-sm px-4 py-3">{msg}</div>
-      )}
+      {msg && <div className="rounded-md border border-primary/30 bg-primary/5 text-sm px-4 py-3">{msg}</div>}
       {error && (
         <div className="rounded-md border border-destructive/50 bg-destructive/10 text-destructive text-sm px-4 py-3">
           {error}
@@ -135,9 +133,7 @@ export default function SettingsPage() {
             </p>
             {billing.stripe_configured ? (
               <div className="flex flex-wrap gap-2">
-                {billing.plan !== "pro" && (
-                  <Button onClick={checkout}>Nâng cấp Pro</Button>
-                )}
+                {billing.plan !== "pro" && <Button onClick={checkout}>Nâng cấp Pro</Button>}
                 <Button variant="secondary" onClick={portal}>
                   Quản lý gói đăng ký
                 </Button>

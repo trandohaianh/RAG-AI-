@@ -94,11 +94,7 @@ export default function HomePage() {
   }, [loading, user, router]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-muted-foreground">
-        Đang tải...
-      </div>
-    );
+    return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Đang tải...</div>;
   }
 
   return (
@@ -108,10 +104,18 @@ export default function HomePage() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
           <Logo size={26} textClassName="text-sm" />
           <nav className="hidden items-center gap-7 text-[13px] font-medium text-slate-500 md:flex">
-            <a href="#usage" className="transition-colors hover:text-slate-900">Cách dùng</a>
-            <a href="#features" className="transition-colors hover:text-slate-900">Tính năng</a>
-            <a href="#pipeline" className="transition-colors hover:text-slate-900">Data Engineering</a>
-            <a href="#tech" className="transition-colors hover:text-slate-900">Công nghệ</a>
+            <a href="#usage" className="transition-colors hover:text-slate-900">
+              Cách dùng
+            </a>
+            <a href="#features" className="transition-colors hover:text-slate-900">
+              Tính năng
+            </a>
+            <a href="#pipeline" className="transition-colors hover:text-slate-900">
+              Data Engineering
+            </a>
+            <a href="#tech" className="transition-colors hover:text-slate-900">
+              Công nghệ
+            </a>
           </nav>
           <div className="flex items-center gap-1.5">
             <ThemeToggle compact />
@@ -146,8 +150,8 @@ export default function HomePage() {
             <span className="brand-gradient-text">đến xử lý hiện trường có bằng chứng.</span>
           </h1>
           <p className="mx-auto mt-4 max-w-lg text-[15px] leading-relaxed text-slate-500">
-            Nhận ca đã được tổng đài bàn giao, đưa đúng quy trình theo model thiết bị đến điện thoại
-            kỹ thuật viên, rồi lưu kết quả xử lý có trích dẫn nguồn vào kho chung của đội.
+            Nhận ca đã được tổng đài bàn giao, đưa đúng quy trình theo model thiết bị đến điện thoại kỹ thuật viên, rồi
+            lưu kết quả xử lý có trích dẫn nguồn vào kho chung của đội.
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
             <Button className="min-w-[180px] gap-2" asChild>
@@ -186,8 +190,8 @@ export default function HomePage() {
                 </div>
               </div>
               <div className="max-w-[85%] rounded-2xl rounded-bl-md border border-slate-100 bg-slate-50 px-3.5 py-2.5 text-[13px] text-slate-700">
-                Theo Điều 8 của hợp đồng, nếu trễ hạn thanh toán quá 5 ngày, bên thuê chịu phạt
-                0.05%/ngày trên số tiền chậm trả...
+                Theo Điều 8 của hợp đồng, nếu trễ hạn thanh toán quá 5 ngày, bên thuê chịu phạt 0.05%/ngày trên số tiền
+                chậm trả...
                 <div className="mt-2 flex gap-1.5">
                   <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                     Bám sát nguồn 98%
@@ -223,15 +227,14 @@ export default function HomePage() {
           ))}
         </div>
         <p className="mx-auto mt-5 max-w-2xl text-center text-[11px] leading-relaxed text-slate-400">
-          3 số trên là đặc tính kiến trúc — kiểm chứng được bằng cách đọc source code (không phải
-          số đo lấy mẫu). Điểm chất lượng câu trả lời (faithfulness/relevancy) được đo trên bộ câu
-          hỏi kiểm thử chạy qua đúng pipeline production, chấm chéo bằng LLM-judge và một thuật
-          toán đối chiếu từ vựng độc lập không qua LLM — xem{" "}
+          3 số trên là đặc tính kiến trúc — kiểm chứng được bằng cách đọc source code (không phải số đo lấy mẫu). Điểm
+          chất lượng câu trả lời (faithfulness/relevancy) được đo trên bộ câu hỏi kiểm thử chạy qua đúng pipeline
+          production, chấm chéo bằng LLM-judge và một thuật toán đối chiếu từ vựng độc lập không qua LLM — xem{" "}
           <code className="rounded-[0.25rem] bg-slate-100 px-1 py-0.5 text-[10px]">
             backend/scripts/run_eval_benchmark.py
           </code>{" "}
-          và <code className="rounded-[0.25rem] bg-slate-100 px-1 py-0.5 text-[10px]">eval_results.json</code> để
-          tái lập.
+          và <code className="rounded-[0.25rem] bg-slate-100 px-1 py-0.5 text-[10px]">eval_results.json</code> để tái
+          lập.
         </p>
 
         <p className="mb-4 mt-12 text-center text-[11px] font-semibold uppercase tracking-widest text-slate-400">
@@ -276,8 +279,8 @@ export default function HomePage() {
               <div className="p-6">
                 <p className="text-[13px] font-semibold text-slate-900">Hỏi trực tiếp trong app</p>
                 <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
-                  Tải tài liệu lên, đặt câu hỏi bằng ngôn ngữ tự nhiên — nhận câu trả lời kèm trích
-                  dẫn nguồn và điểm tin cậy sau mỗi lượt.
+                  Tải tài liệu lên, đặt câu hỏi bằng ngôn ngữ tự nhiên — nhận câu trả lời kèm trích dẫn nguồn và điểm
+                  tin cậy sau mỗi lượt.
                 </p>
               </div>
               <div className="border-t border-slate-100 bg-slate-50/60 p-4 sm:border-l sm:border-t-0">
@@ -297,8 +300,8 @@ export default function HomePage() {
               <div className="p-6">
                 <p className="text-[13px] font-semibold text-slate-900">OCR ảnh chụp tài liệu</p>
                 <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
-                  Không có bản PDF? Chụp ảnh cũng được — Gemini Vision đọc chữ trong ảnh rồi lập
-                  chỉ mục như văn bản thường, hỏi được ngay sau đó.
+                  Không có bản PDF? Chụp ảnh cũng được — Gemini Vision đọc chữ trong ảnh rồi lập chỉ mục như văn bản
+                  thường, hỏi được ngay sau đó.
                 </p>
               </div>
               <div className="border-t border-slate-100 bg-slate-50/60 p-4 sm:border-l sm:border-t-0">
@@ -315,8 +318,8 @@ export default function HomePage() {
               <div className="p-6">
                 <p className="text-[13px] font-semibold text-slate-900">Nhúng vào website khác</p>
                 <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
-                  Cấp API key hoặc dán 1 thẻ iframe — khung chat của bạn xuất hiện ngay trên website
-                  công ty, dùng chung kho tài liệu đã tải lên.
+                  Cấp API key hoặc dán 1 thẻ iframe — khung chat của bạn xuất hiện ngay trên website công ty, dùng chung
+                  kho tài liệu đã tải lên.
                 </p>
               </div>
               <div className="border-t border-slate-100 bg-slate-50/60 p-4 sm:border-l sm:border-t-0">
@@ -370,9 +373,9 @@ export default function HomePage() {
               Không chỉ là chatbot — là cả một pipeline dữ liệu có thể audit
             </h2>
             <p className="mx-auto mt-3 max-w-xl text-[13px] leading-relaxed text-white/50">
-              Mỗi tài liệu tải lên đi qua kiến trúc Medallion đầy đủ, kiểm định chất lượng và được
-              điều phối tự động. Khác với hộp đen của các công cụ chat-với-tài-liệu thông thường,
-              mọi câu trả lời đều truy ngược được về trạng thái kiểm định thật của nguồn.
+              Mỗi tài liệu tải lên đi qua kiến trúc Medallion đầy đủ, kiểm định chất lượng và được điều phối tự động.
+              Khác với hộp đen của các công cụ chat-với-tài-liệu thông thường, mọi câu trả lời đều truy ngược được về
+              trạng thái kiểm định thật của nguồn.
             </p>
           </div>
 
@@ -398,7 +401,14 @@ export default function HomePage() {
                   <p className="text-[11px] text-white/40">Bám sát nguồn TB (7 ngày)</p>
                 </div>
                 <svg width="110" height="36" viewBox="0 0 110 36" fill="none" className="text-violet-400">
-                  <polyline points={SPARK_POINTS} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  <polyline
+                    points={SPARK_POINTS}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </div>
               <div className="mt-4 grid grid-cols-3 gap-2 border-t border-white/10 pt-4 text-center">
@@ -426,8 +436,7 @@ export default function HomePage() {
               </p>
               <div className="rounded-lg border border-white/10 bg-black/40 p-3.5">
                 <p className="text-[13px] leading-relaxed text-white/80">
-                  Theo Điều 8 của hợp đồng, nếu trễ hạn thanh toán quá 5 ngày, bên thuê chịu phạt
-                  0.05%/ngày...
+                  Theo Điều 8 của hợp đồng, nếu trễ hạn thanh toán quá 5 ngày, bên thuê chịu phạt 0.05%/ngày...
                 </p>
                 <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                   <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
@@ -446,9 +455,9 @@ export default function HomePage() {
                 </div>
               </div>
               <p className="mt-3 text-[10px] text-white/30">
-                Ảnh minh hoạ giao diện (số % là ví dụ). Badge “Đã kiểm định · Gold” đọc trực tiếp
-                cột <code className="rounded-[0.25rem] bg-white/10 px-1">validation_passed</code> thật trong
-                Postgres khi bật Data Pipeline — xem endpoint{" "}
+                Ảnh minh hoạ giao diện (số % là ví dụ). Badge “Đã kiểm định · Gold” đọc trực tiếp cột{" "}
+                <code className="rounded-[0.25rem] bg-white/10 px-1">validation_passed</code> thật trong Postgres khi
+                bật Data Pipeline — xem endpoint{" "}
                 <code className="rounded-[0.25rem] bg-white/10 px-1">GET /documents/lineage</code>.
               </p>
             </div>
@@ -461,9 +470,7 @@ export default function HomePage() {
         <div className="grid items-center gap-10 md:grid-cols-2">
           <div>
             <p className="mb-2.5 text-[13px] font-semibold text-primary">Bảo mật</p>
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">
-              Dữ liệu của bạn, chỉ mình bạn thấy
-            </h2>
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Dữ liệu của bạn, chỉ mình bạn thấy</h2>
             <ul className="mt-5 space-y-2.5">
               {[
                 "Mật khẩu băm bằng bcrypt, không lưu dạng thô",

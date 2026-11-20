@@ -38,20 +38,26 @@ export default function DocsPage() {
       {/* Trang này chỉ nạp vào kho CÁ NHÂN (dùng cho mục Trợ lý tài liệu). Trợ lý trong từng ca
           hiện trường đọc kho của ĐỘI, được upload ở trang Ca hiện trường — trước đây trang này
           ghi "Tài liệu của đội" nên SOP upload ở đây không bao giờ tới được trợ lý ca. */}
-      <div role="note" className="rounded-lg border border-amber-300/60 bg-amber-50 dark:bg-amber-950/30 p-4 text-sm max-w-3xl">
+      <div
+        role="note"
+        className="rounded-lg border border-amber-300/60 bg-amber-50 dark:bg-amber-950/30 p-4 text-sm max-w-3xl"
+      >
         <p className="font-medium text-amber-900 dark:text-amber-200">Tài liệu ở đây chỉ dành cho bạn</p>
         <p className="text-amber-900/80 dark:text-amber-200/80 mt-1">
-          Dùng cho mục <strong>Trợ lý tài liệu</strong>. SOP/manual cho cả đội (trợ lý trong từng ca sửa dùng)
-          hãy tải lên ở <a href="/field" className="underline font-medium">Ca hiện trường → Tri thức dùng chung</a>.
+          Dùng cho mục <strong>Trợ lý tài liệu</strong>. SOP/manual cho cả đội (trợ lý trong từng ca sửa dùng) hãy tải
+          lên ở{" "}
+          <a href="/field" className="underline font-medium">
+            Ca hiện trường → Tri thức dùng chung
+          </a>
+          .
         </p>
       </div>
 
       <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm space-y-2 max-w-3xl">
         <p className="font-medium text-primary">📷 Đọc chữ từ ảnh (OCR)</p>
         <p className="text-muted-foreground">
-          Kéo thả hoặc chọn file <strong>PNG, JPG, JPEG, WebP, GIF</strong> — hệ thống dùng Gemini
-          đọc chữ trong ảnh, rồi lập chỉ mục như văn bản. Sau đó sang <strong>Chat</strong> để hỏi nội dung
-          ảnh.
+          Kéo thả hoặc chọn file <strong>PNG, JPG, JPEG, WebP, GIF</strong> — hệ thống dùng Gemini đọc chữ trong ảnh,
+          rồi lập chỉ mục như văn bản. Sau đó sang <strong>Chat</strong> để hỏi nội dung ảnh.
         </p>
       </div>
 

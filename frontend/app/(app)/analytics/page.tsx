@@ -95,20 +95,11 @@ export default function AnalyticsPage() {
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:shadow-md transition-shadow">
           <p className="text-sm text-muted-foreground mb-1">Mức độ hài lòng câu trả lời (người dùng đánh giá)</p>
           <div className="flex items-center gap-4">
-            <span className="text-lg font-semibold text-primary">
-              👍 {overview.feedback_up}
-            </span>
-            <span className="text-lg font-semibold text-destructive">
-              👎 {overview.feedback_down}
-            </span>
+            <span className="text-lg font-semibold text-primary">👍 {overview.feedback_up}</span>
+            <span className="text-lg font-semibold text-destructive">👎 {overview.feedback_down}</span>
             <span className="text-sm text-muted-foreground">
-              (
-              {Math.round(
-                (overview.feedback_up /
-                  Math.max(1, overview.feedback_up + overview.feedback_down)) *
-                  100
-              )}
-              % hài lòng)
+              ({Math.round((overview.feedback_up / Math.max(1, overview.feedback_up + overview.feedback_down)) * 100)}%
+              hài lòng)
             </span>
           </div>
         </div>
@@ -116,9 +107,7 @@ export default function AnalyticsPage() {
 
       {overview && (overview.avg_faithfulness != null || overview.avg_relevancy != null) && (
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:shadow-md transition-shadow">
-          <p className="text-sm text-muted-foreground mb-1">
-            Chất lượng RAG trung bình (AI tự chấm mỗi câu trả lời)
-          </p>
+          <p className="text-sm text-muted-foreground mb-1">Chất lượng RAG trung bình (AI tự chấm mỗi câu trả lời)</p>
           <div className="flex flex-wrap items-center gap-4">
             {overview.avg_faithfulness != null && (
               <span className="text-lg font-semibold text-success">
@@ -137,9 +126,7 @@ export default function AnalyticsPage() {
       <div>
         <h2 className="font-medium mb-3">Truy vấn 14 ngày gần nhất</h2>
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs space-y-2">
-          {daily.length === 0 && (
-            <p className="text-sm text-muted-foreground">Chưa có dữ liệu truy vấn.</p>
-          )}
+          {daily.length === 0 && <p className="text-sm text-muted-foreground">Chưa có dữ liệu truy vấn.</p>}
           {daily.map((d) => (
             <div key={d.date} className="flex items-center gap-3 text-sm">
               <span className="w-24 text-muted-foreground shrink-0">{d.date.slice(5)}</span>
