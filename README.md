@@ -311,27 +311,33 @@ docker compose up --build
 ## Project structure
 
 ```
-rag-chatbot/
-├── backend/           # FastAPI, RAG, Medallion pipeline
-│   ├── pipeline/      # bronze → silver → gold
-│   ├── validation/    # Great Expectations checks
-│   ├── rag/           # ingest, retriever, Gemini chain
-│   └── main.py
-├── frontend/          # Next.js UI
-├── airflow/dags/      # daily_rag_document_ingest
-├── gx/expectations/   # GE suite JSON
-├── monitoring/        # Prometheus + Grafana
-├── tests/             # pytest
-├── render.yaml        # Render blueprint
-└── docker-compose.yml
+backend/               FastAPI — mỗi tính năng một package (router.py / schemas.py / models.py / service.py)
+  auth/ chat/ docs/ field/ rag/ costs/ billing/ embed/ public_api/ admin/ analytics/ saas/
+  pipeline/            job vận hành + Medallion (bronze → silver → gold)
+  evals/ evaluation/   bộ đánh giá RAG
+  database.py          engine + session;  schema_migrations.py  migration có phiên bản
+  config.py            mọi biến môi trường;  main.py  tạo app
+frontend/              Next.js 16 — app/ (route), components/, lib/ (API, phiên, offline)
+mobile/                Expo — screens/, components/, lib/, navigation/
+tests/                 pytest + client_state.test.cjs
+deploy/cloud/          1 VM + Caddy (HTTPS riêng của FieldOps)
+deploy/production/     nhiều dịch vụ sau nginx
+docs/                  tài liệu; quy ước: docs/CONVENTIONS.md
+reports/               báo cáo audit (01–08)
 ```
+
+Quy ước đặt tên, kích thước file, lint và bí mật: [docs/CONVENTIONS.md](docs/CONVENTIONS.md).
 
 ---
 
 ## Tests & CI
 
 ```bash
-pytest tests/ -v
+pytest tests/ -v                                  # backend (cần backend/requirements.txt)
+node --test tests/client_state.test.cjs           # logic hàng đợi offline / phiên (frontend + mobile)
+ruff check backend tests && ruff format --check backend tests   # lint + format Python
+cd frontend && npm run lint && npm run format:check && npm run typecheck && npm run build
+pre-commit install                                # chạy lint tự động mỗi lần commit (một lần)
 ```
 
 GitHub Actions: `.github/workflows/ci.yml`. CI kiểm tra backend, build web, kiểm thử hàng đợi/streaming và typecheck mobile.

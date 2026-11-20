@@ -1,0 +1,41 @@
+# Cài một lần:  pip install pre-commit && pre-commit install
+# Chạy tay:     pre-commit run --all-files
+# Cùng quy tắc với job "lint" trong .github/workflows/ci.yml (xem docs/CONVENTIONS.md).
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.0
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+        files: ^(backend|tests)/.*\.py$
+      - id: ruff-format
+        files: ^(backend|tests)/.*\.py$
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        args: [--unsafe]  # docker compose dùng tag !override
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+  - repo: local
+    hooks:
+      # Không cho commit file bí mật / file cá nhân (kể cả khi lỡ `git add -f`).
+      - id: forbid-secret-files
+        name: forbid secret and personal files
+        entry: "Không commit file bí mật/cá nhân (.env, TAI-KHOAN.md, evaluation.local, *.docx, secrets/)"
+        language: fail
+        files: (^|/)\.env$|(^|/)\.env\.local$|(^|/)TAI-KHOAN\.md$|(^|/)evaluation\.local|\.docx$|(^|/)secrets/
+      - id: frontend-eslint
+        name: eslint (frontend)
+        entry: bash -c 'cd frontend && npx eslint --max-warnings=20 .'
+        language: system
+        files: ^frontend/.*\.(ts|tsx|js|mjs)$
+        pass_filenames: false
+      - id: frontend-prettier
+        name: prettier (frontend)
+        entry: bash -c 'cd frontend && npx prettier --check .'
+        language: system
+        files: ^frontend/
+        pass_filenames: false

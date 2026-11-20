@@ -45,3 +45,11 @@ backend/.pytest*_run/
 /deploy/cloud/.env
 # Eval run outputs (CI uploads them as artifacts; baselines live in backend/evals/baselines)
 /reports/evals/
+
+# Tài khoản/ghi chú cá nhân và tài liệu Word: không bao giờ đưa lên repo.
+TAI-KHOAN.md
+*.docx
+evaluation.local
+.env.*
+!.env.example
+!**/.env.example
