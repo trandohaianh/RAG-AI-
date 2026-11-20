@@ -81,8 +81,9 @@ export default function FieldOperationsPage() {
   const [queued, setQueued] = useState<QueuedAction[]>([]);
   const [rejectedActions, setRejectedActions] = useState<QueuedAction[]>([]);
   const [legacyCount, setLegacyCount] = useState(0);
-  const queueScope = useMemo(() => user && workspaceId
-    ? createQueueScope(api.defaults.baseURL!, user.id, workspaceId) : null, [user?.id, workspaceId]);
+  const userId = user?.id;
+  const queueScope = useMemo(() => userId && workspaceId
+    ? createQueueScope(api.defaults.baseURL!, userId, workspaceId) : null, [userId, workspaceId]);
   const [notice, setNotice] = useState("");
   const [online, setOnline] = useState(true);
   const [note, setNote] = useState("");

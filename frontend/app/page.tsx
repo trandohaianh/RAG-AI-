@@ -446,7 +446,7 @@ export default function HomePage() {
                 </div>
               </div>
               <p className="mt-3 text-[10px] text-white/30">
-                Ảnh minh hoạ giao diện (số % là ví dụ). Badge "Đã kiểm định · Gold" đọc trực tiếp
+                Ảnh minh hoạ giao diện (số % là ví dụ). Badge “Đã kiểm định · Gold” đọc trực tiếp
                 cột <code className="rounded-[0.25rem] bg-white/10 px-1">validation_passed</code> thật trong
                 Postgres khi bật Data Pipeline — xem endpoint{" "}
                 <code className="rounded-[0.25rem] bg-white/10 px-1">GET /documents/lineage</code>.

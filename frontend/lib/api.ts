@@ -78,6 +78,8 @@ function expireSession(epoch: string | null | undefined) {
   // Cookie không còn hợp lệ: xoá nó luôn (không cần chờ kết quả).
   void fetch(`${API_URL}/auth/logout`, { method: "POST", credentials: "include", headers: SESSION_HEADERS })
     .catch(() => undefined);
+  // Tải lại hẳn trang (không dùng router): xoá mọi state trong bộ nhớ của phiên vừa hết hạn.
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
   if (!window.location.pathname.startsWith("/login")) window.location.href = "/login";
 }
 

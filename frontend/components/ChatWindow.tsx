@@ -57,6 +57,35 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  const pollEvalScore = useCallback(
+    async (messageId: number) => {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        await new Promise((r) => setTimeout(r, 2500));
+        try {
+          const res = await api.get<Message[]>(`/conversations/${convId}/messages`);
+          const found = res.data.find((m) => m.id === messageId);
+          if (found && found.eval_faithfulness != null) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === messageId
+                  ? {
+                      ...m,
+                      eval_faithfulness: found.eval_faithfulness,
+                      eval_relevancy: found.eval_relevancy,
+                    }
+                  : m
+              )
+            );
+            return;
+          }
+        } catch {
+          /* bỏ qua — không quan trọng bằng luồng chat chính */
+        }
+      }
+    },
+    [convId]
+  );
+
   const send = useCallback(
     async (text: string) => {
       const question = text.trim();
@@ -112,37 +141,9 @@ export default function ChatWindow({ convId, initialMessages = [] }: Props) {
         },
       }, selectedSource);
     },
-    [convId, loading, selectedSource]
+    [convId, loading, selectedSource, pollEvalScore]
   );
 
-  const pollEvalScore = useCallback(
-    async (messageId: number) => {
-      for (let attempt = 0; attempt < 4; attempt++) {
-        await new Promise((r) => setTimeout(r, 2500));
-        try {
-          const res = await api.get<Message[]>(`/conversations/${convId}/messages`);
-          const found = res.data.find((m) => m.id === messageId);
-          if (found && found.eval_faithfulness != null) {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === messageId
-                  ? {
-                      ...m,
-                      eval_faithfulness: found.eval_faithfulness,
-                      eval_relevancy: found.eval_relevancy,
-                    }
-                  : m
-              )
-            );
-            return;
-          }
-        } catch {
-          /* bỏ qua — không quan trọng bằng luồng chat chính */
-        }
-      }
-    },
-    [convId]
-  );
 
   const handleRate = useCallback(
     async (messageId: number, rating: -1 | 0 | 1) => {
