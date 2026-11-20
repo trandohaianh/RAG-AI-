@@ -1,13 +1,14 @@
 """Tạo/lấy embed token dev cho user đầu tiên. In token ra stdout."""
+
 import sys
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND))
 
+from auth.models import User
 from config import DATA_ROOT
 from database import SessionLocal, init_db
-from auth.models import User
 from saas.models import EmbedToken
 from saas.security import generate_embed_token, hash_secret
 
@@ -23,11 +24,7 @@ def main() -> None:
             db = SessionLocal()
             try:
                 h = hash_secret(t)
-                ok = (
-                    db.query(EmbedToken)
-                    .filter(EmbedToken.token_hash == h, EmbedToken.active.is_(True))
-                    .first()
-                )
+                ok = db.query(EmbedToken).filter(EmbedToken.token_hash == h, EmbedToken.active.is_(True)).first()
                 if ok:
                     print(t)
                     return

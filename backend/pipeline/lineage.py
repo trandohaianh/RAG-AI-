@@ -4,6 +4,7 @@
 chạy lúc ingest). Nếu pipeline chưa bật hoặc Postgres không kết nối được, trả về
 trạng thái rõ ràng thay vì bịa dữ liệu.
 """
+
 from sqlalchemy import text
 
 from pipeline.db import is_medallion_enabled, session_scope
@@ -16,21 +17,26 @@ def get_lineage_map(user_id: int) -> dict[str, dict]:
 
     try:
         with session_scope() as db:
-            bronze_rows = db.execute(
-                text(
-                    """
+            bronze_rows = (
+                db.execute(
+                    text(
+                        """
                     SELECT DISTINCT ON (filename) filename, ingested_at, content_hash
                     FROM bronze.raw_documents
                     WHERE user_id = :uid
                     ORDER BY filename, ingested_at DESC
                     """
-                ),
-                {"uid": user_id},
-            ).mappings().all()
+                    ),
+                    {"uid": user_id},
+                )
+                .mappings()
+                .all()
+            )
 
-            silver_rows = db.execute(
-                text(
-                    """
+            silver_rows = (
+                db.execute(
+                    text(
+                        """
                     SELECT source,
                            COUNT(*) AS chunk_count,
                            BOOL_AND(validation_passed) AS all_passed,
@@ -39,20 +45,27 @@ def get_lineage_map(user_id: int) -> dict[str, dict]:
                     WHERE user_id = :uid
                     GROUP BY source
                     """
-                ),
-                {"uid": user_id},
-            ).mappings().all()
+                    ),
+                    {"uid": user_id},
+                )
+                .mappings()
+                .all()
+            )
 
-            gold_rows = db.execute(
-                text(
-                    """
+            gold_rows = (
+                db.execute(
+                    text(
+                        """
                     SELECT source, chunk_count, last_ingested_at
                     FROM gold.document_summary
                     WHERE user_id = :uid
                     """
-                ),
-                {"uid": user_id},
-            ).mappings().all()
+                    ),
+                    {"uid": user_id},
+                )
+                .mappings()
+                .all()
+            )
     except Exception:
         return {"__status__": {"medallion_enabled": True, "reachable": False}}
 

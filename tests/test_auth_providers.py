@@ -1,5 +1,6 @@
 """Google Sign-In, xác thực email và rate-limit đăng nhập."""
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta, timezone
 
 import jwt
 import pytest
@@ -55,10 +56,15 @@ def client(db_factory, monkeypatch):
 
 def _fake_google(monkeypatch, sub="g-1", email="new@gmail.com", verified=True):
     def verify(credential, **_):
-        return google_auth.identity_from_claims({
-            "iss": "https://accounts.google.com", "sub": sub, "email": email,
-            "email_verified": verified, "aud": CLIENT_ID,
-        })
+        return google_auth.identity_from_claims(
+            {
+                "iss": "https://accounts.google.com",
+                "sub": sub,
+                "email": email,
+                "email_verified": verified,
+                "aud": CLIENT_ID,
+            }
+        )
 
     monkeypatch.setattr(google_auth, "verify_id_token", verify)
 
@@ -96,8 +102,15 @@ def test_google_links_existing_password_account_case_insensitively(client, db_fa
 
 def test_google_link_keeps_password_of_already_verified_account(client, db_factory, monkeypatch):
     with db_factory() as db:
-        db.add(User(id=5, email="Tech@example.com", hashed_password=hash_password("Password-123"), role="user",
-                    email_verified_at=datetime.now(timezone.utc)))
+        db.add(
+            User(
+                id=5,
+                email="Tech@example.com",
+                hashed_password=hash_password("Password-123"),
+                role="user",
+                email_verified_at=datetime.now(UTC),
+            )
+        )
         db.commit()
     _fake_google(monkeypatch, sub="g-5", email="tech@example.com")
     assert client.post("/auth/google", json={"credential": "x" * 40}).json()["user"]["id"] == 5
@@ -151,15 +164,23 @@ def test_real_signature_audience_and_expiry_checks(monkeypatch):
             return type("K", (), {"key": key.public_key()})()
 
     monkeypatch.setattr(google_auth, "_jwks_client", lambda: FakeJwks())
-    now = datetime.now(timezone.utc)
-    claims = {"iss": "https://accounts.google.com", "sub": "42", "email": "u@gmail.com",
-              "email_verified": True, "aud": CLIENT_ID, "iat": now, "exp": now + timedelta(minutes=5)}
+    now = datetime.now(UTC)
+    claims = {
+        "iss": "https://accounts.google.com",
+        "sub": "42",
+        "email": "u@gmail.com",
+        "email_verified": True,
+        "aud": CLIENT_ID,
+        "iat": now,
+        "exp": now + timedelta(minutes=5),
+    }
     good = jwt.encode(claims, key, algorithm="RS256")
     assert google_auth.verify_id_token(good, client_ids=[CLIENT_ID]).sub == "42"
 
     wrong_aud = jwt.encode({**claims, "aud": "someone-else"}, key, algorithm="RS256")
-    expired = jwt.encode({**claims, "iat": now - timedelta(hours=2), "exp": now - timedelta(hours=1)},
-                         key, algorithm="RS256")
+    expired = jwt.encode(
+        {**claims, "iat": now - timedelta(hours=2), "exp": now - timedelta(hours=1)}, key, algorithm="RS256"
+    )
     other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     forged = jwt.encode(claims, other_key, algorithm="RS256")
     for token in (wrong_aud, expired, forged):
@@ -209,7 +230,7 @@ def test_unverified_users_are_blocked_only_when_required(client, db_factory, mon
     assert client.get("/auth/config").json()["email_verification_required"] is True
 
     with db_factory() as db:
-        db.get(User, res.json()["user"]["id"]).email_verified_at = datetime.now(timezone.utc)
+        db.get(User, res.json()["user"]["id"]).email_verified_at = datetime.now(UTC)
         db.commit()
     assert client.get("/protected", headers=headers).status_code == 200
 

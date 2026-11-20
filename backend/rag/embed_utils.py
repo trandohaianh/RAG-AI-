@@ -1,4 +1,5 @@
 """Embedding với retry khi hết quota Gemini (429)."""
+
 import re
 import time
 
@@ -78,9 +79,12 @@ class MeteredEmbeddings:
         from costs.recorder import estimate_tokens, record_usage
 
         record_usage(
-            provider="gemini", model=self._model,
-            input_tokens=sum(estimate_tokens(t) for t in texts), estimated=True,
-            latency_ms=int((time.perf_counter() - start) * 1000), feature=feature,
+            provider="gemini",
+            model=self._model,
+            input_tokens=sum(estimate_tokens(t) for t in texts),
+            estimated=True,
+            latency_ms=int((time.perf_counter() - start) * 1000),
+            feature=feature,
         )
 
     def embed_documents(self, texts: list[str], *args, **kwargs) -> list[list[float]]:

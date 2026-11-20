@@ -1,4 +1,5 @@
 """OCR ảnh/scan qua Gemini Vision (tuần 3–4)."""
+
 from __future__ import annotations
 
 import mimetypes

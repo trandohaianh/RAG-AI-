@@ -4,27 +4,15 @@ import json
 import logging
 from contextlib import aclosing
 
-
-
 from fastapi import APIRouter, Depends, HTTPException
-
-
 from sqlalchemy.orm import Session
 
-
-
 from auth.schemas import CurrentUser
-
 from chat import service as chat_service
-
 from chat.schemas import ChatRequest, ConversationCreate, ConversationOut, FeedbackRequest, MessageOut
-
 from config import GEMINI_API_KEY, JUDGE_SAMPLE_RATE, LLM_PROVIDER
-
 from database import get_db
-
 from dependencies import get_current_user
-
 from rag.chain import RAG_ERROR_MESSAGE, stream_rag_answer
 from rag.evidence import public_bundle
 from rag.judge import judge_answer
@@ -32,8 +20,7 @@ from rag.judge import judge_answer
 _background_tasks: set = set()
 
 
-def _schedule_eval(message_id: int, question: str, context: str, answer: str,
-                   user_id: int | None = None) -> None:
+def _schedule_eval(message_id: int, question: str, context: str, answer: str, user_id: int | None = None) -> None:
     """Chấm điểm faithfulness/relevancy chạy nền, không chặn response."""
     import asyncio
     import random
@@ -67,9 +54,7 @@ def _schedule_eval(message_id: int, question: str, context: str, answer: str,
 
         db = SessionLocal()
         try:
-            chat_service.set_message_eval(
-                db, message_id, result["faithfulness"], result["relevancy"]
-            )
+            chat_service.set_message_eval(db, message_id, result["faithfulness"], result["relevancy"])
         finally:
             db.close()
 
@@ -78,87 +63,49 @@ def _schedule_eval(message_id: int, question: str, context: str, answer: str,
     task.add_done_callback(_background_tasks.discard)
 
 
-
 router = APIRouter(tags=["chat"])
 
 
-
-
-
 @router.get("/conversations", response_model=list[ConversationOut])
-
 def list_conversations(
-
     user: CurrentUser = Depends(get_current_user),
-
     db: Session = Depends(get_db),
-
 ):
-
     return chat_service.list_conversations(db, user.id)
 
 
-
-
-
 @router.post("/conversations", response_model=ConversationOut)
-
 def create_conversation(
-
     body: ConversationCreate,
-
     user: CurrentUser = Depends(get_current_user),
-
     db: Session = Depends(get_db),
-
 ):
-
     conv = chat_service.create_conversation(db, user.id, body.title)
 
     return ConversationOut.model_validate(conv)
 
 
-
-
-
 @router.get("/conversations/{conv_id}/messages", response_model=list[MessageOut])
-
 def get_messages(
-
     conv_id: int,
-
     user: CurrentUser = Depends(get_current_user),
-
     db: Session = Depends(get_db),
-
 ):
-
     conv = chat_service.get_conversation(db, user.id, conv_id)
 
     if not conv:
-
         raise HTTPException(status_code=404, detail="Không tìm thấy hội thoại")
 
     return [MessageOut(**chat_service.message_to_out(m)) for m in chat_service.get_messages(db, conv_id)]
 
 
-
-
-
 @router.delete("/conversations/{conv_id}")
-
 def delete_conversation(
-
     conv_id: int,
-
     user: CurrentUser = Depends(get_current_user),
-
     db: Session = Depends(get_db),
-
 ):
-
     if not chat_service.delete_conversation(db, user.id, conv_id):
-
         raise HTTPException(status_code=404, detail="Không tìm thấy hội thoại")
 
     return {"message": "Đã xóa hội thoại"}
@@ -178,38 +125,26 @@ def submit_feedback(
     return MessageOut(**chat_service.message_to_out(msg))
 
 
-
-
-
 @router.post("/chat/{conv_id}")
-
 async def chat_stream(
-
     conv_id: int,
-
     body: ChatRequest,
-
     user: CurrentUser = Depends(get_current_user),
-
     db: Session = Depends(get_db),
-
 ):
-
     """Stream RAG response, lưu user + assistant message vào DB."""
 
     if LLM_PROVIDER != "ollama" and not GEMINI_API_KEY:
-
-        raise HTTPException(status_code=503, detail="Thiếu GEMINI_API_KEY")  # chưa cấu hình: dịch vụ chưa sẵn sàng, không phải lỗi máy chủ
+        raise HTTPException(
+            status_code=503, detail="Thiếu GEMINI_API_KEY"
+        )  # chưa cấu hình: dịch vụ chưa sẵn sàng, không phải lỗi máy chủ
 
     from saas.limits import enforce_query_quota, release_query_quota
 
     conv = chat_service.get_conversation(db, user.id, conv_id)
 
     if not conv:
-
         raise HTTPException(status_code=404, detail="Không tìm thấy hội thoại")
-
-
 
     from costs.budget import enforce_budget_async
 
@@ -227,8 +162,6 @@ async def chat_stream(
         await budget.release_async()
         raise
 
-
-
     # Snapshot trước khi đóng session — generator chạy sau khi response bắt đầu
 
     user_id = user.id
@@ -239,8 +172,6 @@ async def chat_stream(
 
     history_snapshot = list(history)
 
-
-
     full_answer: list[str] = []
 
     sources: list[str] = []
@@ -248,10 +179,7 @@ async def chat_stream(
 
     retrieved_context: list[str] = [""]
 
-
-
     async def event_generator():
-
         nonlocal sources
 
         from costs.context import set_request_usage
@@ -259,28 +187,21 @@ async def chat_stream(
         set_request_usage(user_id=user_id, feature="chat")
 
         try:
-
-            async with aclosing(stream_rag_answer(
-
-                user_id, question, history_snapshot, source, include_evidence=True
-
-            )) as answer_stream:
+            async with aclosing(
+                stream_rag_answer(user_id, question, history_snapshot, source, include_evidence=True)
+            ) as answer_stream:
                 async for kind, payload in answer_stream:
-
                     if kind == "evidence":
                         evidence_bundle.update(payload)
                     elif kind == "context":
-
                         retrieved_context[0] = payload  # type: ignore[assignment]
 
                     elif kind == "token":
-
                         full_answer.append(payload)  # type: ignore[arg-type]
 
                         yield f"data: {json.dumps({'token': payload}, ensure_ascii=False)}\n\n"
 
                     elif kind == "done":
-
                         sources = payload  # type: ignore[assignment]
 
                         answer_text = "".join(full_answer)
@@ -290,19 +211,23 @@ async def chat_stream(
                         db_save = SessionLocal()
 
                         try:
-
-                            saved = chat_service.add_message(db_save, conv_id, "assistant", answer_text, sources, **({"evidence": evidence_bundle} if evidence_bundle else {}))
+                            saved = chat_service.add_message(
+                                db_save,
+                                conv_id,
+                                "assistant",
+                                answer_text,
+                                sources,
+                                **({"evidence": evidence_bundle} if evidence_bundle else {}),
+                            )
 
                             saved_id = saved.id
 
                         finally:
-
                             db_save.close()
 
                         # Câu từ chối "chưa có tài liệu" không có context: judge sẽ chấm nó
                         # faithfulness=1.0 và làm lệch trung bình chất lượng, nên không lấy mẫu.
                         if answer_text.strip() and str(retrieved_context[0] or "").strip():
-
                             _schedule_eval(saved_id, question, retrieved_context[0], answer_text, user_id)
 
                         yield f"data: {json.dumps({'done': True, 'sources': sources, 'message_id': saved_id, **public_bundle(evidence_bundle)}, ensure_ascii=False)}\n\n"
@@ -310,7 +235,6 @@ async def chat_stream(
                         return
 
         except Exception as exc:
-
             logging.getLogger(__name__).warning("RAG request failed (%s)", type(exc).__name__)
             yield f"data: {json.dumps({'error': RAG_ERROR_MESSAGE, 'code': 'rag_unavailable'}, ensure_ascii=False)}\n\n"
 
@@ -320,35 +244,39 @@ async def chat_stream(
             # Chi phí thật đã được ghi khi stream kết thúc: trả lại khoản đặt trước.
             await budget.release_async()
 
-
-
     from costs.budget import budgeted_stream
 
     return budgeted_stream(
-
-        event_generator(), budget,
-
+        event_generator(),
+        budget,
         media_type="text/event-stream",
-
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-
     )
 
 
-
 @router.get("/conversations/{conv_id}/messages/{message_id}/evidence/{reference_id}")
-def get_message_evidence(conv_id: int, message_id: int, reference_id: str,
-                         user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_message_evidence(
+    conv_id: int,
+    message_id: int,
+    reference_id: str,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     from chat.models import Message
-    from rag.evidence import read_bundle, evidence_status
+    from rag.evidence import evidence_status, read_bundle
+
     if not chat_service.get_conversation(db, user.id, conv_id):
         raise HTTPException(status_code=404, detail="Không tìm thấy hội thoại")
     message = db.query(Message).filter_by(id=message_id, conversation_id=conv_id, role="assistant").first()
     if message is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy bằng chứng")
     bundle = read_bundle(message.evidence_json)
-    item = next((item for item in bundle['evidence'] if item['reference_id'] == reference_id), None)
+    item = next((item for item in bundle["evidence"] if item["reference_id"] == reference_id), None)
     if item is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy bằng chứng")
     from fastapi.responses import JSONResponse
-    return JSONResponse({"evidence": item, "document_status": evidence_status(bundle, f"user_{user.id}")}, headers={"Cache-Control": "no-store"})
+
+    return JSONResponse(
+        {"evidence": item, "document_status": evidence_status(bundle, f"user_{user.id}")},
+        headers={"Cache-Control": "no-store"},
+    )

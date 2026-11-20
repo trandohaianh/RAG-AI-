@@ -1,9 +1,10 @@
 """Regression tests for round 5 (2026-11-17, multi-role review): algorithm and QA findings.
 Each test fails on commit ddf8352."""
+
 from __future__ import annotations
 
 import unicodedata
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -76,7 +77,7 @@ def test_resolved_case_kpi_does_not_move_to_the_day_of_a_later_edit():
     event.listen(engine, "connect", _enable_sqlite_foreign_keys)
     Base.metadata.create_all(engine)
     make = sessionmaker(bind=engine, autoflush=False)
-    day_d = datetime.now(timezone.utc).date() - timedelta(days=1)
+    day_d = datetime.now(UTC).date() - timedelta(days=1)
     with make() as db:
         db.add(User(id=1, email="o@example.com", hashed_password="x"))
         db.add(FieldWorkspace(id=1, name="Đội", created_by=1))
@@ -86,7 +87,7 @@ def test_resolved_case_kpi_does_not_move_to_the_day_of_a_later_edit():
         case.status = "resolved"
         db.commit()
         # Pretend it was resolved yesterday; today a dispatcher edits it again.
-        resolved = datetime.combine(day_d, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=10)
+        resolved = datetime.combine(day_d, datetime.min.time(), tzinfo=UTC) + timedelta(hours=10)
         case.resolved_at = resolved
         case.updated_at = resolved
         db.commit()
@@ -171,7 +172,9 @@ def test_ocr_call_caps_output_tokens(monkeypatch):
         seen.update(kwargs)
         return SimpleNamespace(text="chữ", usage_metadata=None)
 
-    monkeypatch.setattr(llm, "client", lambda: SimpleNamespace(models=SimpleNamespace(generate_content=generate_content)))
+    monkeypatch.setattr(
+        llm, "client", lambda: SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
     monkeypatch.setattr(llm, "record_usage", lambda **kw: None)
     llm.read_image_text(b"\x89PNG", "image/png", "đọc chữ")
     assert seen["config"].max_output_tokens == config.LLM_MAX_OUTPUT_TOKENS

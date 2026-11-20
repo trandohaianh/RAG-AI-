@@ -5,6 +5,7 @@ Hai kênh, chọn tự động:
   gửi được tới MỌI địa chỉ mà không cần xác minh DNS. Đặt SMTP_HOST/SMTP_USER/SMTP_PASSWORD.
 - Resend API: cần domain đã xác minh để gửi cho người khác (sender test chỉ gửi về chính bạn).
 """
+
 import asyncio
 import os
 import smtplib
@@ -70,8 +71,12 @@ async def _send(to_email: str, subject: str, html: str) -> bool:
                 resp = await client.post(
                     "https://api.resend.com/emails",
                     headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
-                    json={"from": f"{EMAIL_SENDER_NAME} <{RESEND_FROM_EMAIL}>", "to": [to_email],
-                          "subject": subject, "html": html},
+                    json={
+                        "from": f"{EMAIL_SENDER_NAME} <{RESEND_FROM_EMAIL}>",
+                        "to": [to_email],
+                        "subject": subject,
+                        "html": html,
+                    },
                 )
             return resp.status_code < 300
     except Exception:

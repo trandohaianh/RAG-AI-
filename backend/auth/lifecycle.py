@@ -1,6 +1,7 @@
 """Revoke an account while retaining stable identities for case audit."""
+
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from sqlalchemy import delete, select, update
@@ -64,11 +65,7 @@ def deactivate_account(db: Session, user_id: int, actor_id: int) -> None:
 
         embed_ids = select(EmbedToken.id).where(EmbedToken.user_id == user_id)
         db.execute(delete(EmbedGuestSession).where(EmbedGuestSession.embed_token_id.in_(embed_ids)))
-        db.execute(
-            update(EmbedToken)
-            .where(EmbedToken.user_id == user_id)
-            .values(active=False)
-        )
+        db.execute(update(EmbedToken).where(EmbedToken.user_id == user_id).values(active=False))
         db.execute(delete(ApiKey).where(ApiKey.user_id == user_id))
         db.execute(delete(PasswordResetToken).where(PasswordResetToken.user_id == user_id))
         db.execute(delete(FieldWorkspaceMember).where(FieldWorkspaceMember.user_id == user_id))
@@ -80,9 +77,7 @@ def deactivate_account(db: Session, user_id: int, actor_id: int) -> None:
             .execution_options(synchronize_session=False)
         )
 
-        for case in db.scalars(
-            select(ServiceCase).where(ServiceCase.assigned_to == user_id)
-        ).all():
+        for case in db.scalars(select(ServiceCase).where(ServiceCase.assigned_to == user_id)).all():
             case.assigned_to = None
             db.add(
                 ServiceCaseEvent(
@@ -103,7 +98,7 @@ def deactivate_account(db: Session, user_id: int, actor_id: int) -> None:
                 role="user",
                 subscription_plan="free",
                 token_version=User.token_version + 1,
-                deleted_at=datetime.now(timezone.utc),
+                deleted_at=datetime.now(UTC),
             )
             .execution_options(synchronize_session=False)
         )
@@ -124,5 +119,6 @@ def deactivate_account(db: Session, user_id: int, actor_id: int) -> None:
         except Exception as exc:  # không làm hỏng việc vô hiệu hoá đã commit
             logging.getLogger(__name__).warning(
                 "Không huỷ được subscription Stripe của user %s (%s); cần huỷ thủ công",
-                user_id, type(exc).__name__,
+                user_id,
+                type(exc).__name__,
             )

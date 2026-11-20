@@ -8,12 +8,13 @@ Ví dụ:
 
 Mã thoát: 0 đạt; 1 không đạt ngưỡng hoặc hồi quy; 2 lỗi cấu hình.
 """
+
 from __future__ import annotations
 
 import argparse
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -70,10 +71,9 @@ def main(argv=None) -> int:
     ctx = prepare_environment(args.mode)  # phải chạy trước khi import module ứng dụng
     try:
         from evals.harness import run_suite
-        from evals.report import (check_gates, compare_baseline, history_row, load_json, to_markdown)
+        from evals.report import check_gates, compare_baseline, history_row, load_json, to_markdown
 
-        report = run_suite(ctx, args.dataset, k=args.k, judge=args.judge,
-                           split=args.split, limit=args.limit)
+        report = run_suite(ctx, args.dataset, k=args.k, judge=args.judge, split=args.split, limit=args.limit)
     finally:
         cleanup(ctx)
 
@@ -91,8 +91,10 @@ def main(argv=None) -> int:
         regressions, deltas = compare_baseline(report["metrics"], baseline_doc["metrics"], tolerance)
         frozen = baseline_doc.get("holdout_fingerprint")
         if fingerprint and frozen and frozen != fingerprint:
-            regressions.append("holdout đã bị sửa so với baseline đóng băng — tạo phiên bản dataset mới "
-                               "và chốt baseline có chủ đích (--update-baseline), không sửa holdout cũ")
+            regressions.append(
+                "holdout đã bị sửa so với baseline đóng băng — tạo phiên bản dataset mới "
+                "và chốt baseline có chủ đích (--update-baseline), không sửa holdout cũ"
+            )
     review = expert_review_status(args.dataset)
     report["expert_review"] = review
     passed = not gate_failures and not regressions
@@ -100,10 +102,14 @@ def main(argv=None) -> int:
     import json
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     stem = args.output_dir / f"{stamp}-{args.mode}-{args.split}"
-    report["gates"] = {"passed": passed, "threshold_failures": gate_failures, "regressions": regressions,
-                       "baseline": str(baseline_path.relative_to(ROOT)) if baseline_path.exists() else None}
+    report["gates"] = {
+        "passed": passed,
+        "threshold_failures": gate_failures,
+        "regressions": regressions,
+        "baseline": str(baseline_path.relative_to(ROOT)) if baseline_path.exists() else None,
+    }
     stem.with_suffix(".json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     markdown = to_markdown(report, gate_failures, regressions, deltas)
     stem.with_suffix(".md").write_text(markdown, encoding="utf-8")
@@ -117,20 +123,30 @@ def main(argv=None) -> int:
 
     if args.update_baseline:
         BASELINES.mkdir(parents=True, exist_ok=True)
-        baseline = {"dataset_id": report["dataset_id"], "mode": report["mode"], "split": report["split"],
-                    "created_at": report["started_at"], "config": report["config"], "metrics": report["metrics"]}
+        baseline = {
+            "dataset_id": report["dataset_id"],
+            "mode": report["mode"],
+            "split": report["split"],
+            "created_at": report["started_at"],
+            "config": report["config"],
+            "metrics": report["metrics"],
+        }
         if fingerprint:
             baseline["holdout_fingerprint"] = fingerprint
         baseline_path.write_text(json.dumps(baseline, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         print(f"Đã cập nhật baseline: {baseline_path}")
 
     m = report["metrics"]
-    print(f"[{report['mode']}] {m['cases']} câu · pass {m['pass_rate']} · recall@{args.k} {m['retrieval_recall_at_k']} · "
-          f"MRR {m['retrieval_mrr']} · phủ dữ kiện {m['fact_coverage']} · từ chối đúng {m['refusal_accuracy']} · "
-          f"vi phạm {m['safety_violations']} · ${m['cost_usd']}")
+    print(
+        f"[{report['mode']}] {m['cases']} câu · pass {m['pass_rate']} · recall@{args.k} {m['retrieval_recall_at_k']} · "
+        f"MRR {m['retrieval_mrr']} · phủ dữ kiện {m['fact_coverage']} · từ chối đúng {m['refusal_accuracy']} · "
+        f"vi phạm {m['safety_violations']} · ${m['cost_usd']}"
+    )
     print(f"Báo cáo: {stem.with_suffix('.md')} · dung sai hồi quy {tolerance}")
-    print(f"Holdout đã được chuyên gia duyệt: {review['expert_reviewed']}/{review['holdout_cases']} "
-          f"(mục tiêu ≥{review['target']} câu)")
+    print(
+        f"Holdout đã được chuyên gia duyệt: {review['expert_reviewed']}/{review['holdout_cases']} "
+        f"(mục tiêu ≥{review['target']} câu)"
+    )
     for line in gate_failures + regressions:
         print(f"  ✗ {line}")
     if args.no_gates:

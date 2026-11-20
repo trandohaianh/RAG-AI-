@@ -1,5 +1,6 @@
 """Silver layer — cleaned, validated chunks."""
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 
 from sqlalchemy import text
 
@@ -14,7 +15,7 @@ def write_silver_chunks(
     chunks: list[dict],
     validation: ValidationResult,
 ) -> int:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     passed = validation.success
     written = 0
 

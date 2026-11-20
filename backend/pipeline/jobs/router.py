@@ -1,9 +1,10 @@
 """API admin cho pipeline vận hành: lịch sử chạy, KPI theo ngày, chạy tay."""
+
 from __future__ import annotations
 
 import json
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -19,7 +20,11 @@ _manual_lock = threading.Lock()
 
 def _run_out(r: PipelineRun) -> dict:
     return {
-        "id": r.id, "job": r.job, "status": r.status, "rows": r.rows, "trigger": r.trigger,
+        "id": r.id,
+        "job": r.job,
+        "status": r.status,
+        "rows": r.rows,
+        "trigger": r.trigger,
         "started_at": r.started_at.isoformat() if r.started_at else None,
         "finished_at": r.finished_at.isoformat() if r.finished_at else None,
         "details": json.loads(r.details_json) if r.details_json else None,
@@ -27,8 +32,12 @@ def _run_out(r: PipelineRun) -> dict:
 
 
 @router.get("/runs")
-def list_runs(limit: int = Query(30, ge=1, le=200), job: str | None = None,
-              _admin: CurrentUser = Depends(require_admin), db: Session = Depends(get_db)):
+def list_runs(
+    limit: int = Query(30, ge=1, le=200),
+    job: str | None = None,
+    _admin: CurrentUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
     query = db.query(PipelineRun).order_by(PipelineRun.id.desc())
     if job:
         query = query.filter(PipelineRun.job == job)
@@ -47,13 +56,16 @@ def pipeline_status(_admin: CurrentUser = Depends(require_admin), db: Session = 
 
 
 @router.get("/daily")
-def daily_kpis(days: int = Query(30, ge=1, le=366),
-               _admin: CurrentUser = Depends(require_admin), db: Session = Depends(get_db)):
-    since = datetime.now(timezone.utc).date() - timedelta(days=days - 1)
+def daily_kpis(
+    days: int = Query(30, ge=1, le=366), _admin: CurrentUser = Depends(require_admin), db: Session = Depends(get_db)
+):
+    since = datetime.now(UTC).date() - timedelta(days=days - 1)
     rows = db.query(AnalyticsDaily).filter(AnalyticsDaily.day >= since).order_by(AnalyticsDaily.day).all()
     return [
-        {c.name: (getattr(r, c.name).isoformat() if hasattr(getattr(r, c.name), "isoformat") else getattr(r, c.name))
-         for c in AnalyticsDaily.__table__.columns}
+        {
+            c.name: (getattr(r, c.name).isoformat() if hasattr(getattr(r, c.name), "isoformat") else getattr(r, c.name))
+            for c in AnalyticsDaily.__table__.columns
+        }
         for r in rows
     ]
 

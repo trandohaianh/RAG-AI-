@@ -1,4 +1,5 @@
 """Integration-style tests — file discovery (không cần Postgres)."""
+
 import sys
 from pathlib import Path
 

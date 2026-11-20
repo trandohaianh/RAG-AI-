@@ -1,4 +1,5 @@
 """Bộ eval tự viết: bộ chấm, cổng chất lượng, và chạy thử end-to-end ở chế độ offline."""
+
 import json
 import subprocess
 import sys
@@ -76,9 +77,21 @@ def test_golden_set_is_well_formed():
 
 def test_offline_suite_runs_end_to_end(tmp_path):
     proc = subprocess.run(
-        [sys.executable, "-B", str(ROOT / "backend" / "scripts" / "run_evals.py"), "--mode", "offline",
-         "--limit", "12", "--output-dir", str(tmp_path)],
-        capture_output=True, text=True, timeout=300, cwd=ROOT,
+        [
+            sys.executable,
+            "-B",
+            str(ROOT / "backend" / "scripts" / "run_evals.py"),
+            "--mode",
+            "offline",
+            "--limit",
+            "12",
+            "--output-dir",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        cwd=ROOT,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     report = json.loads(next(tmp_path.glob("*-offline-all.json")).read_text(encoding="utf-8"))

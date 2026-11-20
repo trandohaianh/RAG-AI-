@@ -1,5 +1,7 @@
 """Deletion preserves audit identities and cannot transfer stale access."""
 
+from datetime import UTC
+
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -24,13 +26,18 @@ def seed_workspace(db, *, owner_id=1, member_id=2):
     workspace = FieldWorkspace(name="Lifecycle team", created_by=owner_id)
     db.add(workspace)
     db.flush()
-    db.add_all([
-        FieldWorkspaceMember(workspace_id=workspace.id, user_id=owner_id, role="owner"),
-        FieldWorkspaceMember(workspace_id=workspace.id, user_id=member_id, role="technician"),
-    ])
+    db.add_all(
+        [
+            FieldWorkspaceMember(workspace_id=workspace.id, user_id=owner_id, role="owner"),
+            FieldWorkspaceMember(workspace_id=workspace.id, user_id=member_id, role="technician"),
+        ]
+    )
     case = ServiceCase(
-        workspace_id=workspace.id, created_by=member_id, assigned_to=member_id,
-        title="Audit case", symptom="No signal",
+        workspace_id=workspace.id,
+        created_by=member_id,
+        assigned_to=member_id,
+        title="Audit case",
+        symptom="No signal",
     )
     db.add(case)
     db.flush()
@@ -52,11 +59,15 @@ def test_account_delete_revokes_access_without_reusing_identity(monkeypatch, tmp
         db.add_all([embed, conv])
         db.flush()
         from datetime import datetime, timedelta, timezone
-        db.add(EmbedGuestSession(
-            embed_token_id=embed.id, conversation_id=conv.id,
-            token_hash=hash_secret("old-session"),
-            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
-        ))
+
+        db.add(
+            EmbedGuestSession(
+                embed_token_id=embed.id,
+                conversation_id=conv.id,
+                token_hash=hash_secret("old-session"),
+                expires_at=datetime.now(UTC) + timedelta(hours=1),
+            )
+        )
         db.add(Message(conversation_id=conv.id, role="assistant", content="Keep audit"))
         db.commit()
 
@@ -82,9 +93,15 @@ def test_account_delete_revokes_access_without_reusing_identity(monkeypatch, tmp
         users = client.get("/admin/users", headers=headers).json()
         assert [user["id"] for user in users] == [1]
         assert client.get("/admin/stats", headers=headers).json()["total_users"] == 1
-        assert client.get(f"/field/cases/{case_id}", headers={
-            "Authorization": f"Bearer {old_access}",
-        }).status_code == 401
+        assert (
+            client.get(
+                f"/field/cases/{case_id}",
+                headers={
+                    "Authorization": f"Bearer {old_access}",
+                },
+            ).status_code
+            == 401
+        )
 
         with security_db() as db:
             old = db.get(User, 2)
@@ -99,14 +116,24 @@ def test_account_delete_revokes_access_without_reusing_identity(monkeypatch, tmp
             assert case.created_by == 2
             assert case.assigned_to is None
             assert db.query(ServiceCaseEvent).filter_by(actor_id=2).count() == 1
-            replacement = register_user(db, UserCreate(
-                email="tech@example.com", password="New-password-123",
-            ))
+            replacement = register_user(
+                db,
+                UserCreate(
+                    email="tech@example.com",
+                    password="New-password-123",
+                ),
+            )
             assert replacement.id != 2
             replacement_access = create_access_token(replacement)
-        assert client.get(f"/field/cases/{case_id}", headers={
-            "Authorization": f"Bearer {replacement_access}",
-        }).status_code == 404
+        assert (
+            client.get(
+                f"/field/cases/{case_id}",
+                headers={
+                    "Authorization": f"Bearer {replacement_access}",
+                },
+            ).status_code
+            == 404
+        )
 
 
 def test_last_owner_of_active_team_cannot_be_deleted(security_db):
@@ -136,15 +163,21 @@ def test_solo_owner_can_be_disabled_without_deleting_case_audit(security_db):
 def test_legacy_sqlite_migration_reserves_orphan_ids_and_preserves_events(monkeypatch):
     engine = create_engine("sqlite:///:memory:")
     with engine.begin() as conn:
-        conn.execute(text(
-            "CREATE TABLE users (id INTEGER PRIMARY KEY, email VARCHAR(255) UNIQUE, "
-            "hashed_password VARCHAR(255), role VARCHAR(20), "
-            "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
-        ))
-        conn.execute(text("INSERT INTO users (id,email,hashed_password,role) VALUES (1,'live@example.com','unused','admin')"))
+        conn.execute(
+            text(
+                "CREATE TABLE users (id INTEGER PRIMARY KEY, email VARCHAR(255) UNIQUE, "
+                "hashed_password VARCHAR(255), role VARCHAR(20), "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+            )
+        )
+        conn.execute(
+            text("INSERT INTO users (id,email,hashed_password,role) VALUES (1,'live@example.com','unused','admin')")
+        )
         conn.execute(text("CREATE TABLE api_keys (id INTEGER PRIMARY KEY, user_id INTEGER)"))
         conn.execute(text("CREATE TABLE field_workspace_members (id INTEGER PRIMARY KEY, user_id INTEGER)"))
-        conn.execute(text("CREATE TABLE field_service_case_events (id INTEGER PRIMARY KEY, actor_id INTEGER, detail TEXT)"))
+        conn.execute(
+            text("CREATE TABLE field_service_case_events (id INTEGER PRIMARY KEY, actor_id INTEGER, detail TEXT)")
+        )
         conn.execute(text("INSERT INTO api_keys (id,user_id) VALUES (1,7)"))
         conn.execute(text("INSERT INTO field_workspace_members (id,user_id) VALUES (1,7)"))
         conn.execute(text("INSERT INTO field_service_case_events (id,actor_id,detail) VALUES (1,9,'Keep this audit')"))
@@ -154,11 +187,21 @@ def test_legacy_sqlite_migration_reserves_orphan_ids_and_preserves_events(monkey
         database._migrate_sqlite_columns()
         with engine.begin() as conn:
             assert conn.execute(text("SELECT token_version FROM users WHERE id=1")).scalar_one() == 0
-            assert conn.execute(text("SELECT COUNT(*) FROM users WHERE id IN (7,9) AND deleted_at IS NOT NULL")).scalar_one() == 2
+            assert (
+                conn.execute(
+                    text("SELECT COUNT(*) FROM users WHERE id IN (7,9) AND deleted_at IS NOT NULL")
+                ).scalar_one()
+                == 2
+            )
             assert conn.execute(text("SELECT COUNT(*) FROM api_keys")).scalar_one() == 0
             assert conn.execute(text("SELECT COUNT(*) FROM field_workspace_members")).scalar_one() == 0
-            assert conn.execute(text("SELECT detail FROM field_service_case_events WHERE actor_id=9")).scalar_one() == "Keep this audit"
-            conn.execute(text("INSERT INTO users (email,hashed_password,role) VALUES ('new@example.com','unused','user')"))
+            assert (
+                conn.execute(text("SELECT detail FROM field_service_case_events WHERE actor_id=9")).scalar_one()
+                == "Keep this audit"
+            )
+            conn.execute(
+                text("INSERT INTO users (email,hashed_password,role) VALUES ('new@example.com','unused','user')")
+            )
             assert conn.execute(text("SELECT id FROM users WHERE email='new@example.com'")).scalar_one() > 9
     finally:
         engine.dispose()
@@ -167,21 +210,24 @@ def test_legacy_sqlite_migration_reserves_orphan_ids_and_preserves_events(monkey
 def test_init_db_upgrades_existing_users_before_auth_queries(monkeypatch):
     engine = create_engine("sqlite:///:memory:")
     with engine.begin() as conn:
-        conn.execute(text(
-            "CREATE TABLE users (id INTEGER PRIMARY KEY, email VARCHAR(255) UNIQUE, "
-            "hashed_password VARCHAR(255), role VARCHAR(20), "
-            "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
-        ))
-        conn.execute(text(
-            "INSERT INTO users (id,email,hashed_password,role) "
-            "VALUES (1,'legacy@example.com','unused','admin')"
-        ))
+        conn.execute(
+            text(
+                "CREATE TABLE users (id INTEGER PRIMARY KEY, email VARCHAR(255) UNIQUE, "
+                "hashed_password VARCHAR(255), role VARCHAR(20), "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+            )
+        )
+        conn.execute(
+            text("INSERT INTO users (id,email,hashed_password,role) VALUES (1,'legacy@example.com','unused','admin')")
+        )
     monkeypatch.setattr(database, "engine", engine)
     try:
         database.init_db()
         database.init_db()
         from sqlalchemy.orm import Session
+
         from auth.models import PasswordResetToken
+
         with Session(engine) as db:
             user = db.get(User, 1)
             assert user.email == "legacy@example.com"

@@ -1,6 +1,7 @@
 """Usage reporting follows durable counters rather than retained chat history."""
+
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine
@@ -21,22 +22,31 @@ def reporting_db():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     with sessions() as db:
-        db.add_all([
-            User(id=1, email="active@example.com", hashed_password="unused", role="admin"),
-            User(id=2, email="other@example.com", hashed_password="unused"),
-        ])
+        db.add_all(
+            [
+                User(id=1, email="active@example.com", hashed_password="unused", role="admin"),
+                User(id=2, email="other@example.com", hashed_password="unused"),
+            ]
+        )
         db.flush()
         conversation = Conversation(user_id=1, title="Reporting")
         db.add(conversation)
         db.flush()
         conversation_id = conversation.id
-        db.add_all([
-            Message(conversation_id=conversation_id, role="assistant", content="legacy", created_at=today - timedelta(hours=1)),
-            Message(conversation_id=conversation_id, role="assistant", content="today", created_at=now),
-        ])
+        db.add_all(
+            [
+                Message(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content="legacy",
+                    created_at=today - timedelta(hours=1),
+                ),
+                Message(conversation_id=conversation_id, role="assistant", content="today", created_at=now),
+            ]
+        )
         db.commit()
     initialize_query_usage(engine)
     with sessions() as db:

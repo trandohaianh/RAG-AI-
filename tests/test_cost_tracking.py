@@ -1,5 +1,7 @@
 """Theo dõi chi phí AI: bảng giá, ghi nhận token, gán user, API tổng hợp và ngân sách."""
+
 import threading
+from datetime import UTC
 from types import SimpleNamespace
 
 import pytest
@@ -30,10 +32,12 @@ def cost_db():
     factory = sessionmaker(bind=engine, autoflush=False)
     with factory() as db:
         hashed = hash_password("Password-123")
-        db.add_all([
-            User(id=1, email="admin@example.com", hashed_password=hashed, role="admin"),
-            User(id=2, email="tech@example.com", hashed_password=hashed, role="user"),
-        ])
+        db.add_all(
+            [
+                User(id=1, email="admin@example.com", hashed_password=hashed, role="admin"),
+                User(id=2, email="tech@example.com", hashed_password=hashed, role="user"),
+            ]
+        )
         db.commit()
     recorder.set_session_factory(factory)
     yield factory
@@ -69,8 +73,11 @@ def test_prefix_matching_prefers_more_specific_model():
 
 def test_thinking_tokens_are_billed_as_output():
     cost = recorder.record_usage(
-        provider="gemini", model="gemini-2.5-flash",
-        input_tokens=1_000_000, output_tokens=0, thinking_tokens=1_000_000,
+        provider="gemini",
+        model="gemini-2.5-flash",
+        input_tokens=1_000_000,
+        output_tokens=0,
+        thinking_tokens=1_000_000,
     )
     assert cost == pytest.approx(0.30 + 2.50)
 
@@ -123,8 +130,9 @@ def test_generate_text_records_provider_usage(cost_db, monkeypatch):
     import rag.llm as llm
 
     meta = SimpleNamespace(prompt_token_count=1200, candidates_token_count=300, thoughts_token_count=40)
-    fake = SimpleNamespace(models=SimpleNamespace(
-        generate_content=lambda **_: SimpleNamespace(text="ok", usage_metadata=meta)))
+    fake = SimpleNamespace(
+        models=SimpleNamespace(generate_content=lambda **_: SimpleNamespace(text="ok", usage_metadata=meta))
+    )
     monkeypatch.setattr(llm, "LLM_PROVIDER", "gemini")
     monkeypatch.setattr(llm, "client", lambda: fake)
     with usage_scope(user_id=2):
@@ -219,12 +227,16 @@ def test_infra_costs_feed_monthly_projection(client, cost_db):
     from datetime import datetime, timezone
 
     admin = _auth(cost_db, 1)
-    month = datetime.now(timezone.utc).strftime("%Y-%m")
-    bad = client.post("/admin/costs/infra", headers=admin, json={
-        "month": "2026-13", "provider": "x", "item": "y", "amount_usd": 1})
+    month = datetime.now(UTC).strftime("%Y-%m")
+    bad = client.post(
+        "/admin/costs/infra", headers=admin, json={"month": "2026-13", "provider": "x", "item": "y", "amount_usd": 1}
+    )
     assert bad.status_code == 422
-    created = client.post("/admin/costs/infra", headers=admin, json={
-        "month": month, "provider": "DuckDNS", "item": "Tên miền", "amount_usd": 1.5})
+    created = client.post(
+        "/admin/costs/infra",
+        headers=admin,
+        json={"month": month, "provider": "DuckDNS", "item": "Tên miền", "amount_usd": 1.5},
+    )
     assert created.status_code == 200
     summary = client.get("/admin/costs/summary", headers=admin).json()
     assert summary["month"]["infra_usd"] == pytest.approx(1.5)
@@ -258,6 +270,7 @@ def test_metrics_endpoint_requires_token_when_configured(monkeypatch):
         ok = c.get("/metrics", headers={"Authorization": "Bearer s3cret-token"})
         assert ok.status_code == 200 and "fieldops_llm_cost_usd_total" in ok.text
         import base64
+
         basic = base64.b64encode(b"grafana:s3cret-token").decode()
         assert c.get("/metrics", headers={"Authorization": f"Basic {basic}"}).status_code == 200
 

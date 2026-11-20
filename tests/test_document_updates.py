@@ -1,4 +1,5 @@
 """Failure, concurrency and retrieval regressions for document publication."""
+
 from __future__ import annotations
 
 import asyncio
@@ -28,19 +29,18 @@ class FakeCollection:
         self.fail_retire = False
 
     def get(self, where=None, include=None):
-        rows = [
-            (key, row) for key, row in self.rows.items()
-            if not where or row[1].get("source") == where["source"]
-        ]
-        return copy.deepcopy({
-            "ids": [key for key, _ in rows],
-            "documents": [row[0] for _, row in rows],
-            "metadatas": [row[1] for _, row in rows],
-            "embeddings": [row[2] for _, row in rows],
-        })
+        rows = [(key, row) for key, row in self.rows.items() if not where or row[1].get("source") == where["source"]]
+        return copy.deepcopy(
+            {
+                "ids": [key for key, _ in rows],
+                "documents": [row[0] for _, row in rows],
+                "metadatas": [row[1] for _, row in rows],
+                "embeddings": [row[2] for _, row in rows],
+            }
+        )
 
     def add(self, ids, documents, metadatas, embeddings):
-        for key, text, meta, vector in zip(ids, documents, metadatas, embeddings):
+        for key, text, meta, vector in zip(ids, documents, metadatas, embeddings, strict=False):
             assert key not in self.rows
             self.rows[key] = (text, meta, vector)
             if self.fail_add:
@@ -48,7 +48,7 @@ class FakeCollection:
                 raise RuntimeError("partial add failure")
 
     def upsert(self, ids, documents, metadatas, embeddings):
-        for key, text, meta, vector in zip(ids, documents, metadatas, embeddings):
+        for key, text, meta, vector in zip(ids, documents, metadatas, embeddings, strict=False):
             self.rows[key] = (text, meta, vector)
 
     def delete(self, ids):
@@ -84,9 +84,11 @@ def prepared(tmp_path, monkeypatch):
     monkeypatch.setattr(ingest.chromadb, "PersistentClient", lambda **kw: Client())
     monkeypatch.setattr(ingest, "_embeddings", lambda: object())
     monkeypatch.setattr(ingest, "embed_texts_with_retry", lambda model, texts: [[1.0, 1.0] for _ in texts])
-    monkeypatch.setattr(ingest, "_load_sync", lambda path: [
-        Document(page_content=path.read_text(encoding="utf-8"), metadata={"source": path.name})
-    ])
+    monkeypatch.setattr(
+        ingest,
+        "_load_sync",
+        lambda path: [Document(page_content=path.read_text(encoding="utf-8"), metadata={"source": path.name})],
+    )
     monkeypatch.setattr(ingest, "_split_sync", lambda documents: documents)
     invalidations = []
     monkeypatch.setattr(cache, "invalidate_user_cache", lambda uid: invalidations.append(("user", uid)))
@@ -237,10 +239,16 @@ def test_old_redis_entries_cannot_survive_new_document_revision(prepared, monkey
     destination, collection, _ = prepared
     entries = {}
     monkeypatch.setattr(retriever, "get_cached_chunks", lambda uid, query, *args: entries.get(query))
-    monkeypatch.setattr(retriever, "set_cached_chunks", lambda uid, query, k, rows, *args: entries.__setitem__(query, rows))
-    monkeypatch.setattr(retriever, "_search_sync", lambda *args: [
-        (text, "manual.txt", None) for text in collection.get(where={"source": "manual.txt"})["documents"]
-    ])
+    monkeypatch.setattr(
+        retriever, "set_cached_chunks", lambda uid, query, k, rows, *args: entries.__setitem__(query, rows)
+    )
+    monkeypatch.setattr(
+        retriever,
+        "_search_sync",
+        lambda *args: [
+            (text, "manual.txt", None) for text in collection.get(where={"source": "manual.txt"})["documents"]
+        ],
+    )
     monkeypatch.setattr(retriever, "_bm25_search_sync", lambda *args: [])
     monkeypatch.setattr(retriever, "rerank_chunks", lambda query, rows, **kw: rows)
     assert asyncio.run(retriever.retrieve(1, "same question"))[0][0] == "old revision"
@@ -312,6 +320,7 @@ def test_upload_route_stages_content_before_touching_previous_raw(prepared, monk
     from types import SimpleNamespace
 
     from fastapi import HTTPException, UploadFile
+
     import docs.router as router
 
     destination, collection, _ = prepared
@@ -327,10 +336,14 @@ def test_upload_route_stages_content_before_touching_previous_raw(prepared, monk
 
     monkeypatch.setattr(ingest, "_load_sync", fail_load)
     with pytest.raises(HTTPException) as caught:
-        asyncio.run(router.upload_doc(
-            file=UploadFile(file=io.BytesIO(b"replacement"), filename=destination.name),
-            workspace_id=None, user=SimpleNamespace(id=1), db=None,
-        ))
+        asyncio.run(
+            router.upload_doc(
+                file=UploadFile(file=io.BytesIO(b"replacement"), filename=destination.name),
+                workspace_id=None,
+                user=SimpleNamespace(id=1),
+                db=None,
+            )
+        )
     assert caught.value.status_code == 500
     assert destination.read_bytes() == b"old revision"
     assert collection.rows == previous
@@ -380,9 +393,7 @@ def test_external_worker_revision_invalidates_local_bm25(prepared, monkeypatch):
     monkeypatch.setattr(bm25, "invalidate", invalidated.append)
     first = read_revision(ingest.CHROMA_DIR, "user_1")
     sync_bm25_revision(ingest.CHROMA_DIR, "user_1", first)
-    process = multiprocessing.get_context("spawn").Process(
-        target=_revision_process, args=(str(ingest.CHROMA_DIR),)
-    )
+    process = multiprocessing.get_context("spawn").Process(target=_revision_process, args=(str(ingest.CHROMA_DIR),))
     process.start()
     process.join(15)
     if process.is_alive():
@@ -399,6 +410,7 @@ def test_external_worker_revision_invalidates_local_bm25(prepared, monkeypatch):
 @pytest.mark.parametrize("operation", ["replace", "delete"])
 def test_postreplace_commit_directory_fsync_error_never_undoes_commit(prepared, monkeypatch, operation):
     import json
+
     import rag.document_lifecycle as lifecycle
 
     destination, collection, _ = prepared
@@ -482,9 +494,14 @@ def test_unknown_commit_marker_fails_closed_without_blind_rollback(prepared, mon
         return original_write(index, record)
 
     monkeypatch.setattr(lifecycle, "_write_journal", write)
-    monkeypatch.setattr(collection, "upsert", lambda **kw: pytest.fail("Cannot guess rollback with an uncertain commit"))
-    action = (lambda: update(destination)) if operation == "replace" else (
-        lambda: ingest._delete_doc_sync(1, destination.name, file_path=destination))
+    monkeypatch.setattr(
+        collection, "upsert", lambda **kw: pytest.fail("Cannot guess rollback with an uncertain commit")
+    )
+    action = (
+        (lambda: update(destination))
+        if operation == "replace"
+        else (lambda: ingest._delete_doc_sync(1, destination.name, file_path=destination))
+    )
     with pytest.raises(lifecycle.DocumentCommitUncertainError):
         action()
     if operation == "replace":
@@ -516,8 +533,11 @@ def test_commit_marker_failure_before_replace_rolls_back_known_uncommitted_chang
         original_write(index, record)
 
     monkeypatch.setattr(lifecycle, "_write_journal", write)
-    action = (lambda: update(destination)) if operation == "replace" else (
-        lambda: ingest._delete_doc_sync(1, destination.name, file_path=destination))
+    action = (
+        (lambda: update(destination))
+        if operation == "replace"
+        else (lambda: ingest._delete_doc_sync(1, destination.name, file_path=destination))
+    )
     with pytest.raises(OSError, match="before replace"):
         action()
     assert destination.read_bytes() == b"old revision"

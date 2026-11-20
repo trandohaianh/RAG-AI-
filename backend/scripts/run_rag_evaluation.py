@@ -6,6 +6,7 @@ also requires --generate. No application DB, ingestion, recovery, Redis cache, o
 LLM judge is used. Live evaluation requires both retrieval branches to succeed;
 the serving path intentionally permits a surviving branch when its peer fails.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -14,7 +15,7 @@ import json
 import sys
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from time import perf_counter
@@ -50,7 +51,9 @@ def validate_dataset(data: dict) -> dict:
         raise ValueError("Expected evaluation schema_version 1")
     if data.get("kind") not in {"template", "user_curated"} or not _text(data.get("dataset_id")):
         raise ValueError("Dataset needs an ID and template/user_curated kind")
-    if not isinstance(data.get("provenance", {}), dict) or data.get("provenance", {}).get("origin", "unspecified") not in {"synthetic", "user_documents", "unspecified"}:
+    if not isinstance(data.get("provenance", {}), dict) or data.get("provenance", {}).get(
+        "origin", "unspecified"
+    ) not in {"synthetic", "user_documents", "unspecified"}:
         raise ValueError("Unknown dataset origin")
     target = data.get("target")
     if not isinstance(target, dict) or not _positive_integer(target.get("user_id")):
@@ -100,10 +103,25 @@ def validate_dataset(data: dict) -> dict:
 
 def _implementation_hash() -> str:
     digest = hashlib.sha256()
-    for path in [Path(__file__), SCHEMA, *[BACKEND / "rag" / name for name in (
-        "retriever.py", "bm25.py", "rerank.py", "ingest.py", "document_lifecycle.py",
-        "llm.py", "prompt.py", "chain.py", "evidence.py", "cache.py",
-    )]]:
+    for path in [
+        Path(__file__),
+        SCHEMA,
+        *[
+            BACKEND / "rag" / name
+            for name in (
+                "retriever.py",
+                "bm25.py",
+                "rerank.py",
+                "ingest.py",
+                "document_lifecycle.py",
+                "llm.py",
+                "prompt.py",
+                "chain.py",
+                "evidence.py",
+                "cache.py",
+            )
+        ],
+    ]:
         digest.update(str(path.relative_to(BACKEND)).encode())
         digest.update(path.read_bytes())
     return digest.hexdigest()
@@ -130,6 +148,7 @@ class LivePipeline:
 
     def __init__(self, k: int):
         import config
+
         if not config.CHROMA_DIR.is_dir():
             raise ValueError("Configured Chroma index directory does not exist")
         self.index_dir = config.CHROMA_DIR
@@ -143,15 +162,17 @@ class LivePipeline:
             "rerank_observation": "Configured policy only; the production reranker does not expose per-call fallback status.",
             "generation_provider": config.LLM_PROVIDER,
             "generation_model": config.OLLAMA_MODEL if config.LLM_PROVIDER == "ollama" else config.LLM_MODEL,
-            "cache": "bypassed", "both_retrieval_branches_required": True,
+            "cache": "bypassed",
+            "both_retrieval_branches_required": True,
         }
 
     def retrieve(self, target: dict, case: dict, k: int) -> Snapshot:
         import chromadb
+
         from rag import document_lifecycle as lifecycle
         from rag.bm25 import reciprocal_rank_fusion
-        from rag.rerank import rerank_chunks
         from rag.evidence import RetrievedChunks
+        from rag.rerank import rerank_chunks
         from rag.retriever import _bm25_search_sync, _search_sync
 
         name = target["collection"]
@@ -160,30 +181,37 @@ class LivePipeline:
         with lifecycle.storage_lock(self.index_dir, name, shared=True):
             lifecycle._check_uncertain(self.index_dir, name)
             if lifecycle._journal_path(self.index_dir, name).exists():
-                raise lifecycle.DocumentRecoveryError("Pending publication: recover through normal application operations first")
+                raise lifecycle.DocumentRecoveryError(
+                    "Pending publication: recover through normal application operations first"
+                )
             # Explicit existence check prevents LangChain's get_or_create path
             # from creating a missing collection. Delete/publish uses this lock.
             client = chromadb.PersistentClient(path=str(self.index_dir))
             collection = client.get_collection(name)
             revision = lifecycle.read_revision(self.index_dir, name)
             lifecycle.sync_bm25_revision(self.index_dir, name, revision)
-            args = (target["user_id"], case["query"], self.candidates,
-                    case.get("source"), target.get("workspace_id"))
+            args = (target["user_id"], case["query"], self.candidates, case.get("source"), target.get("workspace_id"))
             vector = _search_sync(*args)
             lexical = _bm25_search_sync(*args)
             raw = reciprocal_rank_fusion([vector, lexical], k=self.candidates)
             corpus_count = collection.count()
         ranked = rerank_chunks(case["query"], raw, top_n=k)
-        return Snapshot(RetrievedChunks(ranked, collection=name, revision=revision), {
-            "collection_revision": revision, "collection_chunks": corpus_count,
-            "vector_candidates": len(vector), "bm25_candidates": len(lexical),
-        })
+        return Snapshot(
+            RetrievedChunks(ranked, collection=name, revision=revision),
+            {
+                "collection_revision": revision,
+                "collection_chunks": corpus_count,
+                "vector_candidates": len(vector),
+                "bm25_candidates": len(lexical),
+            },
+        )
 
     def generate(self, query: str, rows: list) -> tuple[str, bool]:
         from rag.chain import _NO_DOC_MSG
+        from rag.evidence import capture_evidence, evidence_context
         from rag.llm import generate_text
         from rag.prompt import build_gemini_prompt
-        from rag.evidence import capture_evidence, evidence_context
+
         if not rows:
             return _NO_DOC_MSG, False
         answer = generate_text(build_gemini_prompt(evidence_context(capture_evidence(rows)), query), max_tokens=1024)
@@ -203,6 +231,7 @@ def _validate_rows(rows, k: int) -> list:
     if not isinstance(rows, (list, tuple)):
         raise ValueError("Retriever must return a sequence of rows")
     from rag.evidence import EvidenceChunk, RetrievedChunks
+
     checked = []
     for row in rows[:k]:
         if not isinstance(row, (list, tuple)) or len(row) != 3:
@@ -210,12 +239,21 @@ def _validate_rows(rows, k: int) -> list:
         text, source, page = row
         if not _text(text) or not _text(source) or (page is not None and not _positive_integer(page)):
             raise ValueError("Invalid evidence row")
-        checked.append(EvidenceChunk(text, source, page, chunk_id=getattr(row, "chunk_id", None), document_version=getattr(row, "document_version", None)))
-    return RetrievedChunks(checked, collection=getattr(rows, "collection", None), revision=getattr(rows, "revision", None))
+        checked.append(
+            EvidenceChunk(
+                text,
+                source,
+                page,
+                chunk_id=getattr(row, "chunk_id", None),
+                document_version=getattr(row, "document_version", None),
+            )
+        )
+    return RetrievedChunks(
+        checked, collection=getattr(rows, "collection", None), revision=getattr(rows, "revision", None)
+    )
 
 
-def evaluate(dataset: dict, *, mode="validate-only", k=5, pipeline=None,
-             generate=False, include_content=False) -> dict:
+def evaluate(dataset: dict, *, mode="validate-only", k=5, pipeline=None, generate=False, include_content=False) -> dict:
     if not _positive_integer(k):
         raise ValueError("k must be positive")
     if mode not in {"validate-only", "retrieval"}:
@@ -232,9 +270,11 @@ def evaluate(dataset: dict, *, mode="validate-only", k=5, pipeline=None,
     supported_planned = no_evidence_planned = 0
     for case in dataset["cases"]:
         result = {
-            "id": case["id"], "query_sha256": _sha(case["query"]),
-            "expected_evidence": [_safe_evidence(item["source"], item["page"], include_content)
-                                  for item in case["expected_evidence"]],
+            "id": case["id"],
+            "query_sha256": _sha(case["query"]),
+            "expected_evidence": [
+                _safe_evidence(item["source"], item["page"], include_content) for item in case["expected_evidence"]
+            ],
             "expect_no_evidence": case["expect_no_evidence"],
         }
         if case.get("source"):
@@ -242,8 +282,13 @@ def evaluate(dataset: dict, *, mode="validate-only", k=5, pipeline=None,
         if include_content:
             result["query"] = case["query"]
         if mode == "validate-only" or case.get("skip_reason"):
-            result.update({"status": "skipped", "retrieval_status": "not_run",
-                           "skip_reason": "validation_only" if mode == "validate-only" else "dataset_skip"})
+            result.update(
+                {
+                    "status": "skipped",
+                    "retrieval_status": "not_run",
+                    "skip_reason": "validation_only" if mode == "validate-only" else "dataset_skip",
+                }
+            )
             if include_content and case.get("skip_reason"):
                 result["annotation_skip_reason"] = case["skip_reason"]
             results.append(result)
@@ -270,23 +315,36 @@ def evaluate(dataset: dict, *, mode="validate-only", k=5, pipeline=None,
                     hit["text"] = text
                 hits.append(hit)
             # Only allow known non-content diagnostics from a pipeline.
-            diagnostics = {key: snapshot.details[key] for key in (
-                "collection_revision", "collection_chunks", "vector_candidates", "bm25_candidates"
-            ) if key in snapshot.details}
-            result.update({
-                "status": "completed", "retrieval_status": "completed",
-                "retrieval_passed": found == expected if expected else not rows,
-                "retrieved_evidence": hits, "retrieval_diagnostics": diagnostics,
-                "evidence_recall_at_k": recall, "reciprocal_rank": mrr if expected else None,
-                "empty_retrieval": not rows,
-            })
+            diagnostics = {
+                key: snapshot.details[key]
+                for key in ("collection_revision", "collection_chunks", "vector_candidates", "bm25_candidates")
+                if key in snapshot.details
+            }
+            result.update(
+                {
+                    "status": "completed",
+                    "retrieval_status": "completed",
+                    "retrieval_passed": found == expected if expected else not rows,
+                    "retrieved_evidence": hits,
+                    "retrieval_diagnostics": diagnostics,
+                    "evidence_recall_at_k": recall,
+                    "reciprocal_rank": mrr if expected else None,
+                    "empty_retrieval": not rows,
+                }
+            )
             # Failed retrievals never contribute evidence or successful no-evidence.
             recall_sum += recall or 0
             mrr_sum += mrr
             no_evidence_correct += int(not expected and not rows)
         except Exception as exc:
-            result.update({"status": "failed", "retrieval_status": "failed",
-                           "retrieval_passed": False, "error_type": type(exc).__name__})
+            result.update(
+                {
+                    "status": "failed",
+                    "retrieval_status": "failed",
+                    "retrieval_passed": False,
+                    "error_type": type(exc).__name__,
+                }
+            )
             result["elapsed_ms"] = round((perf_counter() - started) * 1000, 3)
             results.append(result)
             continue
@@ -295,14 +353,17 @@ def evaluate(dataset: dict, *, mode="validate-only", k=5, pipeline=None,
                 answer, model_called = pipeline.generate(case["query"], rows)
                 if not _text(answer) or type(model_called) is not bool:
                     raise ValueError("Invalid generation result")
-                from rag.evidence import capture_evidence, audit_citations
+                from rag.evidence import audit_citations, capture_evidence
+
                 citation_audit = audit_citations(answer, capture_evidence(rows))
-                if citation_audit['status'] == 'invalid':
+                if citation_audit["status"] == "invalid":
                     raise ValueError("Generation cited evidence outside its context")
                 generation = {
                     "citation_audit": citation_audit,
-                    "status": "completed", "answer_sha256": _sha(answer),
-                    "answer_characters": len(answer), "model_called": model_called,
+                    "status": "completed",
+                    "answer_sha256": _sha(answer),
+                    "answer_characters": len(answer),
+                    "model_called": model_called,
                     "review": {"status": "required", "correctness": None, "safety": None, "refusal": None},
                 }
                 if include_content:
@@ -323,33 +384,52 @@ def evaluate(dataset: dict, *, mode="validate-only", k=5, pipeline=None,
     generation_completed = sum(item.get("generation", {}).get("status") == "completed" for item in results)
     generation_failed = sum(item.get("generation", {}).get("status") == "failed" for item in results)
     return {
-        "schema_version": 1, "report_type": "user_curated_rag_evaluation",
-        "run_id": uuid.uuid4().hex, "generated_at": datetime.now(timezone.utc).isoformat(),
-        "dataset_id": dataset["dataset_id"], "dataset_kind": dataset["kind"],
+        "schema_version": 1,
+        "report_type": "user_curated_rag_evaluation",
+        "run_id": uuid.uuid4().hex,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "dataset_id": dataset["dataset_id"],
+        "dataset_kind": dataset["kind"],
         "dataset_origin": dataset.get("provenance", {}).get("origin", "unspecified"),
         "dataset_sha256": hashlib.sha256(canonical).hexdigest(),
-        "implementation_sha256": _implementation_hash(), "runtime": _runtime(),
+        "implementation_sha256": _implementation_hash(),
+        "runtime": _runtime(),
         "target_collection_sha256": _sha(dataset["target"]["collection"]),
-        "mode": mode, "includes_content": include_content, "k": k,
+        "mode": mode,
+        "includes_content": include_content,
+        "k": k,
         "config": dict(pipeline.config) if mode == "retrieval" else None,
         "status": "validated" if mode == "validate-only" else "failed" if failed else "completed",
-        "planned": len(results), "completed": completed, "failed": failed, "skipped": skipped,
+        "planned": len(results),
+        "completed": completed,
+        "failed": failed,
+        "skipped": skipped,
         "retrieval": {
-            "completed": retrieval_completed, "failed": retrieval_failed,
-            "all_expectations_passed": all(item.get("retrieval_passed", False) for item in results if item["status"] != "skipped")
-                                       if mode == "retrieval" and completed + failed else None,
-            "supported_planned": supported_planned, "no_evidence_planned": no_evidence_planned,
+            "completed": retrieval_completed,
+            "failed": retrieval_failed,
+            "all_expectations_passed": all(
+                item.get("retrieval_passed", False) for item in results if item["status"] != "skipped"
+            )
+            if mode == "retrieval" and completed + failed
+            else None,
+            "supported_planned": supported_planned,
+            "no_evidence_planned": no_evidence_planned,
             "evidence_recall_at_k": round(recall_sum / supported_planned, 4) if supported_planned else None,
             "mrr_at_k": round(mrr_sum / supported_planned, 4) if supported_planned else None,
-            "no_evidence_detection_accuracy": round(no_evidence_correct / no_evidence_planned, 4) if no_evidence_planned else None,
+            "no_evidence_detection_accuracy": round(no_evidence_correct / no_evidence_planned, 4)
+            if no_evidence_planned
+            else None,
             "failure_policy": "Failed retrievals contribute zero in their planned denominator; dataset skips are excluded.",
         },
         "generation": {
             "status": "not_evaluated" if not generate else "requires_human_review",
             "planned": completed + failed if generate else 0,
-            "completed": generation_completed, "failed": generation_failed,
+            "completed": generation_completed,
+            "failed": generation_failed,
             "skipped": retrieval_failed if generate else 0,
-            "refusal_rate": None, "correctness": None, "safety": None,
+            "refusal_rate": None,
+            "correctness": None,
+            "safety": None,
             "note": "Empty retrieval and lexical overlap do not establish generated refusal, correctness, or safety.",
         },
         "limitations": [
@@ -376,7 +456,8 @@ def _report_path(output: Path, dataset_path: Path, *, data_roots=()) -> Path:
 def _application_data_roots() -> tuple:
     # Called only after explicit live opt-in; validation-only stays independent
     # of .env loading, application config, SDKs, and database modules.
-    from config import DATA_ROOT, UPLOAD_DIR, CHROMA_DIR, DATABASE_PATH
+    from config import CHROMA_DIR, DATA_ROOT, DATABASE_PATH, UPLOAD_DIR
+
     return (DATA_ROOT, UPLOAD_DIR, CHROMA_DIR, DATABASE_PATH.parent)
 
 
@@ -390,11 +471,21 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, default=DEFAULT_TEMPLATE)
     parser.add_argument("--mode", choices=["validate-only", "retrieval"], default="validate-only")
-    parser.add_argument("--allow-external-calls", action="store_true", help="Acknowledge embedding/rerank/generation provider calls and possible charges")
+    parser.add_argument(
+        "--allow-external-calls",
+        action="store_true",
+        help="Acknowledge embedding/rerank/generation provider calls and possible charges",
+    )
     parser.add_argument("--generate", action="store_true", help="Also generate bounded answers, requiring human review")
-    parser.add_argument("--include-content", action="store_true", help="Include sensitive query, source, retrieved text, and answer for human review")
+    parser.add_argument(
+        "--include-content",
+        action="store_true",
+        help="Include sensitive query, source, retrieved text, and answer for human review",
+    )
     parser.add_argument("--output", type=Path, help="Fresh JSON report outside application data directories")
-    parser.add_argument("--review-manifest", type=Path, help="Verify annotation approvals and dev/holdout identity before execution")
+    parser.add_argument(
+        "--review-manifest", type=Path, help="Verify annotation approvals and dev/holdout identity before execution"
+    )
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--fail-on-regression", action="store_true")
     args = parser.parse_args(argv)
@@ -403,14 +494,17 @@ def main(argv=None) -> int:
     if args.generate and args.mode != "retrieval":
         parser.error("--generate requires --mode retrieval")
     if args.mode == "retrieval" and not args.allow_external_calls:
-        parser.error("Live retrieval requires --allow-external-calls; embeddings and configured reranking may incur charges")
+        parser.error(
+            "Live retrieval requires --allow-external-calls; embeddings and configured reranking may incur charges"
+        )
     if args.mode == "retrieval" and args.output is None:
         parser.error("Live evaluation requires --output")
     try:
         dataset = load_dataset(args.dataset)
         annotation_review = {"verified": False}
         if args.review_manifest is not None:
-            from scripts.rag_review import verify_manifest, read
+            from scripts.rag_review import read, verify_manifest
+
             annotation_review = verify_manifest(dataset, read(args.review_manifest))
         if args.mode == "retrieval" and dataset["kind"] != "user_curated":
             raise ValueError("Template data cannot be executed; curate and mark the dataset user_curated first")
@@ -418,8 +512,14 @@ def main(argv=None) -> int:
         if args.output is not None:
             _report_path(args.output, args.dataset, data_roots=data_roots)
         pipeline = LivePipeline(args.k) if args.mode == "retrieval" else None
-        report = evaluate(dataset, mode=args.mode, k=args.k, pipeline=pipeline,
-                          generate=args.generate, include_content=args.include_content)
+        report = evaluate(
+            dataset,
+            mode=args.mode,
+            k=args.k,
+            pipeline=pipeline,
+            generate=args.generate,
+            include_content=args.include_content,
+        )
         report["annotation_review"] = annotation_review
         if args.output is not None:
             _write_report(args.output, report, args.dataset, data_roots=data_roots)
@@ -428,11 +528,20 @@ def main(argv=None) -> int:
         # are sufficient for the default CLI; inspect locally for diagnosis.
         print(json.dumps({"status": "failed", "error_type": type(exc).__name__}), file=sys.stderr)
         return 2
-    print(json.dumps({key: report[key] for key in ("status", "mode", "planned", "completed", "failed", "skipped")}, ensure_ascii=False))
-    return int(report["failed"] > 0 or (
-        args.fail_on_regression and args.mode == "retrieval"
-        and report["retrieval"]["all_expectations_passed"] is not True
-    ))
+    print(
+        json.dumps(
+            {key: report[key] for key in ("status", "mode", "planned", "completed", "failed", "skipped")},
+            ensure_ascii=False,
+        )
+    )
+    return int(
+        report["failed"] > 0
+        or (
+            args.fail_on_regression
+            and args.mode == "retrieval"
+            and report["retrieval"]["all_expectations_passed"] is not True
+        )
+    )
 
 
 if __name__ == "__main__":

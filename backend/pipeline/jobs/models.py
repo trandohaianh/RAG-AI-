@@ -1,4 +1,5 @@
 """Bảng của pipeline vận hành: nhật ký chạy job và KPI tổng hợp theo ngày (lớp gold của app DB)."""
+
 from datetime import date, datetime
 
 from sqlalchemy import Date, DateTime, Float, Integer, String, Text, func

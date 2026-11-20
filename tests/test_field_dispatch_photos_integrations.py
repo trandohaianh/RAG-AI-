@@ -1,10 +1,11 @@
 """Field photos, route dispatch and CRM/NMS integrations."""
+
 from __future__ import annotations
 
 import io
 import json
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 from fastapi import FastAPI
@@ -18,8 +19,8 @@ from auth.schemas import CurrentUser
 from chat import models as chat_models  # noqa: F401
 from database import Base, get_db
 from dependencies import get_current_user
-from field import models as field_models
 from field import dispatch, integrations, photos
+from field import models as field_models
 from field.router import router as field_router
 
 
@@ -69,7 +70,7 @@ def _jpeg(size=(1200, 800), with_gps=True):
     if with_gps:
         exif[0x8825] = {1: "N", 2: (21.0, 1.0, 30.0), 3: "E", 4: (105.0, 50.0, 0.0)}
         exif[0x0110] = "SecretPhone 15"
-    exif[0x0112] = 6           # orientation: rotate 90° when displayed
+    exif[0x0112] = 6  # orientation: rotate 90° when displayed
     image.save(buf, "JPEG", exif=exif)
     return buf.getvalue()
 
@@ -78,21 +79,27 @@ def _jpeg(size=(1200, 800), with_gps=True):
 def test_photo_upload_strips_metadata_and_serves_signed_url(env):
     client, actor, ws, _ = env
     case = _case(client, ws)
-    res = client.post(f"/field/cases/{case['id']}/photos", files={"file": ("a.jpg", _jpeg(), "image/jpeg")},
-                      data={"caption": "Đầu ONT", "client_action_id": "photo-abc-123"})
+    res = client.post(
+        f"/field/cases/{case['id']}/photos",
+        files={"file": ("a.jpg", _jpeg(), "image/jpeg")},
+        data={"caption": "Đầu ONT", "client_action_id": "photo-abc-123"},
+    )
     assert res.status_code == 201, res.text
     body = res.json()
-    assert (body["width"], body["height"]) == (800, 1200)          # EXIF orientation applied
-    again = client.post(f"/field/cases/{case['id']}/photos", files={"file": ("a.jpg", _jpeg(), "image/jpeg")},
-                        data={"client_action_id": "photo-abc-123"})
-    assert again.json()["id"] == body["id"]                         # offline retry is idempotent
+    assert (body["width"], body["height"]) == (800, 1200)  # EXIF orientation applied
+    again = client.post(
+        f"/field/cases/{case['id']}/photos",
+        files={"file": ("a.jpg", _jpeg(), "image/jpeg")},
+        data={"client_action_id": "photo-abc-123"},
+    )
+    assert again.json()["id"] == body["id"]  # offline retry is idempotent
     url = body["url"].replace("http://testserver", "")
     image = client.get(url)
     assert image.status_code == 200 and image.headers["content-type"] == "image/jpeg"
     from PIL import Image
 
     stored = Image.open(io.BytesIO(image.content))
-    assert not stored.getexif()                                      # no GPS, no camera model
+    assert not stored.getexif()  # no GPS, no camera model
     assert client.get(url.replace("sig=", "sig=0")).status_code in (403, 422)
     expired = photos.signed_url(body["id"], "full", now=time.time() - 3600).replace("http://testserver", "")
     assert client.get(expired).status_code == 403
@@ -104,21 +111,27 @@ def test_photo_rejects_fake_images_and_foreign_users(env):
     case = _case(client, ws)
     bad = client.post(f"/field/cases/{case['id']}/photos", files={"file": ("x.jpg", b"<?php echo 1; ?>", "image/jpeg")})
     assert bad.status_code == 422
-    actor["user"] = CurrentUser(id=3, email="u3@example.com", role="user")       # not a member
-    assert client.post(f"/field/cases/{case['id']}/photos",
-                       files={"file": ("a.jpg", _jpeg(with_gps=False), "image/jpeg")}).status_code == 404
+    actor["user"] = CurrentUser(id=3, email="u3@example.com", role="user")  # not a member
+    assert (
+        client.post(
+            f"/field/cases/{case['id']}/photos", files={"file": ("a.jpg", _jpeg(with_gps=False), "image/jpeg")}
+        ).status_code
+        == 404
+    )
 
 
 def test_photo_delete_rights_and_retention(env):
     client, actor, ws, sessions = env
     case = _case(client, ws)
-    pid = client.post(f"/field/cases/{case['id']}/photos", files={"file": ("a.jpg", _jpeg(), "image/jpeg")}).json()["id"]
-    actor["user"] = CurrentUser(id=2, email="u2@example.com", role="user")       # technician, not uploader
+    pid = client.post(f"/field/cases/{case['id']}/photos", files={"file": ("a.jpg", _jpeg(), "image/jpeg")}).json()[
+        "id"
+    ]
+    actor["user"] = CurrentUser(id=2, email="u2@example.com", role="user")  # technician, not uploader
     assert client.delete(f"/field/photos/{pid}").status_code == 403
     actor["user"] = CurrentUser(id=1, email="u1@example.com", role="user")
     client.patch(f"/field/cases/{case['id']}", json={"status": "resolved"})
     with sessions() as db:
-        assert photos.purge_expired_photos(db, now=datetime.now(timezone.utc) + timedelta(days=400)) == 1
+        assert photos.purge_expired_photos(db, now=datetime.now(UTC) + timedelta(days=400)) == 1
         assert db.query(field_models.ServiceCasePhoto).count() == 0
 
 
@@ -129,7 +142,7 @@ def test_planner_respects_windows_and_shifts():
         dispatch.Job(10, 21.04, 105.86, 60, "normal"),
         dispatch.Job(11, 21.01, 105.81, 45, "urgent", earliest=9 * 60, latest=10 * 60),
         dispatch.Job(12, 21.05, 105.84, 60, "low", earliest=14 * 60, latest=16 * 60),
-        dispatch.Job(13, 21.02, 105.83, 600, "normal"),                      # longer than any shift
+        dispatch.Job(13, 21.02, 105.83, 600, "normal"),  # longer than any shift
     ]
     plan = dispatch.plan_routes(techs, jobs, 30)
     placed = {s.job_id: (tech, s) for tech, stops in plan.routes.items() for s in stops}
@@ -162,9 +175,13 @@ def test_two_opt_untangles_a_crossed_route():
 def test_schedule_plan_apply_and_day_view(env):
     client, actor, ws, _ = env
     for uid, lat, lng in ((1, 21.03, 105.85), (2, 21.00, 105.80)):
-        assert client.patch(f"/field/workspaces/{ws}/members/{uid}/dispatch",
-                            json={"base_latitude": lat, "base_longitude": lng, "shift_start": "08:00",
-                                  "shift_end": "17:00"}).status_code == 200
+        assert (
+            client.patch(
+                f"/field/workspaces/{ws}/members/{uid}/dispatch",
+                json={"base_latitude": lat, "base_longitude": lng, "shift_start": "08:00", "shift_end": "17:00"},
+            ).status_code
+            == 200
+        )
     day = date.today() + timedelta(days=1)
     tz = timezone(timedelta(hours=7))
     ids = []
@@ -172,8 +189,10 @@ def test_schedule_plan_apply_and_day_view(env):
         c = _case(client, ws, title=f"Ca {i}")
         payload = {"latitude": lat, "longitude": lng, "est_minutes": 45, "priority": "high" if i == 1 else "normal"}
         if i == 2:
-            payload |= {"window_start": datetime.combine(day, datetime.min.time(), tz).replace(hour=13).isoformat(),
-                        "window_end": datetime.combine(day, datetime.min.time(), tz).replace(hour=15).isoformat()}
+            payload |= {
+                "window_start": datetime.combine(day, datetime.min.time(), tz).replace(hour=13).isoformat(),
+                "window_end": datetime.combine(day, datetime.min.time(), tz).replace(hour=15).isoformat(),
+            }
         assert client.patch(f"/field/cases/{c['id']}/dispatch", json=payload).status_code == 200
         ids.append(c["id"])
     no_location = _case(client, ws, title="Không toạ độ")["id"]
@@ -181,15 +200,19 @@ def test_schedule_plan_apply_and_day_view(env):
     planned = [s["case_id"] for r in plan["routes"] for s in r["stops"]]
     assert sorted(planned) == sorted(ids)
     assert {u["case_id"]: u["reason"] for u in plan["unassigned"]}[no_location] == "chưa có toạ độ"
-    routes = [{"technician_id": r["technician_id"], "case_ids": [s["case_id"] for s in r["stops"]]} for r in plan["routes"]]
+    routes = [
+        {"technician_id": r["technician_id"], "case_ids": [s["case_id"] for s in r["stops"]]} for r in plan["routes"]
+    ]
     applied = client.post(f"/field/workspaces/{ws}/schedule/apply", json={"date": day.isoformat(), "routes": routes})
     assert applied.status_code == 200 and sorted(applied.json()["scheduled"]) == sorted(ids)
     view = client.get(f"/field/workspaces/{ws}/schedule", params={"date": day.isoformat()}).json()
     assert sum(len(r["stops"]) for r in view["routes"]) == 3
     # infeasible manual edit is refused (window case moved to a technician whose day is full)
     bad = [{"technician_id": 2, "case_ids": ids * 1}, {"technician_id": 1, "case_ids": ids[:1]}]
-    assert client.post(f"/field/workspaces/{ws}/schedule/apply",
-                       json={"date": day.isoformat(), "routes": bad}).status_code == 422
+    assert (
+        client.post(f"/field/workspaces/{ws}/schedule/apply", json={"date": day.isoformat(), "routes": bad}).status_code
+        == 422
+    )
     actor["user"] = CurrentUser(id=2, email="u2@example.com", role="user")
     assert client.post(f"/field/workspaces/{ws}/schedule/plan", json={"date": day.isoformat()}).status_code == 403
 
@@ -200,18 +223,32 @@ def _send(client, integration, body: dict, ts=None, secret=None):
     ts = str(ts or int(time.time()))
     sig = integrations.sign(secret or integration["secret"], ts, raw)
     path = integration["inbound_url"].replace("http://testserver", "")
-    return client.post(path, content=raw, headers={"X-FieldOps-Timestamp": ts, "X-FieldOps-Signature": sig,
-                                                   "Content-Type": "application/json"})
+    return client.post(
+        path,
+        content=raw,
+        headers={"X-FieldOps-Timestamp": ts, "X-FieldOps-Signature": sig, "Content-Type": "application/json"},
+    )
 
 
 def test_inbound_crm_ticket_lifecycle_is_signed_and_idempotent(env):
     client, actor, ws, _ = env
-    integ = client.post(f"/field/workspaces/{ws}/integrations",
-                        json={"name": "CRM chính", "kind": "crm", "default_assignee": 2}).json()
+    integ = client.post(
+        f"/field/workspaces/{ws}/integrations", json={"name": "CRM chính", "kind": "crm", "default_assignee": 2}
+    ).json()
     assert "secret" in integ and "secret" not in client.get(f"/field/workspaces/{ws}/integrations").json()[0]
-    event = {"event_id": "e1", "type": "ticket.created", "external_ref": "TCK-9",
-             "data": {"title": "Khách báo chập chờn", "description": "Wifi rớt liên tục", "priority": "high",
-                      "latitude": 21.0, "longitude": 105.8, "address": "12 Láng Hạ"}}
+    event = {
+        "event_id": "e1",
+        "type": "ticket.created",
+        "external_ref": "TCK-9",
+        "data": {
+            "title": "Khách báo chập chờn",
+            "description": "Wifi rớt liên tục",
+            "priority": "high",
+            "latitude": 21.0,
+            "longitude": 105.8,
+            "address": "12 Láng Hạ",
+        },
+    }
     first = _send(client, integ, event)
     assert first.status_code == 200 and first.json()["outcome"] == "created"
     case_id = first.json()["case_id"]
@@ -220,8 +257,11 @@ def test_inbound_crm_ticket_lifecycle_is_signed_and_idempotent(env):
     assert _send(client, integ, {**event, "event_id": "e2"}, ts=int(time.time()) - 3600).status_code == 401
     case = client.get(f"/field/cases/{case_id}").json()
     assert case["assigned_to"] == 2 and case["priority"] == "high" and case["external_ref"] == "TCK-9"
-    _send(client, integ, {"event_id": "e3", "type": "ticket.updated", "external_ref": "TCK-9",
-                          "data": {"address": "14 Láng Hạ"}})
+    _send(
+        client,
+        integ,
+        {"event_id": "e3", "type": "ticket.updated", "external_ref": "TCK-9", "data": {"address": "14 Láng Hạ"}},
+    )
     assert client.get(f"/field/cases/{case_id}").json()["address"] == "14 Láng Hạ"
     _send(client, integ, {"event_id": "e4", "type": "ticket.closed", "external_ref": "TCK-9", "data": {}})
     assert client.get(f"/field/cases/{case_id}").json()["status"] == "resolved"
@@ -230,9 +270,19 @@ def test_inbound_crm_ticket_lifecycle_is_signed_and_idempotent(env):
 def test_nms_alarm_cleared_only_autocloses_untouched_cases(env):
     client, actor, ws, _ = env
     integ = client.post(f"/field/workspaces/{ws}/integrations", json={"name": "NMS", "kind": "nms"}).json()
+
     def raise_alarm(ref, eid):
-        return _send(client, integ, {"event_id": eid, "type": "alarm.raised", "external_ref": ref,
-                                     "data": {"title": f"LOS tại {ref}", "description": "Mất quang", "severity": "critical"}}).json()
+        return _send(
+            client,
+            integ,
+            {
+                "event_id": eid,
+                "type": "alarm.raised",
+                "external_ref": ref,
+                "data": {"title": f"LOS tại {ref}", "description": "Mất quang", "severity": "critical"},
+            },
+        ).json()
+
     a = raise_alarm("OLT1/PON3", "a1")
     b = raise_alarm("OLT1/PON4", "a2")
     assert client.get(f"/field/cases/{a['case_id']}").json()["priority"] == "urgent"
@@ -253,34 +303,50 @@ class _FakeClient:
 
         class R:
             status_code = code
+
         return R()
 
 
 def test_outbound_webhooks_retry_then_deliver_or_dead_letter(env):
     client, actor, ws, sessions = env
-    integ = client.post(f"/field/workspaces/{ws}/integrations",
-                        json={"name": "CRM", "kind": "crm", "outbound_url": "http://crm.local/hook"}).json()
-    created = _send(client, integ, {"event_id": "x1", "type": "ticket.created", "external_ref": "T-1",
-                                    "data": {"title": "Đứt cáp", "description": "Cáp bị cắt"}}).json()
+    integ = client.post(
+        f"/field/workspaces/{ws}/integrations",
+        json={"name": "CRM", "kind": "crm", "outbound_url": "http://crm.local/hook"},
+    ).json()
+    created = _send(
+        client,
+        integ,
+        {
+            "event_id": "x1",
+            "type": "ticket.created",
+            "external_ref": "T-1",
+            "data": {"title": "Đứt cáp", "description": "Cáp bị cắt"},
+        },
+    ).json()
     client.patch(f"/field/cases/{created['case_id']}", json={"status": "in_progress"})
     with sessions() as db:
         fake = _FakeClient([500])
         assert integrations.dispatch_due(db, client=fake) == {"retry": 1}
         url, body, headers = fake.calls[0]
-        assert headers["X-FieldOps-Signature"] == integrations.sign(integ["secret"], headers["X-FieldOps-Timestamp"], body)
+        assert headers["X-FieldOps-Signature"] == integrations.sign(
+            integ["secret"], headers["X-FieldOps-Timestamp"], body
+        )
         assert json.loads(body)["case"]["status"] == "in_progress"
-        later = datetime.now(timezone.utc) + timedelta(hours=1)
+        later = datetime.now(UTC) + timedelta(hours=1)
         assert integrations.dispatch_due(db, client=_FakeClient([204]), now=later) == {"delivered": 1}
     client.patch(f"/field/cases/{created['case_id']}", json={"status": "resolved"})
     with sessions() as db:
-        moment = datetime.now(timezone.utc)
+        moment = datetime.now(UTC)
         for _ in range(integrations.MAX_ATTEMPTS):
             moment += timedelta(hours=7)
             integrations.dispatch_due(db, client=_FakeClient([503]), now=moment)
         dead = db.query(field_models.FieldWebhookDelivery).filter_by(status="dead").count()
     assert dead == 1
     listed = client.get(f"/field/integrations/{integ['id']}/deliveries", params={"status": "dead"}).json()
-    assert client.post(f"/field/integrations/{integ['id']}/deliveries/{listed[0]['id']}/retry").json()["status"] == "pending"
+    assert (
+        client.post(f"/field/integrations/{integ['id']}/deliveries/{listed[0]['id']}/retry").json()["status"]
+        == "pending"
+    )
 
 
 def test_outbound_url_must_be_public_https(monkeypatch):

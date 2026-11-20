@@ -3,6 +3,7 @@
 Không dùng LLM nên chạy được trong CI và cho cùng kết quả mỗi lần. LLM-judge là tuỳ chọn
 và nằm riêng ở harness (live --judge).
 """
+
 from __future__ import annotations
 
 import math
@@ -10,10 +11,57 @@ import re
 import unicodedata
 
 _STOPWORDS = {
-    "la", "va", "cua", "co", "khong", "cho", "nhung", "nao", "gi", "the", "thi", "duoc", "khi",
-    "trong", "mot", "cac", "can", "phai", "voi", "de", "nay", "do", "ve", "hay", "hoac", "neu",
-    "da", "dang", "se", "tu", "theo", "tai", "o", "ra", "vao", "len", "nhu", "bang", "lam",
-    "minh", "toi", "ban", "chung", "vay", "sao", "bao", "nhieu", "ma", "con", "chua", "nhat",
+    "la",
+    "va",
+    "cua",
+    "co",
+    "khong",
+    "cho",
+    "nhung",
+    "nao",
+    "gi",
+    "the",
+    "thi",
+    "duoc",
+    "khi",
+    "trong",
+    "mot",
+    "cac",
+    "can",
+    "phai",
+    "voi",
+    "de",
+    "nay",
+    "do",
+    "ve",
+    "hay",
+    "hoac",
+    "neu",
+    "da",
+    "dang",
+    "se",
+    "tu",
+    "theo",
+    "tai",
+    "o",
+    "ra",
+    "vao",
+    "len",
+    "nhu",
+    "bang",
+    "lam",
+    "minh",
+    "toi",
+    "ban",
+    "chung",
+    "vay",
+    "sao",
+    "bao",
+    "nhieu",
+    "ma",
+    "con",
+    "chua",
+    "nhat",
 }
 
 _REFUSAL_PATTERNS = [
@@ -48,7 +96,8 @@ def content_tokens(text: str) -> list[str]:
 # Chỉ dùng "không ...": sau khi bỏ dấu, "đừng/đúng", "chưa/chứa", "cấm/cầm" trùng chữ nhau.
 # Cho phép các trợ từ tình thái chen giữa ("không được PHÉP tắt nguồn", "không NÊN tự ý ...").
 _NEGATION_TAIL = re.compile(
-    r"(?:^|\s)(?:khong(?:\s+(?:duoc|phep|nen|the|bao|gio|can|tu|y|hay))*|never|do not|don t|not)\s*$")
+    r"(?:^|\s)(?:khong(?:\s+(?:duoc|phep|nen|the|bao|gio|can|tu|y|hay))*|never|do not|don t|not)\s*$"
+)
 
 
 def _contains(haystack_norm: str, phrase: str) -> bool:
@@ -57,7 +106,7 @@ def _contains(haystack_norm: str, phrase: str) -> bool:
         return False
     negated_phrase = _NEGATION_TAIL.search(" " + needle.split(" ")[0]) is not None
     for match in re.finditer(rf"(?<![\w]){re.escape(needle)}(?![\w])", haystack_norm):
-        before = haystack_norm[max(0, match.start() - 24):match.start()]
+        before = haystack_norm[max(0, match.start() - 24) : match.start()]
         if negated_phrase or not _NEGATION_TAIL.search(before):
             return True
     return False
@@ -112,7 +161,11 @@ def groundedness(answer: str, contexts: list[str], threshold: float = 0.6) -> fl
     supported = 0
     for sentence in sentences:
         tokens = content_tokens(sentence)
-        if tokens and sum(t in vocab for t in tokens) / len(tokens) >= threshold                 and not _flips_polarity(set(tokens), _negated(sentence), ctx_sentences):
+        if (
+            tokens
+            and sum(t in vocab for t in tokens) / len(tokens) >= threshold
+            and not _flips_polarity(set(tokens), _negated(sentence), ctx_sentences)
+        ):
             supported += 1
     return supported / len(sentences)
 

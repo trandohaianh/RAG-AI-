@@ -3,6 +3,7 @@
 Sinh văn bản (chat, gợi ý câu hỏi, chấm điểm) chạy trên Gemini (SDK google-genai) hoặc
 Ollama chạy local, chọn bằng LLM_PROVIDER. OCR ảnh luôn dùng Gemini vì cần model vision.
 """
+
 import json
 import time
 from collections.abc import Iterator
@@ -31,7 +32,9 @@ _OLLAMA_TIMEOUT = httpx.Timeout(LLM_REQUEST_TIMEOUT_SEC, connect=min(5.0, LLM_RE
 def client() -> genai.Client:
     if not GEMINI_API_KEY:
         raise ValueError("Thiếu GEMINI_API_KEY")
-    return genai.Client(api_key=GEMINI_API_KEY, http_options=types.HttpOptions(timeout=int(LLM_REQUEST_TIMEOUT_SEC * 1000)))
+    return genai.Client(
+        api_key=GEMINI_API_KEY, http_options=types.HttpOptions(timeout=int(LLM_REQUEST_TIMEOUT_SEC * 1000))
+    )
 
 
 def _ollama_body(prompt: str, stream: bool, json_mode: bool, temperature, max_tokens) -> dict:
@@ -76,19 +79,24 @@ def _elapsed_ms(start: float) -> int:
     return int((time.perf_counter() - start) * 1000)
 
 
-def _record_ollama(payload: dict, prompt: str, text: str, start: float, feature: str | None,
-                   status: str = "ok") -> None:
+def _record_ollama(
+    payload: dict, prompt: str, text: str, start: float, feature: str | None, status: str = "ok"
+) -> None:
     record_usage(
-        provider="ollama", model=f"ollama:{OLLAMA_MODEL}",
+        provider="ollama",
+        model=f"ollama:{OLLAMA_MODEL}",
         input_tokens=payload.get("prompt_eval_count") or estimate_tokens(prompt),
         output_tokens=payload.get("eval_count") or estimate_tokens(text),
-        estimated=not payload.get("eval_count"), latency_ms=_elapsed_ms(start),
-        status=status, feature=feature,
+        estimated=not payload.get("eval_count"),
+        latency_ms=_elapsed_ms(start),
+        status=status,
+        feature=feature,
     )
 
 
-def _record_gemini(response, prompt_text: str, text: str, start: float, feature: str | None,
-                   status: str = "ok") -> None:
+def _record_gemini(
+    response, prompt_text: str, text: str, start: float, feature: str | None, status: str = "ok"
+) -> None:
     inp, out, thinking = gemini_usage(response) if response is not None else (0, 0, 0)
     estimated = not (inp or out)
     if estimated:
@@ -98,9 +106,15 @@ def _record_gemini(response, prompt_text: str, text: str, start: float, feature:
         # nhưng văn bản đã sinh vẫn bị tính tiền.
         out, estimated = estimate_tokens(text), True
     record_usage(
-        provider="gemini", model=LLM_MODEL, input_tokens=inp, output_tokens=out,
-        thinking_tokens=thinking, estimated=estimated, latency_ms=_elapsed_ms(start),
-        status=status, feature=feature,
+        provider="gemini",
+        model=LLM_MODEL,
+        input_tokens=inp,
+        output_tokens=out,
+        thinking_tokens=thinking,
+        estimated=estimated,
+        latency_ms=_elapsed_ms(start),
+        status=status,
+        feature=feature,
     )
 
 
@@ -182,7 +196,8 @@ def stream_text(prompt: str, *, feature: str | None = None) -> Iterator[str]:
                 _record_ollama({}, _metered_text(prompt), "".join(produced), start, feature, status="partial")
 
     stream = client().models.generate_content_stream(
-        model=LLM_MODEL, contents=str(prompt),
+        model=LLM_MODEL,
+        contents=str(prompt),
         config=types.GenerateContentConfig(system_instruction=_system_of(prompt), max_output_tokens=max_tokens),
     )
     completed = False
@@ -206,8 +221,14 @@ def stream_text(prompt: str, *, feature: str | None = None) -> Iterator[str]:
             raise RuntimeError("Gemini stream ended before completion")
     finally:
         # Ghi cả khi client ngắt giữa chừng: token đã sinh vẫn bị tính tiền.
-        _record_gemini(last_with_usage, _metered_text(prompt), "".join(produced_chars), start, feature,
-                       status="ok" if completed else "partial")
+        _record_gemini(
+            last_with_usage,
+            _metered_text(prompt),
+            "".join(produced_chars),
+            start,
+            feature,
+            status="ok" if completed else "partial",
+        )
         close = getattr(stream, "close", None)
         if close is not None:
             close()

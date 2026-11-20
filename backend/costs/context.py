@@ -3,12 +3,14 @@
 Dùng ContextVar nên tự đi theo asyncio.to_thread. Với threading.Thread hoặc
 loop.run_in_executor (không copy context), bọc hàm bằng `bind_context`.
 """
+
 from __future__ import annotations
 
 import contextvars
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from typing import Callable, Iterator, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 
@@ -21,8 +23,10 @@ class UsageContext:
     request_id: str | None = None
 
 
+# UsageContext là dataclass frozen (bất biến) nên dùng làm default an toàn.
 _CTX: contextvars.ContextVar[UsageContext] = contextvars.ContextVar(
-    "fieldops_usage_context", default=UsageContext()
+    "fieldops_usage_context",
+    default=UsageContext(),  # noqa: B039
 )
 
 

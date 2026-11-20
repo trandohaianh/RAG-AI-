@@ -1,23 +1,31 @@
 """Exercise the actual PDF parser consumed by ingestion without external APIs."""
+
 from pathlib import Path
 
 import pytest
 from pypdf import PdfWriter
-from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from pypdf.errors import PdfReadError
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from rag.ingest import _load_sync
 
 
 def make_pdf(path: Path, password: str | None = None) -> None:
     writer = PdfWriter()
-    font = writer._add_object(DictionaryObject({
-        NameObject("/Type"): NameObject("/Font"), NameObject("/Subtype"): NameObject("/Type1"),
-        NameObject("/BaseFont"): NameObject("/Helvetica"),
-    }))
+    font = writer._add_object(
+        DictionaryObject(
+            {
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type1"),
+                NameObject("/BaseFont"): NameObject("/Helvetica"),
+            }
+        )
+    )
     for text in ("FieldOps page one", "FieldOps page two"):
         page = writer.add_blank_page(width=300, height=200)
-        page[NameObject("/Resources")] = DictionaryObject({NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})})
+        page[NameObject("/Resources")] = DictionaryObject(
+            {NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})}
+        )
         stream = DecodedStreamObject()
         stream.set_data(f"BT /F1 12 Tf 20 100 Td ({text}) Tj ET".encode("ascii"))
         page[NameObject("/Contents")] = writer._add_object(stream)

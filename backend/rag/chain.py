@@ -1,16 +1,17 @@
 """Gemini streaming chain per-user."""
+
 import asyncio
-import threading
 import logging
-from concurrent.futures import TimeoutError as FutureTimeout
+import threading
 from collections.abc import AsyncIterator
+from concurrent.futures import TimeoutError as FutureTimeout
 from typing import Any
 
 from costs.context import bind_context
+from rag.evidence import audit_citations, capture_evidence, evidence_context
 from rag.llm import generate_text, stream_text
 from rag.prompt import build_gemini_prompt, format_context
 from rag.retriever import retrieve
-from rag.evidence import capture_evidence, evidence_context, audit_citations
 
 logger = logging.getLogger(__name__)
 RAG_ERROR_MESSAGE = "Không thể hoàn tất câu trả lời RAG. Vui lòng thử lại."
@@ -76,7 +77,8 @@ async def stream_rag_answer(
     question: str,
     history: list[dict[str, Any]] | None = None,
     source: str | None = None,
-    *, include_evidence: bool = False,
+    *,
+    include_evidence: bool = False,
 ) -> AsyncIterator[tuple[str, str | list[str] | None]]:
     chunks = await retrieve(user_id, question, source=source)
 
@@ -91,7 +93,7 @@ async def stream_rag_answer(
         yield ("token", _NO_DOC_MSG)
         if include_evidence:
             bundle = capture_evidence(chunks)
-            bundle['citation_audit'] = audit_citations(_NO_DOC_MSG, bundle)
+            bundle["citation_audit"] = audit_citations(_NO_DOC_MSG, bundle)
             yield "evidence", bundle
         yield ("done", [])
         return
@@ -108,7 +110,7 @@ async def stream_rag_answer(
     if not _STREAM_THREADS.acquire(blocking=False):
         _STREAM_SLOTS.release()
         raise RagGenerationError()
-    slot = threading.Lock()   # trả _STREAM_SLOTS đúng một lần, dù consumer hay producer xong trước
+    slot = threading.Lock()  # trả _STREAM_SLOTS đúng một lần, dù consumer hay producer xong trước
 
     def release_slot() -> None:
         if slot.acquire(blocking=False):
@@ -159,7 +161,7 @@ async def stream_rag_answer(
                     raise TypeError("Invalid model chunk")
                 has_text = has_text or bool(token.strip())
                 for start in range(0, len(token), _STREAM_CHUNK_CHARS):
-                    if not publish(("token", token[start:start + _STREAM_CHUNK_CHARS])):
+                    if not publish(("token", token[start : start + _STREAM_CHUNK_CHARS])):
                         return
             if not stopped.is_set():
                 if not has_text:
@@ -188,7 +190,7 @@ async def stream_rag_answer(
         _STREAM_THREADS.release()
         raise
     answer_parts = []
-    pending = ""   # phần câu trả lời chưa gửi (chỉ là đuôi ngắn đang giữ một nhãn chưa đóng)
+    pending = ""  # phần câu trả lời chưa gửi (chỉ là đuôi ngắn đang giữ một nhãn chưa đóng)
     try:
         while True:
             kind, payload = await queue.get()
@@ -205,15 +207,15 @@ async def stream_rag_answer(
                     pending += payload
                     cutoff = _safe_release_point(pending, 0)
                     if cutoff > 0:
-                        if audit_citations(pending[:cutoff], bundle)['status'] == "invalid":
+                        if audit_citations(pending[:cutoff], bundle)["status"] == "invalid":
                             raise RagGenerationError()
                         yield "token", pending[:cutoff]
                         pending = pending[cutoff:]
                     continue
                 if kind == "done":
                     text = "".join(answer_parts)
-                    bundle['citation_audit'] = audit_citations(text, bundle)
-                    if bundle['citation_audit']['status'] == "invalid":
+                    bundle["citation_audit"] = audit_citations(text, bundle)
+                    if bundle["citation_audit"]["status"] == "invalid":
                         raise RagGenerationError()
                     if pending:
                         yield "token", pending
@@ -234,7 +236,8 @@ async def answer_rag_once(
     question: str,
     history: list[dict[str, Any]] | None = None,
     workspace_id: int | None = None,
-    *, evidence_out: dict | None = None,
+    *,
+    evidence_out: dict | None = None,
 ) -> tuple[str, list[str]]:
     """Trả lời RAG một lần (không stream) — cho Public API."""
     try:
@@ -247,7 +250,7 @@ async def answer_rag_once(
     if not chunks:
         if evidence_out is not None:
             bundle = capture_evidence(chunks)
-            bundle['citation_audit'] = audit_citations(_NO_DOC_MSG, bundle)
+            bundle["citation_audit"] = audit_citations(_NO_DOC_MSG, bundle)
             evidence_out.update(bundle)
         return _NO_DOC_MSG, []
 
@@ -266,8 +269,8 @@ async def answer_rag_once(
         logger.warning("RAG generation failed (%s)", type(exc).__name__)
         raise RagGenerationError() from None
     if evidence_out is not None:
-        bundle['citation_audit'] = audit_citations(text, bundle)
-        if bundle['citation_audit']['status'] == "invalid":
+        bundle["citation_audit"] = audit_citations(text, bundle)
+        if bundle["citation_audit"]["status"] == "invalid":
             raise RagGenerationError()
         evidence_out.update(bundle)
     return text, sources

@@ -5,8 +5,9 @@ client connection later fails. Only failures before entering RAG release it.
 SQLite and PostgreSQL serialize the conditional counter update in the database;
 there is no process-local lock or dependency on retained chat messages.
 """
+
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func, literal, select, update
@@ -25,7 +26,7 @@ class QueryReservation:
 
 
 def _utc_today() -> date:
-    return datetime.now(timezone.utc).date()
+    return datetime.now(UTC).date()
 
 
 def _insert(db: Session, table):
@@ -51,7 +52,7 @@ def initialize_query_usage(engine: Engine) -> None:
     from field.models import ServiceCaseEvent
 
     day = _utc_today()
-    start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+    start = datetime.combine(day, datetime.min.time(), tzinfo=UTC)
     end = start + timedelta(days=1)
     with Session(engine) as db:
         claimed = db.execute(

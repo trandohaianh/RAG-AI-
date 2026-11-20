@@ -1,4 +1,5 @@
 """Field workspace and case lifecycle API tests."""
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -109,9 +110,7 @@ def test_case_workflow_and_audit_events(field_client):
         "step_updated",
     }
 
-    resolved = client.patch(
-        f"/field/cases/{case_id}", json={"status": "resolved"}
-    )
+    resolved = client.patch(f"/field/cases/{case_id}", json={"status": "resolved"})
     assert resolved.status_code == 200
     assert resolved.json()["status"] == "resolved"
 
@@ -138,13 +137,14 @@ def test_workspace_membership_scopes_case_access(field_client):
     actor["user"] = CurrentUser(id=3, email="outsider@example.com", role="user")
     assert client.get(f"/field/cases/{case_id}").status_code == 404
     assert client.get(f"/field/workspaces/{workspace['id']}/members").status_code == 404
-    assert client.get(
-        f"/documents?workspace_id={workspace['id']}"
-    ).status_code == 404
-    assert client.post(
-        f"/documents/upload?workspace_id={workspace['id']}",
-        files={"file": ("manual.txt", b"sample SOP", "text/plain")},
-    ).status_code == 404
+    assert client.get(f"/documents?workspace_id={workspace['id']}").status_code == 404
+    assert (
+        client.post(
+            f"/documents/upload?workspace_id={workspace['id']}",
+            files={"file": ("manual.txt", b"sample SOP", "text/plain")},
+        ).status_code
+        == 404
+    )
 
 
 def test_workspace_knowledge_is_readable_by_members_but_owner_managed(field_client):
@@ -162,21 +162,15 @@ def test_workspace_knowledge_is_readable_by_members_but_owner_managed(field_clie
         files={"file": ("manual.txt", b"sample SOP", "text/plain")},
     )
     assert upload.status_code == 403
-    assert client.delete(
-        f"/documents/manual.txt?workspace_id={workspace['id']}"
-    ).status_code == 403
+    assert client.delete(f"/documents/manual.txt?workspace_id={workspace['id']}").status_code == 403
 
 
 def test_workspace_retrieval_isolated_from_personal_collections_and_cache():
     assert _collection_name(1) == "user_1"
     assert _collection_name(1, workspace_id=7) == "workspace_7"
     assert _collection_name(1, workspace_id=8) == "workspace_8"
-    assert cache_key_retrieve(1, "question", 5, workspace_id=7) != cache_key_retrieve(
-        1, "question", 5, workspace_id=8
-    )
-    assert cache_key_retrieve(1, "question", 5) != cache_key_retrieve(
-        1, "question", 5, workspace_id=7
-    )
+    assert cache_key_retrieve(1, "question", 5, workspace_id=7) != cache_key_retrieve(1, "question", 5, workspace_id=8)
+    assert cache_key_retrieve(1, "question", 5) != cache_key_retrieve(1, "question", 5, workspace_id=7)
 
 
 def test_assignee_must_belong_to_workspace(field_client):
@@ -219,7 +213,8 @@ def test_assistant_uses_workspace_knowledge(monkeypatch, field_client):
     assert response.json() == {
         "answer": "Kiểm tra đầu nối quang.",
         "sources": ["SOP.pdf"],
-        "evidence": [], "citation_audit": None,
+        "evidence": [],
+        "citation_audit": None,
     }
     assert called["user_id"] == 1
     assert called["workspace_id"] == workspace["id"]
@@ -259,12 +254,8 @@ def test_field_client_action_retries_are_idempotent(field_client):
         "result_note": "Nguồn ổn",
         "client_action_id": "offline-step-update-001",
     }
-    first_update = client.patch(
-        f"/field/cases/{case_id}/steps/{step_id}", json=update_payload
-    )
-    retry_update = client.patch(
-        f"/field/cases/{case_id}/steps/{step_id}", json=update_payload
-    )
+    first_update = client.patch(f"/field/cases/{case_id}/steps/{step_id}", json=update_payload)
+    retry_update = client.patch(f"/field/cases/{case_id}/steps/{step_id}", json=update_payload)
     assert first_update.json()["status"] == retry_update.json()["status"] == "done"
 
     first_status = client.patch(

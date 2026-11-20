@@ -1,6 +1,7 @@
 """Cấu hình ứng dụng — Gemini, JWT, đường dẫn data."""
-import os
+
 import math
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -60,17 +61,19 @@ RESET_TOKEN_EXPIRE_MINUTES: int = 30
 
 # Google Sign-In: OAuth client ID loại "Web application" (có thể nhiều, cách nhau dấu phẩy
 # — ví dụ thêm client iOS/Android cho app mobile). Để trống = tắt nút Google.
-GOOGLE_CLIENT_IDS: list[str] = [
-    item.strip() for item in os.getenv("GOOGLE_CLIENT_ID", "").split(",") if item.strip()
-]
+GOOGLE_CLIENT_IDS: list[str] = [item.strip() for item in os.getenv("GOOGLE_CLIENT_ID", "").split(",") if item.strip()]
 # Bắt buộc xác thực email trước khi dùng tính năng (chỉ có hiệu lực khi đã cấu hình gửi email).
 REQUIRE_EMAIL_VERIFICATION: bool = os.getenv("REQUIRE_EMAIL_VERIFICATION", "false").lower() in (
-    "1", "true", "yes",
+    "1",
+    "true",
+    "yes",
 )
 EMAIL_VERIFY_EXPIRE_HOURS: int = int(os.getenv("EMAIL_VERIFY_EXPIRE_HOURS", "48"))
 # Chống dò mật khẩu: giới hạn số lần đăng nhập/đăng ký theo email và IP.
 AUTH_RATE_LIMIT_ENABLED: bool = os.getenv("AUTH_RATE_LIMIT_ENABLED", "true").lower() not in (
-    "0", "false", "no",
+    "0",
+    "false",
+    "no",
 )
 
 # Resend — gửi email quên mật khẩu
@@ -115,7 +118,7 @@ DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{DATABASE_PATH}")
 # Heroku/Render/Railway có thể đưa "postgres://…" — SQLAlchemy 2 không còn nhận tên đó và sập
 # ngay lúc import. POSTGRES_URL bên dưới đã được chuẩn hoá cùng cách.
 if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
+    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://") :]
 
 # PostgreSQL Medallion (DE warehouse)
 _postgres = os.getenv(
@@ -185,13 +188,20 @@ def validate_security_config() -> None:
         "your_jwt_secret_32chars_minimum",
     }:
         raise RuntimeError("Production requires a unique SECRET_KEY of at least 32 characters")
-    problems = [p for p in (_public_url_problem("APP_PUBLIC_URL", APP_PUBLIC_URL),
-                            _public_url_problem("API_PUBLIC_URL", API_PUBLIC_URL)) if p]
+    problems = [
+        p
+        for p in (
+            _public_url_problem("APP_PUBLIC_URL", APP_PUBLIC_URL),
+            _public_url_problem("API_PUBLIC_URL", API_PUBLIC_URL),
+        )
+        if p
+    ]
     for origin in (o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()):
         if origin in {"*", "null"} or not origin.startswith("https://"):
             problems.append(f"CORS_ORIGINS must list exact https:// origins in production (got {origin!r})")
     if problems:
         raise RuntimeError("; ".join(problems))
+
 
 # Văn bản trích ra tối đa bao nhiêu ký tự trên mỗi byte tệp gốc. DOCX/PDF nén (Flate) nên văn bản
 # có thể dài hơn tệp; tài liệu thật hiếm khi quá ~3 ký tự/byte. rag/ingest.py từ chối tệp vượt mức

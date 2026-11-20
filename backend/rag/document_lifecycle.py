@@ -3,6 +3,7 @@
 Use a document lock during preparation, then a collection lock only for publishing.
 Readers hold shared collection locks while taking their retrieval snapshot.
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -10,9 +11,9 @@ import hashlib
 import hmac
 import json
 import logging
-import shutil
 import os
 import re
+import shutil
 import tempfile
 import threading
 import uuid
@@ -55,14 +56,21 @@ def storage_lock(index_dir: Path, collection: str, *, source: str | None = None,
             kernel = ctypes.WinDLL("kernel32", use_last_error=True)
             lock = kernel.LockFileEx
             lock.argtypes = [
-                wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
-                wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(Overlapped),
+                wintypes.HANDLE,
+                wintypes.DWORD,
+                wintypes.DWORD,
+                wintypes.DWORD,
+                wintypes.DWORD,
+                ctypes.POINTER(Overlapped),
             ]
             lock.restype = wintypes.BOOL
             unlock = kernel.UnlockFileEx
             unlock.argtypes = [
-                wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
-                wintypes.DWORD, ctypes.POINTER(Overlapped),
+                wintypes.HANDLE,
+                wintypes.DWORD,
+                wintypes.DWORD,
+                wintypes.DWORD,
+                ctypes.POINTER(Overlapped),
             ]
             unlock.restype = wintypes.BOOL
             native = wintypes.HANDLE(msvcrt.get_osfhandle(handle.fileno()))
@@ -146,6 +154,7 @@ def _sync_directory(path: Path) -> None:
     if os.name == "nt":
         return
     import errno
+
     try:
         descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         try:
@@ -216,18 +225,32 @@ def _read_journal(index_dir: Path, collection: str, *, upload_root: Path | None 
             raise ValueError("Journal checksum differs")
     except Exception as error:
         raise DocumentRecoveryError(f"Invalid document journal checksum for {collection}") from error
-    phases = {"prepared", "adding", "publishing", "retiring", "deleting", "committed", "rolling_back", "rolled_back", "commit_uncertain"}
+    phases = {
+        "prepared",
+        "adding",
+        "publishing",
+        "retiring",
+        "deleting",
+        "committed",
+        "rolling_back",
+        "rolled_back",
+        "commit_uncertain",
+    }
     try:
         valid = (
-            record["schema"] == 1 and record["collection"] == collection
-            and isinstance(record["source"], str) and bool(record["source"])
-            and record["phase"] in phases and record["operation"] in {"replace", "delete"}
+            record["schema"] == 1
+            and record["collection"] == collection
+            and isinstance(record["source"], str)
+            and bool(record["source"])
+            and record["phase"] in phases
+            and record["operation"] in {"replace", "delete"}
             and uuid.UUID(hex=record["transaction"]).hex == record["transaction"]
             and isinstance(record["new_ids"], list)
             and all(isinstance(value, str) for value in record["new_ids"])
             and len(set(record["new_ids"])) == len(record["new_ids"])
             and isinstance(record["raw_existed"], bool)
-            and isinstance(record["snapshot_sha256"], str) and len(record["snapshot_sha256"]) == 64
+            and isinstance(record["snapshot_sha256"], str)
+            and len(record["snapshot_sha256"]) == 64
         )
         if not valid:
             raise ValueError("Journal schema is incomplete")
@@ -245,8 +268,10 @@ def _record_payload(record: dict) -> bytes:
 def _write_journal(index_dir: Path, record: dict) -> None:
     clean = {key: value for key, value in record.items() if key != "journal_sha256"}
     clean["journal_sha256"] = hashlib.sha256(_record_payload(record)).hexdigest()
-    _atomic_bytes(_journal_path(index_dir, record["collection"]),
-                  json.dumps(clean, ensure_ascii=False, allow_nan=False, sort_keys=True).encode("utf-8"))
+    _atomic_bytes(
+        _journal_path(index_dir, record["collection"]),
+        json.dumps(clean, ensure_ascii=False, allow_nan=False, sort_keys=True).encode("utf-8"),
+    )
 
 
 def _snapshot_payload(snapshot: dict) -> bytes:
@@ -276,16 +301,31 @@ def _copy_durable(source: Path, destination: Path) -> None:
         Path(temporary).unlink(missing_ok=True)
 
 
-def begin_transaction(index_dir: Path, collection: str, source: str, previous: dict, *,
-                      new_ids: list[str], raw_path: Path | None = None,
-                      operation: str = "replace", upload_root: Path | None = None) -> dict:
+def begin_transaction(
+    index_dir: Path,
+    collection: str,
+    source: str,
+    previous: dict,
+    *,
+    new_ids: list[str],
+    raw_path: Path | None = None,
+    operation: str = "replace",
+    upload_root: Path | None = None,
+) -> dict:
     """Persist undo data before mutation. Hold document and collection locks."""
     if _journal_path(index_dir, collection).exists():
         raise DocumentRecoveryError("Previous document publication needs recovery")
-    record = {"schema": 1, "collection": collection, "source": source,
-              "transaction": uuid.uuid4().hex, "phase": "prepared", "operation": operation,
-              "new_ids": new_ids, "raw_path": str(raw_path.resolve()) if raw_path is not None else None,
-              "raw_existed": raw_path is not None and raw_path.exists()}
+    record = {
+        "schema": 1,
+        "collection": collection,
+        "source": source,
+        "transaction": uuid.uuid4().hex,
+        "phase": "prepared",
+        "operation": operation,
+        "new_ids": new_ids,
+        "raw_path": str(raw_path.resolve()) if raw_path is not None else None,
+        "raw_existed": raw_path is not None and raw_path.exists(),
+    }
     _raw_target(record, upload_root)
     artifacts = _artifact_dir(index_dir, record)
     artifacts.mkdir()
@@ -421,7 +461,10 @@ def _recover_locked(index_dir: Path, record: dict, collection=None, *, upload_ro
             return
         if collection is None:
             import chromadb
-            collection = chromadb.PersistentClient(path=str(index_dir)).get_or_create_collection(name=record["collection"])
+
+            collection = chromadb.PersistentClient(path=str(index_dir)).get_or_create_collection(
+                name=record["collection"]
+            )
         _restore_transaction(index_dir, record, collection, upload_root=upload_root)
     except Exception as error:
         raise DocumentRecoveryError(f"Document recovery failed for {record['collection']}") from error

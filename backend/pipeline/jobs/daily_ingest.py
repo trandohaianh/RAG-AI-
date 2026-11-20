@@ -2,12 +2,13 @@
 Job ingest hàng ngày — gọi từ Airflow DAG hoặc CLI:
   python -m pipeline.jobs.daily_ingest
 """
+
 from __future__ import annotations
 
 import asyncio
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Đảm bảo import backend modules
@@ -43,8 +44,9 @@ async def _run(dag_run_id: str) -> int:
                 print(f"FAIL {file_path}: {exc}")
     except Exception as exc:
         # Lỗi ngoài vòng lặp (vd. quét thư mục upload): không để bronze.ingest_runs kẹt 'running'.
-        finish_ingest_run(run_id, status="failed", files_processed=processed,
-                          error_message=f"{type(exc).__name__}: {exc}"[:500])
+        finish_ingest_run(
+            run_id, status="failed", files_processed=processed, error_message=f"{type(exc).__name__}: {exc}"[:500]
+        )
         raise
 
     status = ingest_status(processed, len(errors))
@@ -67,7 +69,7 @@ def ingest_status(processed: int, failed: int) -> str:
 
 
 def main() -> None:
-    dag_run_id = f"daily_{datetime.now(timezone.utc).strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
+    dag_run_id = f"daily_{datetime.now(UTC).strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
     count = asyncio.run(_run(dag_run_id))
     print(f"Daily ingest hoàn tất: {count} file(s)")
 

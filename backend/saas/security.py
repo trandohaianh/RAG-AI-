@@ -1,4 +1,5 @@
 """Hash và tạo secret cho API key / embed token."""
+
 import hashlib
 import secrets
 

@@ -1,12 +1,13 @@
 """
 FastAPI — RAG Chatbot production (Gemini + JWT + multi-user).
 """
-import asyncio
-import logging
-from contextlib import asynccontextmanager
 
+import asyncio
 import hmac
+import logging
+import os
 import secrets
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,30 +15,30 @@ from fastapi.middleware.cors import CORSMiddleware
 from admin.router import router as admin_router
 from analytics.router import router as analytics_router
 from auth.router import router as auth_router
+from auth.schemas import CurrentUser
 from billing.router import router as billing_router
 from chat.router import router as chat_router
-from costs.router import refresh_infra_gauge, router as costs_router
-from embed.router import router as embed_router
-from public_api.router import router as public_api_router
-import os
-
 from config import APP_ENV, CHROMA_DIR, UPLOAD_DIR, validate_security_config
 from cors import cors_options
+from costs.router import refresh_infra_gauge
+from costs.router import router as costs_router
 from database import init_db
-from auth.schemas import CurrentUser
 from dependencies import require_admin
 from docs.router import router as docs_router
-from field.router import router as field_router
-from field.photos import router as field_photos_router
+from embed.router import router as embed_router
 from field.dispatch import router as field_dispatch_router
-from field.integrations import router as field_integrations_router, public_router as field_integrations_public_router
-from pipeline.jobs.router import router as pipeline_router
+from field.integrations import public_router as field_integrations_public_router
+from field.integrations import router as field_integrations_router
+from field.photos import router as field_photos_router
+from field.router import router as field_router
 from metrics import metrics_response
 from middleware_metrics import PrometheusMiddleware
-from security_headers import SecurityHeadersMiddleware
 from pipeline.db import init_medallion_schema
-from rag.document_lifecycle import recover_all_pending
+from pipeline.jobs.router import router as pipeline_router
+from public_api.router import router as public_api_router
 from rag.cache import close_cache
+from rag.document_lifecycle import recover_all_pending
+from security_headers import SecurityHeadersMiddleware
 
 
 @asynccontextmanager
@@ -46,9 +47,7 @@ async def lifespan(_app: FastAPI):
     CHROMA_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
-    recovered = await asyncio.to_thread(
-        recover_all_pending, CHROMA_DIR, upload_root=UPLOAD_DIR
-    )
+    recovered = await asyncio.to_thread(recover_all_pending, CHROMA_DIR, upload_root=UPLOAD_DIR)
     if recovered:
         logging.getLogger(__name__).info("Recovered %d interrupted document publications", recovered)
     try:
@@ -103,6 +102,7 @@ async def _unhandled_error(request: Request, exc: Exception):
 
     logging.getLogger("fieldops.errors").exception("Unhandled error on %s %s", request.method, request.url.path)
     return JSONResponse({"detail": "Lỗi máy chủ. Vui lòng thử lại sau."}, status_code=500)
+
 
 app.add_middleware(PrometheusMiddleware)
 app.add_middleware(CORSMiddleware, **cors_options(APP_ENV, os.environ))
@@ -238,22 +238,28 @@ def readiness():
 @app.get("/de/gold/stats")
 def de_gold_stats(_admin: CurrentUser = Depends(require_admin)):
     """Gold layer snapshot — cho demo DE / Grafana."""
-    from pipeline.db import is_medallion_enabled, session_scope
     from sqlalchemy import text
+
+    from pipeline.db import is_medallion_enabled, session_scope
 
     if not is_medallion_enabled():
         return {"enabled": False, "message": "Bật POSTGRES_URL + MEDALLION_ENABLED"}
 
     with session_scope() as db:
-        daily = db.execute(
-            text("SELECT * FROM gold.daily_ingest_stats ORDER BY metric_date DESC LIMIT 7")
-        ).mappings().all()
-        summaries = db.execute(
-            text(
-                "SELECT user_id, source, chunk_count, total_chars, last_ingested_at "
-                "FROM gold.document_summary ORDER BY last_ingested_at DESC LIMIT 20"
+        daily = (
+            db.execute(text("SELECT * FROM gold.daily_ingest_stats ORDER BY metric_date DESC LIMIT 7")).mappings().all()
+        )
+        summaries = (
+            db.execute(
+                text(
+                    "SELECT user_id, source, chunk_count, total_chars, last_ingested_at "
+                    "FROM gold.document_summary ORDER BY last_ingested_at DESC LIMIT 20"
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
+
     def _row(row):
         d = dict(row)
         for k, v in d.items():

@@ -7,13 +7,14 @@
 
 Mỗi job nhận Session và trả (rows, details, status). Runner lo việc ghi pipeline_runs.
 """
+
 from __future__ import annotations
 
 import os
 import shutil
 import sqlite3
 import tarfile
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 from sqlalchemy import func
@@ -27,7 +28,7 @@ from pipeline.jobs.models import AnalyticsDaily
 
 
 def _bounds(day: date) -> tuple[datetime, datetime]:
-    start = datetime.combine(day, time.min, tzinfo=timezone.utc)
+    start = datetime.combine(day, time.min, tzinfo=UTC)
     return start, start + timedelta(days=1)
 
 
@@ -50,24 +51,35 @@ def compute_day(db: Session, day: date) -> AnalyticsDaily:
     answers = msgs.filter(Message.role == "assistant").count()
     up = msgs.filter(Message.rating == 1).count()
     down = msgs.filter(Message.rating == -1).count()
-    faith, relev = msgs.filter(Message.role == "assistant").with_entities(
-        func.avg(Message.eval_faithfulness), func.avg(Message.eval_relevancy)).one()
+    faith, relev = (
+        msgs.filter(Message.role == "assistant")
+        .with_entities(func.avg(Message.eval_faithfulness), func.avg(Message.eval_relevancy))
+        .one()
+    )
     active = (
         db.query(func.count(func.distinct(Conversation.user_id)))
         .join(Message, Message.conversation_id == Conversation.id)
-        .filter(Message.role == "user", *in_day(Message.created_at)).scalar() or 0
+        .filter(Message.role == "user", *in_day(Message.created_at))
+        .scalar()
+        or 0
     )
     events = db.query(LlmUsageEvent).filter(*in_day(LlmUsageEvent.created_at))
     llm_requests, llm_cost, tokens_in, tokens_out = events.with_entities(
-        func.count(LlmUsageEvent.id), func.coalesce(func.sum(LlmUsageEvent.cost_usd), 0.0),
+        func.count(LlmUsageEvent.id),
+        func.coalesce(func.sum(LlmUsageEvent.cost_usd), 0.0),
         func.coalesce(func.sum(LlmUsageEvent.input_tokens), 0),
         func.coalesce(func.sum(LlmUsageEvent.output_tokens + LlmUsageEvent.thinking_tokens), 0),
     ).one()
     llm_errors = events.filter(LlmUsageEvent.status != "ok").count()
-    latencies = [row[0] for row in events.filter(
-        LlmUsageEvent.latency_ms.isnot(None),
-        LlmUsageEvent.feature.in_(("chat", "field_assistant", "public_api", "embed_chat")),
-    ).with_entities(LlmUsageEvent.latency_ms).all()]
+    latencies = [
+        row[0]
+        for row in events.filter(
+            LlmUsageEvent.latency_ms.isnot(None),
+            LlmUsageEvent.feature.in_(("chat", "field_assistant", "public_api", "embed_chat")),
+        )
+        .with_entities(LlmUsageEvent.latency_ms)
+        .all()
+    ]
 
     row = db.get(AnalyticsDaily, day) or AnalyticsDaily(day=day)
     row.active_users = int(active)
@@ -80,22 +92,26 @@ def compute_day(db: Session, day: date) -> AnalyticsDaily:
     row.llm_cost_usd = round(float(llm_cost), 6)
     row.llm_latency_p95_ms = _p95(latencies)
     row.cases_opened = db.query(ServiceCase).filter(*in_day(ServiceCase.created_at)).count()
-    row.cases_resolved = db.query(ServiceCase).filter(
-        ServiceCase.status == "resolved", *in_day(ServiceCase.resolved_at)).count()
-    row.computed_at = datetime.now(timezone.utc)
+    row.cases_resolved = (
+        db.query(ServiceCase).filter(ServiceCase.status == "resolved", *in_day(ServiceCase.resolved_at)).count()
+    )
+    row.computed_at = datetime.now(UTC)
     db.merge(row)
     return row
 
 
 def daily_kpis(db: Session, *, day: date | None = None, backfill_days: int = 2) -> tuple[int, dict, str]:
     """Tính lại `backfill_days` ngày gần nhất (mặc định hôm qua + hôm nay) để bắt dữ liệu đến trễ."""
-    end_day = day or datetime.now(timezone.utc).date()
+    end_day = day or datetime.now(UTC).date()
     days = [end_day - timedelta(days=i) for i in range(max(1, backfill_days))]
     summary = {}
     for d in days:
         row = compute_day(db, d)
-        summary[d.isoformat()] = {"questions": row.questions, "llm_cost_usd": row.llm_cost_usd,
-                                  "active_users": row.active_users}
+        summary[d.isoformat()] = {
+            "questions": row.questions,
+            "llm_cost_usd": row.llm_cost_usd,
+            "active_users": row.active_users,
+        }
     db.commit()
     return len(days), {"days": summary}, "ok"
 
@@ -103,36 +119,81 @@ def daily_kpis(db: Session, *, day: date | None = None, backfill_days: int = 2) 
 # --------------------------------------------------------------------------- 2. data quality
 def data_quality(db: Session, **_) -> tuple[int, dict, str]:
     """Mỗi check: số dòng vi phạm. Vi phạm nghiêm trọng → fail; còn lại → warn."""
-    since = datetime.now(timezone.utc) - timedelta(days=2)
+    since = datetime.now(UTC) - timedelta(days=2)
     checks: dict[str, dict] = {}
 
     def check(name: str, count: int, severity: str = "warn", hint: str = "") -> None:
         checks[name] = {"violations": int(count), "severity": severity, "hint": hint}
 
-    check("usage_negative_values", db.query(LlmUsageEvent).filter(
-        (LlmUsageEvent.input_tokens < 0) | (LlmUsageEvent.output_tokens < 0) | (LlmUsageEvent.cost_usd < 0)).count(),
-        "fail", "Token/chi phí âm: lỗi ghi nhận usage")
-    check("usage_unattributed_recent", db.query(LlmUsageEvent).filter(
-        LlmUsageEvent.created_at >= since, LlmUsageEvent.user_id.is_(None),
-        LlmUsageEvent.feature.notin_(("eval", "eval_ingest", "eval_judge"))).count(),
-        "warn", "Gọi AI không gán được người dùng (thiếu usage_scope)")
-    check("rating_out_of_range", db.query(Message).filter(
-        Message.rating.isnot(None), Message.rating.notin_((-1, 0, 1))).count(), "fail")
-    check("judge_score_out_of_range", db.query(Message).filter(
-        ((Message.eval_faithfulness < 0) | (Message.eval_faithfulness > 1)) |
-        ((Message.eval_relevancy < 0) | (Message.eval_relevancy > 1))).count(), "fail")
-    check("empty_assistant_answers_recent", db.query(Message).filter(
-        Message.role == "assistant", Message.created_at >= since,
-        (Message.content.is_(None)) | (Message.content == "")).count(), "warn")
+    check(
+        "usage_negative_values",
+        db.query(LlmUsageEvent)
+        .filter((LlmUsageEvent.input_tokens < 0) | (LlmUsageEvent.output_tokens < 0) | (LlmUsageEvent.cost_usd < 0))
+        .count(),
+        "fail",
+        "Token/chi phí âm: lỗi ghi nhận usage",
+    )
+    check(
+        "usage_unattributed_recent",
+        db.query(LlmUsageEvent)
+        .filter(
+            LlmUsageEvent.created_at >= since,
+            LlmUsageEvent.user_id.is_(None),
+            LlmUsageEvent.feature.notin_(("eval", "eval_ingest", "eval_judge")),
+        )
+        .count(),
+        "warn",
+        "Gọi AI không gán được người dùng (thiếu usage_scope)",
+    )
+    check(
+        "rating_out_of_range",
+        db.query(Message).filter(Message.rating.isnot(None), Message.rating.notin_((-1, 0, 1))).count(),
+        "fail",
+    )
+    check(
+        "judge_score_out_of_range",
+        db.query(Message)
+        .filter(
+            ((Message.eval_faithfulness < 0) | (Message.eval_faithfulness > 1))
+            | ((Message.eval_relevancy < 0) | (Message.eval_relevancy > 1))
+        )
+        .count(),
+        "fail",
+    )
+    check(
+        "empty_assistant_answers_recent",
+        db.query(Message)
+        .filter(
+            Message.role == "assistant",
+            Message.created_at >= since,
+            (Message.content.is_(None)) | (Message.content == ""),
+        )
+        .count(),
+        "warn",
+    )
     answers_recent = db.query(Message).filter(Message.role == "assistant", Message.created_at >= since).count()
-    chat_events_recent = db.query(LlmUsageEvent).filter(
-        LlmUsageEvent.created_at >= since,
-        LlmUsageEvent.feature.in_(("chat", "embed_chat", "public_api", "field_assistant"))).count()
+    chat_events_recent = (
+        db.query(LlmUsageEvent)
+        .filter(
+            LlmUsageEvent.created_at >= since,
+            LlmUsageEvent.feature.in_(("chat", "embed_chat", "public_api", "field_assistant")),
+        )
+        .count()
+    )
     # Có câu trả lời mà không có sự kiện chi phí → cost tracking đang hỏng (hoặc trả lời "không có tài liệu").
-    check("answers_without_cost_events", 1 if answers_recent >= 5 and chat_events_recent == 0 else 0, "warn",
-          "Có câu trả lời nhưng không ghi nhận token nào trong 48h")
-    check("cases_invalid_status", db.query(ServiceCase).filter(
-        ServiceCase.status.notin_(("open", "in_progress", "waiting", "escalated", "resolved"))).count(), "fail")
+    check(
+        "answers_without_cost_events",
+        1 if answers_recent >= 5 and chat_events_recent == 0 else 0,
+        "warn",
+        "Có câu trả lời nhưng không ghi nhận token nào trong 48h",
+    )
+    check(
+        "cases_invalid_status",
+        db.query(ServiceCase)
+        .filter(ServiceCase.status.notin_(("open", "in_progress", "waiting", "escalated", "resolved")))
+        .count(),
+        "fail",
+    )
 
     failed = [n for n, c in checks.items() if c["violations"] and c["severity"] == "fail"]
     warned = [n for n, c in checks.items() if c["violations"] and c["severity"] == "warn"]
@@ -143,7 +204,7 @@ def data_quality(db: Session, **_) -> tuple[int, dict, str]:
 # --------------------------------------------------------------------------- 3. retention
 def retention(db: Session, *, keep_days: int | None = None, **_) -> tuple[int, dict, str]:
     keep = keep_days or int(os.getenv("USAGE_EVENT_RETENTION_DAYS", "400"))
-    cutoff = datetime.now(timezone.utc) - timedelta(days=keep)
+    cutoff = datetime.now(UTC) - timedelta(days=keep)
     deleted = db.query(LlmUsageEvent).filter(LlmUsageEvent.created_at < cutoff).delete(synchronize_session=False)
     db.commit()
     from field.integrations import purge_old_records
@@ -151,8 +212,17 @@ def retention(db: Session, *, keep_days: int | None = None, **_) -> tuple[int, d
 
     photos = purge_expired_photos(db)
     integration = purge_old_records(db)
-    return int(deleted) + photos, {"cutoff": cutoff.isoformat(), "keep_days": keep, "usage_events_deleted": int(deleted),
-                                   "field_photos_deleted": photos, **integration}, "ok"
+    return (
+        int(deleted) + photos,
+        {
+            "cutoff": cutoff.isoformat(),
+            "keep_days": keep,
+            "usage_events_deleted": int(deleted),
+            "field_photos_deleted": photos,
+            **integration,
+        },
+        "ok",
+    )
 
 
 # --------------------------------------------------------------------------- 4. backup
@@ -162,7 +232,7 @@ def backup(db: Session, *, keep: int | None = None, **_) -> tuple[int, dict, str
     keep = keep or int(os.getenv("BACKUP_KEEP", "7"))
     target = Path(os.getenv("BACKUP_DIR", str(DATA_ROOT / "backups")))
     target.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     made = []
     if DATABASE_URL.startswith("sqlite:///"):
         source = DATABASE_URL.removeprefix("sqlite:///")
@@ -180,8 +250,7 @@ def backup(db: Session, *, keep: int | None = None, **_) -> tuple[int, dict, str
 
     # Tài liệu gốc người dùng tải lên: thiếu chúng thì không lập chỉ mục lại được (đổi model
     # embedding, khôi phục Chroma hỏng). Trước đây không được sao lưu.
-    for prefix, source, arcname in (("photos-", FIELD_PHOTO_DIR, "field_photos"),
-                                    ("uploads-", UPLOAD_DIR, "uploads")):
+    for prefix, source, arcname in (("photos-", FIELD_PHOTO_DIR, "field_photos"), ("uploads-", UPLOAD_DIR, "uploads")):
         if source.exists() and any(source.iterdir()):
             archive = target / f"{prefix}{stamp}.tar.gz"
             with tarfile.open(archive, "w:gz") as tar:

@@ -1,6 +1,7 @@
 """Routes quản lý tài liệu: upload, list, delete."""
+
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -48,8 +49,7 @@ class UploadResult(BaseModel):
     filename: str
 
 
-@router.get("/suggested-questions", response_model=SuggestedQuestionsOut,
-            dependencies=[Depends(require_csrf_header)])
+@router.get("/suggested-questions", response_model=SuggestedQuestionsOut, dependencies=[Depends(require_csrf_header)])
 async def suggested_questions(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -90,12 +90,7 @@ def safe_filename(raw: str | None) -> str:
     if not raw:
         raise HTTPException(status_code=400, detail="Tên file không hợp lệ")
     name = raw.replace("\\", "/").split("/")[-1].strip()
-    if (
-        not name
-        or name in {".", ".."}
-        or len(name) > 200
-        or any(ord(c) < 32 for c in name)
-    ):
+    if not name or name in {".", ".."} or len(name) > 200 or any(ord(c) < 32 for c in name):
         raise HTTPException(status_code=400, detail="Tên file không hợp lệ")
     return name
 
@@ -140,9 +135,7 @@ def _require_workspace_owner(db: Session, workspace_id: int, user_id: int) -> No
         .first()
     )
     if not owner:
-        raise HTTPException(
-            status_code=403, detail="Chỉ trưởng đội được cập nhật tài liệu dùng chung"
-        )
+        raise HTTPException(status_code=403, detail="Chỉ trưởng đội được cập nhật tài liệu dùng chung")
 
 
 @router.post("/upload", response_model=UploadResult)
@@ -177,10 +170,8 @@ async def upload_doc(
         )
     if not content:
         raise HTTPException(status_code=400, detail="File rỗng")
-    from costs.budget import enforce_budget_async
-
     # Embedding (và OCR ảnh) tốn tiền như một lượt hỏi: cùng chịu trần ngân sách ngày.
-    from costs.budget import ingest_reserve_amount
+    from costs.budget import enforce_budget_async, ingest_reserve_amount
 
     # Đặt trước theo kích thước tài liệu: một tệp lớn tốn embedding hơn hẳn một câu hỏi.
     async with await enforce_budget_async(db, user.id, ingest_reserve_amount(len(content))):
@@ -210,21 +201,15 @@ async def list_docs(
     if workspace_id is not None:
         _require_workspace_member(db, workspace_id, user.id)
     docs = await list_user_docs(user.id, workspace_id=workspace_id)
-    user_dir = (
-        _workspace_upload_dir(workspace_id)
-        if workspace_id is not None
-        else _user_upload_dir(user.id)
-    )
+    user_dir = _workspace_upload_dir(workspace_id) if workspace_id is not None else _user_upload_dir(user.id)
     result: list[DocItem] = []
     for d in docs:
         fpath = user_dir / d["name"]
         uploaded_at = None
         if fpath.exists():
             ts = fpath.stat().st_mtime
-            uploaded_at = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
-        result.append(
-            DocItem(name=d["name"], chunks=d["chunks"], uploaded_at=uploaded_at)
-        )
+            uploaded_at = datetime.fromtimestamp(ts, tz=UTC).isoformat()
+        result.append(DocItem(name=d["name"], chunks=d["chunks"], uploaded_at=uploaded_at))
     return result
 
 

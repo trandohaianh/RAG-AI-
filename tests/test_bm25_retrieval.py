@@ -5,6 +5,7 @@ tình huống thực tế — đoạn chứa mã lỗi KHÔNG nằm trong nhóm 
 lấy về — và chứng minh rằng xếp hạng lại không cứu được, chỉ BM25 ở pha truy xuất
 mới cứu được.
 """
+
 from __future__ import annotations
 
 import sys
@@ -142,7 +143,7 @@ class TestVanDeGocDuocGiaiQuyet:
 
         # Dạng mà pha truy xuất trả ra: số trang đã đổi sang 1-based (3 -> 4).
         doan_dung = (DOCS[2][0], DOCS[2][1], DOCS[2][2] + 1)
-        vector_tra_ve = [DOCS[0], DOCS[1], DOCS[4]]   # tìm theo nghĩa, trượt mã lỗi
+        vector_tra_ve = [DOCS[0], DOCS[1], DOCS[4]]  # tìm theo nghĩa, trượt mã lỗi
 
         sau_khi_xep_lai = lexical_rerank("E-204", list(vector_tra_ve), top_n=3)
         assert doan_dung not in sau_khi_xep_lai, (
@@ -161,22 +162,29 @@ class TestVanDeGocDuocGiaiQuyet:
         # khoá — chưa làm vì chưa có số liệu để chọn trọng số.
         assert doan_dung in hop_nhat[:2], "phải nằm trong nhóm đầu sau hợp nhất"
 
-@pytest.mark.parametrize("rows, query", [
-    ([("Mã lỗi E-204: kiểm tra quang.", "single.pdf", 0)], "E-204"),
-    ([("Mã lỗi E-204: kiểm tra quang.", "single.pdf", 0)], "204"),
-    ([("nguồn", "a.pdf", 0), ("nguồn điện", "b.pdf", 1)], "nguồn"),
-    ([("kiểm tra nguồn", "a.pdf", 0), ("kiểm tra quạt", "b.pdf", 0)], "nguồn"),
-])
+
+@pytest.mark.parametrize(
+    "rows, query",
+    [
+        ([("Mã lỗi E-204: kiểm tra quang.", "single.pdf", 0)], "E-204"),
+        ([("Mã lỗi E-204: kiểm tra quang.", "single.pdf", 0)], "204"),
+        ([("nguồn", "a.pdf", 0), ("nguồn điện", "b.pdf", 1)], "nguồn"),
+        ([("kiểm tra nguồn", "a.pdf", 0), ("kiểm tra quạt", "b.pdf", 0)], "nguồn"),
+    ],
+)
 def test_small_corpus_and_common_terms_remain_retrievable(rows, query):
     name = "small-" + query + str(len(rows))
     invalidate(name)
     assert bm25_search(FakeCollection(rows), name, query, k=3)
 
 
-@pytest.mark.parametrize("query", [
-    "Mã lỗi E-999 cần kiểm tra nguồn thế nào?",
-    "GPON-9999Z hỗ trợ nguồn nào?",
-])
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Mã lỗi E-999 cần kiểm tra nguồn thế nào?",
+        "GPON-9999Z hỗ trợ nguồn nào?",
+    ],
+)
 def test_unknown_full_code_cannot_match_shared_words_or_model_family(query):
     invalidate("unknown-natural")
     assert bm25_search(FakeCollection(DOCS), "unknown-natural", query, k=5) == []
@@ -196,6 +204,7 @@ def test_strict_mode_surfaces_index_failure_instead_of_false_empty_evidence():
     class BrokenCollection:
         def get(self, include=None):
             raise OSError("unavailable index")
+
     invalidate("broken-strict")
     with pytest.raises(OSError, match="unavailable index"):
         bm25_search(BrokenCollection(), "broken-strict", "E-204", 3, raise_errors=True)

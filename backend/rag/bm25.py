@@ -15,12 +15,14 @@ BM25 phải chạy ở pha truy xuất, song song với tìm theo vector, rồi 
 
 Chi phí: không cần GPU, không cần mô hình, chỉ một chỉ mục ngược trong bộ nhớ.
 """
+
 from __future__ import annotations
 
 import logging
 import re
-import unicodedata
 import threading
+import unicodedata
+
 from rag.evidence import EvidenceChunk
 
 logger = logging.getLogger(__name__)
@@ -62,10 +64,10 @@ def tokenize(text: str) -> list[str]:
         tokens.append(match)
         if "-" in match or "/" in match:
             tokens.extend(part for part in re.split(r"[-/]", match) if len(part) > 1)
-            tokens.append(re.sub(r"[-/]", "", match))          # "e-204" cũng là "e204"
+            tokens.append(re.sub(r"[-/]", "", match))  # "e-204" cũng là "e204"
         else:
             code = _BARE_CODE_RE.fullmatch(match)
-            if code:                                             # "e204" cũng là "e-204", "204"
+            if code:  # "e204" cũng là "e-204", "204"
                 tokens.append(f"{code.group(1)}-{code.group(2)}")
                 if len(code.group(2)) > 1:
                     tokens.append(code.group(2))
@@ -112,7 +114,15 @@ def _build_index(collection) -> tuple[object, list[tuple[str, str, int | None]]]
             continue
         meta = meta or {}
         page = meta.get("page")
-        rows.append(EvidenceChunk(text, meta.get("source", "unknown"), int(page) + 1 if page is not None else None, chunk_id=ids[position] if position < len(ids) else None, document_version=meta.get("document_version")))
+        rows.append(
+            EvidenceChunk(
+                text,
+                meta.get("source", "unknown"),
+                int(page) + 1 if page is not None else None,
+                chunk_id=ids[position] if position < len(ids) else None,
+                document_version=meta.get("document_version"),
+            )
+        )
         corpus.append(tokenize(text))
 
     if not corpus:
@@ -169,10 +179,9 @@ def bm25_search(
         # Dùng token đã chuẩn hoá: "E204" và "E-204" cùng sinh "e-204", nên cổng khớp mã áp dụng
         # cho cả hai cách viết.
         exact_codes = {
-            term for term in tokens
-            if ("-" in term or "/" in term)
-            and any(ch.isdigit() for ch in term)
-            and any(ch.isalpha() for ch in term)
+            term
+            for term in tokens
+            if ("-" in term or "/" in term) and any(ch.isdigit() for ch in term) and any(ch.isalpha() for ch in term)
         }
         eligible = []
         for i, terms in enumerate(bm25.doc_freqs):

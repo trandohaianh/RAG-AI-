@@ -1,6 +1,7 @@
 """Hai cấu hình biên (deploy/cloud/Caddyfile và deploy/production/nginx/nginx.conf) được viết
 tay và từng lệch nhau (Caddy chặn nhúng /embed; nginx chặn geolocation mà màn điều phối cần).
 Test này khoá các bất biến chung để lần lệch sau bị CI bắt thay vì lộ ra trên production."""
+
 from __future__ import annotations
 
 import re
@@ -9,8 +10,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CADDY = (ROOT / "deploy/cloud/Caddyfile").read_text(encoding="utf-8")
 NGINX = (ROOT / "deploy/production/nginx/nginx.conf").read_text(encoding="utf-8")
-WEB_SOURCES = "\n".join(p.read_text(encoding="utf-8", errors="ignore")
-                        for p in (ROOT / "frontend").glob("**/*.tsx") if "node_modules" not in p.parts)
+WEB_SOURCES = "\n".join(
+    p.read_text(encoding="utf-8", errors="ignore")
+    for p in (ROOT / "frontend").glob("**/*.tsx")
+    if "node_modules" not in p.parts
+)
 
 
 def _permissions_policy(text: str) -> str:
@@ -36,10 +40,12 @@ def test_permissions_policy_allows_every_browser_capability_the_web_app_uses():
 def test_embed_widget_stays_frameable_on_both_edges():
     # Caddy: X-Frame-Options chỉ cho các path KHÔNG phải /embed.
     assert re.search(r"@not_embed\s+not\s+path\s+/embed\s+/embed/\*", CADDY)
-    assert re.search(r'header\s+@not_embed\s+>X-Frame-Options', CADDY), \
+    assert re.search(r"header\s+@not_embed\s+>X-Frame-Options", CADDY), (
         "must be deferred ('>'): otherwise the API's own X-Frame-Options is appended (two values)"
-    assert not re.search(r"^\s*X-Frame-Options", CADDY.split("@not_embed", 1)[0], re.M), \
+    )
+    assert not re.search(r"^\s*X-Frame-Options", CADDY.split("@not_embed", 1)[0], re.M), (
         "a site-wide X-Frame-Options would blank the embed widget"
+    )
     # nginx: không đặt X-Frame-Options toàn cục (chính sách khung do CSP của ứng dụng quyết định).
     assert "X-Frame-Options" not in NGINX
 

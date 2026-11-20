@@ -1,12 +1,8 @@
 """CORS defaults for local development and explicitly configured deployments."""
+
 from collections.abc import Mapping
 
-
-_LOCAL_ORIGINS = ",".join(
-    f"http://{host}:{port}"
-    for host in ("localhost", "127.0.0.1")
-    for port in range(3000, 3010)
-)
+_LOCAL_ORIGINS = ",".join(f"http://{host}:{port}" for host in ("localhost", "127.0.0.1") for port in range(3000, 3010))
 # Private IPv4, loopback/ULA/link-local IPv6. Public IPv6 is never a LAN default.
 _LAN_ORIGIN = (
     r"https?://("

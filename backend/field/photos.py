@@ -9,6 +9,7 @@
   gửi được header Authorization).
 - Hạn lưu giữ: ảnh của ca đã "resolved" quá FIELD_PHOTO_RETENTION_DAYS bị xoá bởi pipeline.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -17,7 +18,7 @@ import hmac
 import io
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -30,7 +31,7 @@ import config
 from auth.schemas import CurrentUser
 from database import get_db
 from dependencies import get_current_user
-from field.models import FieldWorkspace, FieldWorkspaceMember, ServiceCase, ServiceCasePhoto, ServiceCaseEvent
+from field.models import FieldWorkspace, FieldWorkspaceMember, ServiceCase, ServiceCaseEvent, ServiceCasePhoto
 
 router = APIRouter(prefix="/field", tags=["field photos"])
 
@@ -66,9 +67,16 @@ def signed_url(photo_id: int, variant: str = "full", now: float | None = None) -
 
 def _to_out(photo: ServiceCasePhoto) -> PhotoOut:
     return PhotoOut(
-        id=photo.id, case_id=photo.case_id, uploaded_by=photo.uploaded_by, caption=photo.caption,
-        width=photo.width, height=photo.height, size_bytes=photo.size_bytes, created_at=photo.created_at,
-        url=signed_url(photo.id, "full"), thumb_url=signed_url(photo.id, "thumb"),
+        id=photo.id,
+        case_id=photo.case_id,
+        uploaded_by=photo.uploaded_by,
+        caption=photo.caption,
+        width=photo.width,
+        height=photo.height,
+        size_bytes=photo.size_bytes,
+        created_at=photo.created_at,
+        url=signed_url(photo.id, "full"),
+        thumb_url=signed_url(photo.id, "thumb"),
     )
 
 
@@ -102,7 +110,7 @@ def process_image(data: bytes) -> tuple[bytes, bytes, int, int]:
                 image = image.convert("RGB")
             image.thumbnail((MAX_EDGE, MAX_EDGE))
             full = io.BytesIO()
-            image.save(full, "JPEG", quality=85, optimize=True)        # không truyền exif -> metadata bị bỏ
+            image.save(full, "JPEG", quality=85, optimize=True)  # không truyền exif -> metadata bị bỏ
             thumb_image = image.copy()
             thumb_image.thumbnail((THUMB_EDGE, THUMB_EDGE))
             thumb = io.BytesIO()
@@ -113,8 +121,11 @@ def process_image(data: bytes) -> tuple[bytes, bytes, int, int]:
 
 
 def _membership(db: Session, workspace_id: int, user_id: int) -> FieldWorkspaceMember | None:
-    return db.scalar(select(FieldWorkspaceMember).where(
-        FieldWorkspaceMember.workspace_id == workspace_id, FieldWorkspaceMember.user_id == user_id))
+    return db.scalar(
+        select(FieldWorkspaceMember).where(
+            FieldWorkspaceMember.workspace_id == workspace_id, FieldWorkspaceMember.user_id == user_id
+        )
+    )
 
 
 def _case_for_member(db: Session, case_id: int, user_id: int) -> tuple[ServiceCase, FieldWorkspaceMember]:
@@ -126,11 +137,14 @@ def _case_for_member(db: Session, case_id: int, user_id: int) -> tuple[ServiceCa
 
 
 def workspace_photo_bytes(db: Session, workspace_id: int) -> int:
-    return int(db.scalar(
-        select(func.coalesce(func.sum(ServiceCasePhoto.size_bytes), 0))
-        .join(ServiceCase, ServiceCase.id == ServiceCasePhoto.case_id)
-        .where(ServiceCase.workspace_id == workspace_id)
-    ) or 0)
+    return int(
+        db.scalar(
+            select(func.coalesce(func.sum(ServiceCasePhoto.size_bytes), 0))
+            .join(ServiceCase, ServiceCase.id == ServiceCasePhoto.case_id)
+            .where(ServiceCase.workspace_id == workspace_id)
+        )
+        or 0
+    )
 
 
 @router.post("/cases/{case_id}/photos", response_model=PhotoOut, status_code=201)
@@ -143,7 +157,7 @@ async def upload_photo(
     db: Session = Depends(get_db),
 ):
     case, _ = _case_for_member(db, case_id, user.id)
-    if client_action_id:      # hàng đợi offline của app gửi lại: trả kết quả cũ, không tạo trùng
+    if client_action_id:  # hàng đợi offline của app gửi lại: trả kết quả cũ, không tạo trùng
         existing = db.scalar(select(ServiceCasePhoto).where(ServiceCasePhoto.client_action_id == client_action_id))
         if existing:
             if existing.case_id != case.id:
@@ -160,15 +174,20 @@ async def upload_photo(
         full, thumb, width, height = await asyncio.get_running_loop().run_in_executor(None, process_image, data)
     except ValueError as exc:
         from metrics import FIELD_PHOTOS
+
         FIELD_PHOTOS.labels("rejected").inc()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     case_id, workspace_id = case.id, case.workspace_id
     # Kiểm tra lại hạn mức SAU khi giữ khoá ghi của đội: nhiều ảnh upload song song (outbox
     # offline xả hàng đợi) đều qua bước đếm ở trên trước khi bản nào kịp commit. UPDATE không
     # đổi gì lấy khoá ghi trên SQLite và khoá dòng đội trên PostgreSQL cho tới khi commit.
-    db.rollback()   # kết thúc transaction chỉ-đọc trước khi xin khoá ghi
-    db.execute(update(FieldWorkspace).where(FieldWorkspace.id == workspace_id)
-               .values(name=FieldWorkspace.name).execution_options(synchronize_session=False))
+    db.rollback()  # kết thúc transaction chỉ-đọc trước khi xin khoá ghi
+    db.execute(
+        update(FieldWorkspace)
+        .where(FieldWorkspace.id == workspace_id)
+        .values(name=FieldWorkspace.name)
+        .execution_options(synchronize_session=False)
+    )
     count = db.scalar(select(func.count()).select_from(ServiceCasePhoto).where(ServiceCasePhoto.case_id == case_id))
     if count >= config.FIELD_PHOTO_MAX_PER_CASE:
         db.rollback()
@@ -182,13 +201,26 @@ async def upload_photo(
     target.write_bytes(full)
     _path(key, "thumb").write_bytes(thumb)
     photo = ServiceCasePhoto(
-        case_id=case.id, uploaded_by=user.id, storage_key=key, sha256=hashlib.sha256(full).hexdigest(),
-        content_type="image/jpeg", size_bytes=len(full), width=width, height=height,
-        caption=caption.strip(), client_action_id=client_action_id,
+        case_id=case.id,
+        uploaded_by=user.id,
+        storage_key=key,
+        sha256=hashlib.sha256(full).hexdigest(),
+        content_type="image/jpeg",
+        size_bytes=len(full),
+        width=width,
+        height=height,
+        caption=caption.strip(),
+        client_action_id=client_action_id,
     )
     db.add(photo)
-    db.add(ServiceCaseEvent(case_id=case.id, actor_id=user.id, event_type="photo",
-                            detail=f"Thêm ảnh hiện trường{': ' + caption.strip() if caption.strip() else ''}"))
+    db.add(
+        ServiceCaseEvent(
+            case_id=case.id,
+            actor_id=user.id,
+            event_type="photo",
+            detail=f"Thêm ảnh hiện trường{': ' + caption.strip() if caption.strip() else ''}",
+        )
+    )
     try:
         db.commit()
     except Exception:
@@ -198,6 +230,7 @@ async def upload_photo(
         raise
     db.refresh(photo)
     from metrics import FIELD_PHOTOS
+
     FIELD_PHOTOS.labels("uploaded").inc()
     return _to_out(photo)
 
@@ -205,22 +238,33 @@ async def upload_photo(
 @router.get("/cases/{case_id}/photos", response_model=list[PhotoOut])
 def list_photos(case_id: int, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     case, _ = _case_for_member(db, case_id, user.id)
-    rows = db.scalars(select(ServiceCasePhoto).where(ServiceCasePhoto.case_id == case.id)
-                      .order_by(ServiceCasePhoto.created_at, ServiceCasePhoto.id)).all()
+    rows = db.scalars(
+        select(ServiceCasePhoto)
+        .where(ServiceCasePhoto.case_id == case.id)
+        .order_by(ServiceCasePhoto.created_at, ServiceCasePhoto.id)
+    ).all()
     return [_to_out(photo) for photo in rows]
 
 
 @router.get("/photos/{photo_id}/file")
-def photo_file(photo_id: int, v: str = Query("full", pattern="^(full|thumb)$"), exp: int = Query(...),
-               sig: str = Query(..., min_length=40, max_length=40), db: Session = Depends(get_db)):
+def photo_file(
+    photo_id: int,
+    v: str = Query("full", pattern="^(full|thumb)$"),
+    exp: int = Query(...),
+    sig: str = Query(..., min_length=40, max_length=40),
+    db: Session = Depends(get_db),
+):
     if exp < time.time() or not hmac.compare_digest(sig, _sign(photo_id, v, exp)):
         raise HTTPException(status_code=403, detail="Liên kết ảnh đã hết hạn")
     photo = db.get(ServiceCasePhoto, photo_id)
     path = _path(photo.storage_key, v) if photo else None
     if not photo or not path.is_file():
         raise HTTPException(status_code=404, detail="Không tìm thấy ảnh")
-    return FileResponse(path, media_type="image/jpeg",
-                        headers={"Cache-Control": "private, max-age=600", "X-Content-Type-Options": "nosniff"})
+    return FileResponse(
+        path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=600", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.delete("/photos/{photo_id}", status_code=204)
@@ -244,9 +288,10 @@ def remove_photo(db: Session, photo: ServiceCasePhoto) -> None:
 
 def purge_expired_photos(db: Session, now: datetime | None = None) -> int:
     """Xoá ảnh của ca đã resolved quá FIELD_PHOTO_RETENTION_DAYS (dựa trên updated_at của ca)."""
-    cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=config.FIELD_PHOTO_RETENTION_DAYS)
+    cutoff = (now or datetime.now(UTC)) - timedelta(days=config.FIELD_PHOTO_RETENTION_DAYS)
     rows = db.scalars(
-        select(ServiceCasePhoto).join(ServiceCase, ServiceCase.id == ServiceCasePhoto.case_id)
+        select(ServiceCasePhoto)
+        .join(ServiceCase, ServiceCase.id == ServiceCasePhoto.case_id)
         .where(ServiceCase.status == "resolved", ServiceCase.updated_at < cutoff)
     ).all()
     for photo in rows:

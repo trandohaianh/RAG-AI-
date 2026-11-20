@@ -1,4 +1,5 @@
 """Analytics dashboard API — tuần 5–6."""
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -36,9 +37,7 @@ async def overview(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    data = await analytics_service.user_overview_with_docs(
-        db, user.id, user.subscription_plan
-    )
+    data = await analytics_service.user_overview_with_docs(db, user.id, user.subscription_plan)
     return OverviewOut(**data)
 
 

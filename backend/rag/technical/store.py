@@ -3,14 +3,15 @@
 SQLite FTS5 implements BM25; encoded tokens preserve hyphens/model identifiers.
 A build is a FULL namespace snapshot. Publish only after both stores are complete.
 """
+
 from __future__ import annotations
 
 import json
 import math
 import os
 import re
-import unicodedata
 import sqlite3
+import unicodedata
 import uuid
 from contextlib import closing
 from pathlib import Path
@@ -51,9 +52,15 @@ def _active(base: Path) -> dict:
     return value
 
 
-def build_index(root: Path, bundles: list[LayoutBundle], embeddings: Embeddings,
-                embedding_id: str, *, child_target: int = 200,
-                parent_hard_limit: int = 12000) -> str:
+def build_index(
+    root: Path,
+    bundles: list[LayoutBundle],
+    embeddings: Embeddings,
+    embedding_id: str,
+    *,
+    child_target: int = 200,
+    parent_hard_limit: int = 12000,
+) -> str:
     import chromadb
     from filelock import FileLock
 
@@ -89,35 +96,62 @@ def build_index(root: Path, bundles: list[LayoutBundle], embeddings: Embeddings,
             CREATE VIRTUAL TABLE lexical USING fts5(tokens, child_id UNINDEXED, tokenize='ascii');
         """)
         cx.execute("PRAGMA foreign_keys=ON")
-        cx.executemany("INSERT INTO parents VALUES (?,?,?,?)",
-                       [(p.parent_id, p.scope_key, p.source_id, p.model_dump_json()) for p in parents])
+        cx.executemany(
+            "INSERT INTO parents VALUES (?,?,?,?)",
+            [(p.parent_id, p.scope_key, p.source_id, p.model_dump_json()) for p in parents],
+        )
         for c in children:
-            cx.execute("INSERT INTO children VALUES (?,?,?,?)",
-                       (c.child_id, c.parent_id, by_parent[c.parent_id].scope_key, c.model_dump_json()))
+            cx.execute(
+                "INSERT INTO children VALUES (?,?,?,?)",
+                (c.child_id, c.parent_id, by_parent[c.parent_id].scope_key, c.model_dump_json()),
+            )
             cx.execute("INSERT INTO lexical VALUES (?,?)", (" ".join(lexical_tokens(c.retrieval_text)), c.child_id))
     client = chromadb.PersistentClient(path=str(directory / "chroma"))
     collection = client.create_collection("technical_children", metadata={"hnsw:space": "cosine"})
     dimension = None
     for start in range(0, len(children), 64):
-        batch = children[start:start + 64]
+        batch = children[start : start + 64]
         vectors = embeddings.embed_documents([c.retrieval_text for c in batch])
         size = _valid_vectors(vectors, len(batch))
         if dimension is not None and size != dimension:
             raise TechnicalRAGError("Embedding dimension changed during build")
         dimension = size
-        collection.add(ids=[c.child_id for c in batch], embeddings=vectors,
-                       metadatas=[{"parent_id": c.parent_id, "scope": by_parent[c.parent_id].scope_key,
-                                   "generation": generation, "source": by_parent[c.parent_id].source_id} for c in batch])
+        collection.add(
+            ids=[c.child_id for c in batch],
+            embeddings=vectors,
+            metadatas=[
+                {
+                    "parent_id": c.parent_id,
+                    "scope": by_parent[c.parent_id].scope_key,
+                    "generation": generation,
+                    "source": by_parent[c.parent_id].source_id,
+                }
+                for c in batch
+            ],
+        )
     if collection.count() != len(children):
         raise TechnicalRAGError("Incomplete vector build")
     # Raw contents + approvals are represented by hashes; do not duplicate source secrets here.
-    manifest = {"schema": 1, "generation": generation, "namespace": namespace,
-                "embedding_id": embedding_id, "dimension": dimension, "retrieval_format": RETRIEVAL_FORMAT,
-                "parents": len(parents), "children": len(children),
-                "corpus_sha256": digest(db.read_bytes()),
-                "sources": [{"id": b.source_id, "raw_sha256": b.raw_sha256,
-                             "extraction_sha256": b.extraction_hash(),
-                             "approval": b.approval.model_dump()} for b in bundles]}
+    manifest = {
+        "schema": 1,
+        "generation": generation,
+        "namespace": namespace,
+        "embedding_id": embedding_id,
+        "dimension": dimension,
+        "retrieval_format": RETRIEVAL_FORMAT,
+        "parents": len(parents),
+        "children": len(children),
+        "corpus_sha256": digest(db.read_bytes()),
+        "sources": [
+            {
+                "id": b.source_id,
+                "raw_sha256": b.raw_sha256,
+                "extraction_sha256": b.extraction_hash(),
+                "approval": b.approval.model_dump(),
+            }
+            for b in bundles
+        ],
+    }
     (directory / "manifest.json").write_text(canonical(manifest), encoding="utf-8")
     # Compare-and-swap: do not let a slow build overwrite a newer published snapshot.
     with FileLock(str(base / "publish.lock"), timeout=30):
@@ -151,10 +185,12 @@ class Snapshot:
         if digest(manifest_text) != pointer["manifest_sha256"]:
             raise TechnicalRAGError("Manifest hash mismatch")
         self.manifest = json.loads(manifest_text)
-        if (self.manifest["namespace"] != scope.namespace
-                or self.manifest["generation"] != self.generation
-                or self.manifest["embedding_id"] != embedding_id
-                or self.manifest.get("retrieval_format") != RETRIEVAL_FORMAT):
+        if (
+            self.manifest["namespace"] != scope.namespace
+            or self.manifest["generation"] != self.generation
+            or self.manifest["embedding_id"] != embedding_id
+            or self.manifest.get("retrieval_format") != RETRIEVAL_FORMAT
+        ):
             raise TechnicalRAGError("Snapshot namespace, generation or embedding model mismatch")
         self.db = self.directory / "corpus.sqlite"
         if digest(self.db.read_bytes()) != self.manifest["corpus_sha256"]:
@@ -174,42 +210,60 @@ class Snapshot:
         if not tokens:
             return []
         with closing(self.connect()) as cx:
-            rows = cx.execute("""SELECT c.id FROM lexical
+            rows = cx.execute(
+                """SELECT c.id FROM lexical
                 JOIN children c ON c.id=lexical.child_id JOIN parents p ON p.id=c.parent_id
                 WHERE lexical MATCH ? AND c.scope=? AND (? IS NULL OR p.source=?)
                 ORDER BY bm25(lexical), c.id LIMIT ?""",
-                (" OR ".join(tokens), self.scope.key, source_id, source_id, k)).fetchall()
+                (" OR ".join(tokens), self.scope.key, source_id, source_id, k),
+            ).fetchall()
         return [r[0] for r in rows]
 
     def vector(self, query: str, k: int, source_id: str | None = None) -> list[str]:
         embedding = self.embeddings.embed_query(query)
         if _valid_vectors([embedding], 1) != self.manifest["dimension"]:
             raise TechnicalRAGError("Query embedding dimension mismatch")
-        result = self.collection.query(query_embeddings=[embedding], n_results=min(k, self.manifest["children"]),
-                                       where=({"$and": [{"scope": self.scope.key}, {"source": source_id}]}
-                                              if source_id else {"scope": self.scope.key}), include=["metadatas"])
+        result = self.collection.query(
+            query_embeddings=[embedding],
+            n_results=min(k, self.manifest["children"]),
+            where=(
+                {"$and": [{"scope": self.scope.key}, {"source": source_id}]} if source_id else {"scope": self.scope.key}
+            ),
+            include=["metadatas"],
+        )
         ids = result["ids"][0]
         metadata = result["metadatas"][0]
         if len(ids) != len(metadata) or len(ids) != len(set(ids)):
             raise TechnicalRAGError("Invalid vector result IDs/metadata")
-        for cid, item in zip(ids, metadata):
+        for cid, item in zip(ids, metadata, strict=False):
             child, _ = self.resolve(cid)
-            if (item.get("generation") != self.generation or item.get("scope") != self.scope.key
-                    or item.get("parent_id") != child.parent_id
-                    or source_id and item.get("source") != source_id):
+            if (
+                item.get("generation") != self.generation
+                or item.get("scope") != self.scope.key
+                or item.get("parent_id") != child.parent_id
+                or source_id
+                and item.get("source") != source_id
+            ):
                 raise TechnicalRAGError("Vector metadata does not match pinned corpus")
         return ids
 
     def resolve(self, child_id: str) -> tuple[Child, Parent]:
         with closing(self.connect()) as cx:
-            row = cx.execute("""SELECT c.data,p.data FROM children c JOIN parents p ON p.id=c.parent_id
-                WHERE c.id=? AND c.scope=? AND p.scope=?""", (child_id, self.scope.key, self.scope.key)).fetchone()
+            row = cx.execute(
+                """SELECT c.data,p.data FROM children c JOIN parents p ON p.id=c.parent_id
+                WHERE c.id=? AND c.scope=? AND p.scope=?""",
+                (child_id, self.scope.key, self.scope.key),
+            ).fetchone()
         if not row:
             raise TechnicalRAGError("Missing child/parent in requested equipment scope")
         child, parent = Child.model_validate_json(row[0]), Parent.model_validate_json(row[1])
-        if (child.child_id != child_id or child.parent_id != parent.parent_id
-                or parent.scope_key != self.scope.key or digest(parent.text) != parent.text_sha256
-                or any(len(s) != 2 or not 0 <= s[0] < s[1] <= len(parent.text) for s in child.spans)
-                or "\n".join(parent.text[s:e] for s, e in child.spans) != child.text):
+        if (
+            child.child_id != child_id
+            or child.parent_id != parent.parent_id
+            or parent.scope_key != self.scope.key
+            or digest(parent.text) != parent.text_sha256
+            or any(len(s) != 2 or not 0 <= s[0] < s[1] <= len(parent.text) for s in child.spans)
+            or "\n".join(parent.text[s:e] for s, e in child.spans) != child.text
+        ):
             raise TechnicalRAGError("Invalid child source spans or parent hash")
         return child, parent

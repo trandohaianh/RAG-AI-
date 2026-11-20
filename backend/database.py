@@ -1,4 +1,5 @@
 """SQLAlchemy sessions and transactional, versioned application-schema upgrades."""
+
 from collections.abc import Generator
 
 from sqlalchemy import create_engine, event
@@ -80,10 +81,9 @@ def init_db() -> None:
     from auth import models as auth_models  # noqa: F401
     from chat import models as chat_models  # noqa: F401
     from costs import models as cost_models  # noqa: F401
-    from pipeline.jobs import models as pipeline_models  # noqa: F401
     from field import models as field_models  # noqa: F401
+    from pipeline.jobs import models as pipeline_models  # noqa: F401
     from saas import models as saas_models  # noqa: F401
-
     from schema_migrations import run_migrations
 
     run_migrations(engine, Base.metadata)

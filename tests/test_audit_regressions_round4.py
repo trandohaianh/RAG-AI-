@@ -1,5 +1,6 @@
 """Regression tests for round 4 (2026-11-17): close the remaining gaps listed in
 reports/01_Technical_Code_Audit_Report.md §4. Each test fails on commit 845aec1."""
+
 from __future__ import annotations
 
 import asyncio
@@ -13,7 +14,8 @@ from sqlalchemy.pool import StaticPool
 
 import chat.router as chat_router
 import config
-from costs import budget, models as cost_models  # noqa: F401
+from costs import budget  # noqa: F401
+from costs import models as cost_models
 from costs.pricing import compute_cost
 from database import Base, _enable_sqlite_foreign_keys
 from rag import llm, prompt
@@ -37,10 +39,12 @@ def test_generation_output_is_capped_so_cost_stays_within_the_reservation(monkey
         return SimpleNamespace(text="ok", usage_metadata=None)
 
     monkeypatch.setattr(llm, "LLM_PROVIDER", "gemini")
-    monkeypatch.setattr(llm, "client", lambda: SimpleNamespace(models=SimpleNamespace(generate_content=generate_content)))
+    monkeypatch.setattr(
+        llm, "client", lambda: SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
     monkeypatch.setattr(llm, "record_usage", lambda **kw: None)
-    llm.generate_text("câu hỏi")                         # caller did not pass max_tokens
-    llm.generate_text("câu hỏi", max_tokens=10 ** 6)     # caller asked for more than the cap
+    llm.generate_text("câu hỏi")  # caller did not pass max_tokens
+    llm.generate_text("câu hỏi", max_tokens=10**6)  # caller asked for more than the cap
     assert all(c["config"].max_output_tokens == config.LLM_MAX_OUTPUT_TOKENS for c in calls)
 
 
@@ -57,8 +61,10 @@ def test_streaming_generation_is_capped_too(monkeypatch):
     with pytest.raises(RuntimeError):
         list(llm.stream_text(prompt.build_gemini_prompt("ctx", "q")))
     assert seen["config"].max_output_tokens == config.LLM_MAX_OUTPUT_TOKENS
-    assert llm._ollama_body("p", True, False, None, llm._bounded("p", None))["options"]["num_predict"] \
+    assert (
+        llm._ollama_body("p", True, False, None, llm._bounded("p", None))["options"]["num_predict"]
         == config.LLM_MAX_OUTPUT_TOKENS
+    )
 
 
 def test_oversized_prompt_is_refused_before_calling_the_provider(monkeypatch):
@@ -78,12 +84,12 @@ def test_default_reservation_covers_the_largest_possible_request(monkeypatch):
 
 def test_large_upload_reserves_by_document_size(sessions, monkeypatch):
     monkeypatch.setenv("LLM_USER_DAILY_BUDGET_USD", "0.03")
-    big = 400 * 1024 * 1024                          # bytes — embedding cost alone exceeds the cap
+    big = 400 * 1024 * 1024  # bytes — embedding cost alone exceeds the cap
     assert budget.ingest_reserve_amount(big) > budget.reserve_amount()
     with sessions() as db:
         with pytest.raises(HTTPException):
             budget.enforce_budget(db, 5, budget.ingest_reserve_amount(big))
-        budget.enforce_budget(db, 5).release()          # a normal question still fits
+        budget.enforce_budget(db, 5).release()  # a normal question still fits
 
 
 # ---------------------------------------------------------------- background judge respects the budget

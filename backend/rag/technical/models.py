@@ -1,4 +1,5 @@
 """Reviewed canonical extraction models; approval is an operator assertion, not PKI."""
+
 from __future__ import annotations
 
 import hashlib
@@ -81,8 +82,12 @@ class LayoutBundle(StrictModel):
 
     def require_review(self) -> None:
         a = self.approval
-        if (not a or not self.scope_reviewed or a.raw_sha256 != self.raw_sha256
-                or a.extraction_sha256 != self.extraction_hash()):
+        if (
+            not a
+            or not self.scope_reviewed
+            or a.raw_sha256 != self.raw_sha256
+            or a.extraction_sha256 != self.extraction_hash()
+        ):
             raise TechnicalRAGError("Unreviewed or modified extraction")
         if len(self.raw_sha256) != 64 or any(c not in "0123456789abcdef" for c in self.raw_sha256):
             raise TechnicalRAGError("Invalid raw SHA-256")

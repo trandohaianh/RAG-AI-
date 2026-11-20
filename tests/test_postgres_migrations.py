@@ -3,19 +3,20 @@
 FIELDOPS_TEST_POSTGRES_URL must name a dedicated test database. The application's
 DATABASE_URL/configured database is never selected by this fixture.
 """
-from concurrent.futures import ThreadPoolExecutor
+
 import os
-from threading import Barrier
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
+import schema_migrations as migrations
 from auth.models import User
 from database import Base
-import schema_migrations as migrations
-from test_schema_migrations import create_legacy_schema, assert_upgraded_legacy
+from test_schema_migrations import assert_upgraded_legacy, create_legacy_schema
 
 
 @pytest.fixture
@@ -110,18 +111,27 @@ def test_postgres_preserves_revocations_and_repairs_existing_null_defaults(postg
         conn.execute(text("ALTER TABLE users ADD COLUMN token_version INTEGER"))
         conn.execute(text("ALTER TABLE users ADD COLUMN billing_sync_version INTEGER"))
         conn.execute(text("UPDATE users SET token_version=8, billing_sync_version=91 WHERE id=1"))
-        conn.execute(text(
-            "INSERT INTO users (id,email,hashed_password,role,subscription_plan) "
-            "VALUES (2,'null@example.com','hash','user',NULL)"
-        ))
+        conn.execute(
+            text(
+                "INSERT INTO users (id,email,hashed_password,role,subscription_plan) "
+                "VALUES (2,'null@example.com','hash','user',NULL)"
+            )
+        )
         conn.execute(text("SELECT setval(pg_get_serial_sequence('users','id'), 500, TRUE)"))
     migrations.run_migrations(postgres_engine, Base.metadata)
     with postgres_engine.begin() as conn:
         assert conn.execute(text("SELECT token_version,billing_sync_version FROM users WHERE id=1")).one() == (8, 91)
-        assert conn.execute(text("SELECT subscription_plan,token_version,billing_sync_version FROM users WHERE id=2")).one() == ("free", 0, 0)
-        assert conn.execute(text(
-            "INSERT INTO users (email,hashed_password,role) VALUES ('after@example.com','hash','user') RETURNING id"
-        )).scalar_one() > 500
+        assert conn.execute(
+            text("SELECT subscription_plan,token_version,billing_sync_version FROM users WHERE id=2")
+        ).one() == ("free", 0, 0)
+        assert (
+            conn.execute(
+                text(
+                    "INSERT INTO users (email,hashed_password,role) VALUES ('after@example.com','hash','user') RETURNING id"
+                )
+            ).scalar_one()
+            > 500
+        )
 
 
 def test_postgres_unknown_missing_model_column_fails_closed(postgres_engine):

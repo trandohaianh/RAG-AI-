@@ -4,6 +4,7 @@ Web gửi `X-Auth-Mode: cookie` khi đăng nhập: server đặt JWT vào cookie
 token trong body, nên JavaScript (kể cả mã XSS) không bao giờ đọc được token. Mobile và Public
 API không gửi header này và tiếp tục nhận token để dùng header Bearer.
 """
+
 from __future__ import annotations
 
 from fastapi import Request, Response

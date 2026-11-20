@@ -2,6 +2,7 @@
 plus the owner decisions (technical RAG top-N + decimal comma, same-origin /api, bounded session
 renewal + logout-all, chars/2.5 token estimate, RRF-preserving rerank, webhook retry policy,
 dev/holdout eval split). Each test fails on commit b767f92."""
+
 from __future__ import annotations
 
 import asyncio
@@ -49,7 +50,12 @@ def test_budget_reservation_never_runs_on_the_event_loop(quota_client, monkeypat
     monkeypatch.setenv("LLM_USER_DAILY_BUDGET_USD", "5")
     assert client_.post("/chat/1", json={"question": "Đèn LOS đỏ thì kiểm tra gì?"}).status_code == 200
     assert client_.post("/field/cases/1/assist", json={"question": "Đèn LOS đỏ thì kiểm tra gì?"}).status_code == 200
-    assert client_.post("/v1/ask", json={"question": "Đèn LOS đỏ thì kiểm tra gì?"}, headers={"X-API-Key": "quota-api-key"}).status_code == 200
+    assert (
+        client_.post(
+            "/v1/ask", json={"question": "Đèn LOS đỏ thì kiểm tra gì?"}, headers={"X-API-Key": "quota-api-key"}
+        ).status_code
+        == 200
+    )
     assert seen and set(seen) == {"worker-thread"}, seen
 
 
@@ -68,12 +74,22 @@ def test_reservation_is_returned_when_the_client_leaves_before_the_first_chunk(q
 
     async def send(message):
         if message["type"] == "http.response.start":
-            await anyio.sleep_forever()      # client never reads: generator is never iterated
+            await anyio.sleep_forever()  # client never reads: generator is never iterated
 
-    scope = {"type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"}, "http_version": "1.1",
-             "method": "POST", "scheme": "http", "path": "/chat/1", "raw_path": b"/chat/1", "root_path": "",
-             "query_string": b"", "headers": [(b"content-type", b"application/json"), (b"host", b"test")],
-             "client": ("127.0.0.1", 1), "server": ("test", 80)}
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/chat/1",
+        "raw_path": b"/chat/1",
+        "root_path": "",
+        "query_string": b"",
+        "headers": [(b"content-type", b"application/json"), (b"host", b"test")],
+        "client": ("127.0.0.1", 1),
+        "server": ("test", 80),
+    }
 
     async def run():
         with anyio.fail_after(10):
@@ -94,7 +110,7 @@ def _trickling_server(stop: threading.Event) -> int:
         conn, _ = server.accept()
         conn.recv(65536)
         conn.sendall(b"HTTP/1.1 200 OK\r\n")
-        while not stop.is_set():            # one header byte at a time, never finishing
+        while not stop.is_set():  # one header byte at a time, never finishing
             try:
                 conn.sendall(b"X")
             except OSError:
@@ -182,7 +198,7 @@ def test_disconnected_client_returns_its_stream_slot_while_the_provider_read_con
             await anext(first)
             await asyncio.wait_for(first.aclose(), timeout=0.5)
             second = chain.stream_rag_answer(1, "again")
-            await anext(second)                     # context
+            await anext(second)  # context
             assert (await anext(second))[0] == "token", "one dropped client must not block the next"
             await second.aclose()
         finally:
@@ -239,10 +255,14 @@ def test_page_footers_and_repeated_blocks_do_not_fail_a_whole_document():
     from validation.ge_validate import chunks_to_dataframe, drop_noise_chunks, validate_document_chunks
 
     body = "Quy trình đo công suất quang trên ONT trước khi thay thiết bị. " * 3
-    df = chunks_to_dataframe([{"content": body, "source": "sop.pdf"},
-                              {"content": "Trang 3", "source": "sop.pdf"},
-                              {"content": body, "source": "sop.pdf"},
-                              {"content": body + " Bước 2.", "source": "sop.pdf"}])
+    df = chunks_to_dataframe(
+        [
+            {"content": body, "source": "sop.pdf"},
+            {"content": "Trang 3", "source": "sop.pdf"},
+            {"content": body, "source": "sop.pdf"},
+            {"content": body + " Bước 2.", "source": "sop.pdf"},
+        ]
+    )
     cleaned, notes = drop_noise_chunks(df)
     assert len(cleaned) == 2 and len(notes) == 2
     assert validate_document_chunks(cleaned).success
@@ -264,7 +284,8 @@ def test_lexical_fallback_keeps_the_hybrid_ranking_as_the_main_signal(monkeypatc
     monkeypatch.setattr("rag.rerank.COHERE_API_KEY", "", raising=False)
     # Hybrid (RRF) put a semantically matching chunk first even though it shares no words.
     chunks = [("Thiết bị báo đỏ ở cổng quang", "a.pdf", 1)] + [
-        (f"đèn LOS kiểm tra {i}", f"{i}.pdf", 1) for i in range(5)]
+        (f"đèn LOS kiểm tra {i}", f"{i}.pdf", 1) for i in range(5)
+    ]
     assert chunks[0] in lexical_rerank("đèn LOS kiểm tra", chunks, 5, keep_order=True)
     assert chunks[0] in rerank_chunks("đèn LOS kiểm tra", HybridRanking(chunks), top_n=5)
     # Vector-only input (BM25 branch down): word overlap is the only lexical signal, re-sort fully.
@@ -272,12 +293,20 @@ def test_lexical_fallback_keeps_the_hybrid_ranking_as_the_main_signal(monkeypatc
 
 
 def test_technical_rag_keeps_the_best_sections_instead_of_refusing(tmp_path):
-    from rag.technical.store import build_index
     from rag.technical.models import Block
+    from rag.technical.store import build_index
     from test_technical_rag import SCOPE, FakeEmbeddings, FakeSelector, bundle, service
 
-    blocks = [Block(kind="text", text=f"E01 bước {i}: kiểm tra nguồn.", section=f"procedure-{i}", pages=[i],
-                    single_equipment=True) for i in range(1, 7)]
+    blocks = [
+        Block(
+            kind="text",
+            text=f"E01 bước {i}: kiểm tra nguồn.",
+            section=f"procedure-{i}",
+            pages=[i],
+            single_equipment=True,
+        )
+        for i in range(1, 7)
+    ]
     build_index(tmp_path, [bundle(blocks=blocks)], FakeEmbeddings(), "fake:v1")
     selector = FakeSelector()
     result = service(tmp_path, selector=selector, max_parents=4).answer("E01", SCOPE)
@@ -298,7 +327,9 @@ def _login(client_, db_factory_):  # noqa: F811
     with db_factory_() as db:
         db.add(User(id=31, email="s@example.com", hashed_password=hash_password("Password-123"), role="user"))
         db.commit()
-    return client_.post("/auth/login", json={"email": "s@example.com", "password": "Password-123"}).json()["access_token"]
+    return client_.post("/auth/login", json={"email": "s@example.com", "password": "Password-123"}).json()[
+        "access_token"
+    ]
 
 
 def test_session_upgrade_keeps_the_original_expiry(client, db_factory):  # noqa: F811
@@ -313,7 +344,9 @@ def test_session_upgrade_keeps_the_original_expiry(client, db_factory):  # noqa:
 
 def test_logout_revokes_every_token_of_the_user(client, db_factory):  # noqa: F811
     token = _login(client, db_factory)
-    other_device = client.post("/auth/login", json={"email": "s@example.com", "password": "Password-123"}).json()["access_token"]
+    other_device = client.post("/auth/login", json={"email": "s@example.com", "password": "Password-123"}).json()[
+        "access_token"
+    ]
     assert client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"}).status_code == 200
     for t in (token, other_device):
         assert client.get("/protected", headers={"Authorization": f"Bearer {t}"}).status_code == 401
@@ -335,7 +368,7 @@ def test_vietnamese_prompt_token_estimate_is_conservative(monkeypatch):
     assert estimate_tokens(vietnamese) >= len(vietnamese) / 2.5
     monkeypatch.setattr(llm, "LLM_PROVIDER", "gemini")
     monkeypatch.setattr(llm, "client", lambda: pytest.fail("provider must not be called"))
-    with pytest.raises(ValueError):    # 3 chars/token: under the old /4 estimate this passed the cap
+    with pytest.raises(ValueError):  # 3 chars/token: under the old /4 estimate this passed the cap
         llm.generate_text("ộ" * (config.LLM_MAX_INPUT_TOKENS * 3))
 
 
@@ -348,7 +381,7 @@ def test_compressed_document_cannot_extract_more_text_than_was_reserved(tmp_path
     from rag import ingest
 
     doc = tmp_path / "dense.docx"
-    with zipfile.ZipFile(doc, "w") as archive:          # stored (ratio 1): passes the zip-bomb check
+    with zipfile.ZipFile(doc, "w") as archive:  # stored (ratio 1): passes the zip-bomb check
         archive.writestr("word/document.xml", "x" * 2000)
     size = doc.stat().st_size
 
@@ -357,7 +390,7 @@ def test_compressed_document_cannot_extract_more_text_than_was_reserved(tmp_path
             pass
 
         def load(self):
-            return [Document(page_content="chữ " * (size * 3), metadata={})]   # 12 chars per byte
+            return [Document(page_content="chữ " * (size * 3), metadata={})]  # 12 chars per byte
 
     monkeypatch.setattr(ingest, "Docx2txtLoader", Loader)
     with pytest.raises(ingest.UnsafeDocumentError):
@@ -384,8 +417,12 @@ def test_holdout_is_frozen_by_fingerprint_and_dev_edits_do_not_touch_it(tmp_path
     path = tmp_path / "d.json"
     path.write_text(json.dumps(dataset, ensure_ascii=False), encoding="utf-8")
     frozen = module.holdout_fingerprint(path)
-    assert frozen == json.loads((ROOT / "backend/evals/baselines/offline-holdout.json")
-                                .read_text(encoding="utf-8"))["holdout_fingerprint"]
+    assert (
+        frozen
+        == json.loads((ROOT / "backend/evals/baselines/offline-holdout.json").read_text(encoding="utf-8"))[
+            "holdout_fingerprint"
+        ]
+    )
     next(c for c in dataset["cases"] if c.get("split", "dev") == "dev")["query"] += " (sửa)"
     path.write_text(json.dumps(dataset, ensure_ascii=False), encoding="utf-8")
     assert module.holdout_fingerprint(path) == frozen

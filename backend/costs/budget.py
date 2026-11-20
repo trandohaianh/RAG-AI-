@@ -13,11 +13,12 @@ kiểm tra:
 tự hết hạn sau `LLM_BUDGET_RESERVATION_TTL_SEC` nếu tiến trình chết giữa chừng. Vượt trần chỉ
 còn có thể xảy ra khi chi phí thật của MỘT request lớn hơn khoản đặt trước của chính nó.
 """
+
 from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import delete, func, text
@@ -64,10 +65,9 @@ def ingest_reserve_amount(content_bytes: int) -> float:
     """Đặt trước cho một lần nạp tài liệu: embedding tối đa = số byte × MAX_TEXT_CHARS_PER_BYTE
     ký tự (ingest từ chối văn bản dài hơn: DOCX/PDF nén nên văn bản CÓ THỂ dài hơn tệp gốc),
     cộng một lượt OCR có trần đầu ra cho ảnh."""
-    from config import EMBEDDING_MODEL, LLM_MAX_OUTPUT_TOKENS, LLM_MODEL
+    from config import EMBEDDING_MODEL, LLM_MAX_OUTPUT_TOKENS, LLM_MODEL, MAX_TEXT_CHARS_PER_BYTE
     from costs.pricing import compute_cost
     from costs.recorder import CHARS_PER_TOKEN
-    from config import MAX_TEXT_CHARS_PER_BYTE
 
     max_chars = content_bytes * MAX_TEXT_CHARS_PER_BYTE
     embedding = compute_cost(EMBEDDING_MODEL, max(1, int(max_chars / CHARS_PER_TOKEN)))
@@ -84,8 +84,8 @@ def _ttl() -> timedelta:
 
 
 def _day_start() -> datetime:
-    now = datetime.now(timezone.utc)
-    return datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+    now = datetime.now(UTC)
+    return datetime(now.year, now.month, now.day, tzinfo=UTC)
 
 
 def spent_today(db: Session, user_id: int | None = None) -> float:
@@ -101,7 +101,8 @@ def spent_today(db: Session, user_id: int | None = None) -> float:
 
 def reserved_now(db: Session, user_id: int | None = None) -> float:
     query = db.query(func.coalesce(func.sum(LlmBudgetReservation.amount_usd), 0.0)).filter(
-        LlmBudgetReservation.expires_at > datetime.now(timezone.utc))
+        LlmBudgetReservation.expires_at > datetime.now(UTC)
+    )
     if user_id is not None:
         query = query.filter(LlmBudgetReservation.user_id == user_id)
     return float(query.scalar() or 0.0)
@@ -158,7 +159,7 @@ def enforce_budget(db: Session, user_id: int | None, amount: float | None = None
     global_limit, user_limit = daily_limits()
     if not global_limit and not user_limit:
         return BudgetReservation()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     amount = amount if amount is not None else reserve_amount()
     bind = db.get_bind()
     try:

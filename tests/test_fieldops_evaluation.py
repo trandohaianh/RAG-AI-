@@ -1,4 +1,5 @@
 """Synthetic retrieval evidence, truthful run accounting, and lexical diagnostics."""
+
 import json
 import sys
 from contextlib import contextmanager
@@ -33,6 +34,7 @@ def test_failed_case_is_reported_and_counts_zero_in_planned_denominator():
         if query == "E-204":
             raise OSError("simulated retrieval outage")
         return []
+
     report = benchmark.run_offline(search=failing_search)
     assert report["planned"] == 16
     assert report["completed"] == 15
@@ -87,12 +89,15 @@ def test_cli_gate_returns_failure_for_retrieval_regression(tmp_path, monkeypatch
     assert not report["all_expectations_passed"]
 
 
-@pytest.mark.parametrize("answer,context", [
-    ("Được đóng điện.", "Không được đóng điện."),
-    ("Không được đóng điện.", "Được đóng điện."),
-    ("Cần đóng điện.", "Chưa đóng điện."),
-    ("Close the power switch.", "Do not close the power switch."),
-])
+@pytest.mark.parametrize(
+    "answer,context",
+    [
+        ("Được đóng điện.", "Không được đóng điện."),
+        ("Không được đóng điện.", "Được đóng điện."),
+        ("Cần đóng điện.", "Chưa đóng điện."),
+        ("Close the power switch.", "Do not close the power switch."),
+    ],
+)
 def test_basic_polarity_reversal_cannot_score_as_supported(answer, context):
     score = sentence_grounding_score(answer, context)
     assert score["ratio"] == 0
@@ -115,11 +120,14 @@ def test_unrelated_negative_sentence_does_not_reverse_positive_source():
 @pytest.mark.parametrize("vector_failed,lexical_failed", [(True, False), (False, True)])
 def test_hybrid_serves_surviving_retrieval_branch(monkeypatch, vector_failed, lexical_failed):
     from rag import retriever
+
     row = ("evidence", "manual.pdf", 1)
+
     def result(failed):
         if failed:
             raise ConnectionError("simulated outage")
         return [row]
+
     monkeypatch.setattr(retriever, "_search_sync", lambda *args: result(vector_failed))
     monkeypatch.setattr(retriever, "_bm25_search_sync", lambda *args: result(lexical_failed))
     assert retriever._hybrid_search_sync(1, "query", 3) == [row]
@@ -127,8 +135,10 @@ def test_hybrid_serves_surviving_retrieval_branch(monkeypatch, vector_failed, le
 
 def test_hybrid_does_not_disguise_total_outage_as_no_evidence(monkeypatch):
     from rag import retriever
+
     def fail(*args):
         raise ConnectionError("unavailable")
+
     monkeypatch.setattr(retriever, "_search_sync", fail)
     monkeypatch.setattr(retriever, "_bm25_search_sync", fail)
     with pytest.raises(RuntimeError, match="Both retrieval branches failed"):
@@ -137,8 +147,10 @@ def test_hybrid_does_not_disguise_total_outage_as_no_evidence(monkeypatch):
 
 def test_recovery_failure_cannot_be_hidden_by_hybrid_fallback(monkeypatch):
     from rag import retriever
+
     def fail(*args):
         raise retriever.DocumentRecoveryError("unrecovered document")
+
     monkeypatch.setattr(retriever, "_search_sync", fail)
     monkeypatch.setattr(retriever, "_bm25_search_sync", lambda *args: [("stale", "manual.pdf", 1)])
     with pytest.raises(retriever.DocumentRecoveryError):
@@ -147,10 +159,12 @@ def test_recovery_failure_cannot_be_hidden_by_hybrid_fallback(monkeypatch):
 
 def test_snapshot_checks_recovery_before_returning_cached_chunks(monkeypatch):
     from rag import retriever
+
     @contextmanager
     def failed_recovery(*args, **kwargs):
         raise retriever.DocumentRecoveryError("unrecoverable")
         yield
+
     monkeypatch.setattr(retriever, "collection_read_lock", failed_recovery)
     monkeypatch.setattr(retriever, "get_cached_chunks", lambda *args: pytest.fail("stale cache read before recovery"))
     with pytest.raises(retriever.DocumentRecoveryError):
@@ -159,10 +173,12 @@ def test_snapshot_checks_recovery_before_returning_cached_chunks(monkeypatch):
 
 def test_cache_publication_checks_recovery_before_writing(monkeypatch):
     from rag import retriever
+
     @contextmanager
     def failed_recovery(*args, **kwargs):
         raise retriever.DocumentRecoveryError("unrecoverable")
         yield
+
     monkeypatch.setattr(retriever, "collection_read_lock", failed_recovery)
     monkeypatch.setattr(retriever, "set_cached_chunks", lambda *args: pytest.fail("stale cache write before recovery"))
     with pytest.raises(retriever.DocumentRecoveryError):
@@ -171,8 +187,10 @@ def test_cache_publication_checks_recovery_before_writing(monkeypatch):
 
 def test_default_benchmark_counts_real_bm25_failure_as_failed_case(monkeypatch):
     from rag import bm25
+
     def fail(*args, **kwargs):
         raise OSError("index unreadable")
+
     monkeypatch.setattr(bm25, "_get_index", fail)
     report = benchmark.run_offline()
     assert report["planned"] == report["failed"] == 16

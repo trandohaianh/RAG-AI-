@@ -1,9 +1,10 @@
 """Embed widget — token + chat + widget.js (tuần 5–6)."""
+
 import json
 import logging
-from contextlib import aclosing
 import secrets
-from datetime import datetime, timedelta, timezone
+from contextlib import aclosing
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import PlainTextResponse
@@ -11,17 +12,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from auth.models import User
+from auth.schemas import CurrentUser
 from chat import service as chat_service
 from chat.models import Conversation
 from config import API_PUBLIC_URL, APP_PUBLIC_URL, GEMINI_API_KEY, LLM_PROVIDER
 from database import SessionLocal, get_db
 from dependencies import get_current_user
-from auth.schemas import CurrentUser
+from rag.chain import RAG_ERROR_MESSAGE, stream_rag_answer
+from rag.evidence import public_bundle
 from saas.limits import enforce_query_quota, release_query_quota
 from saas.models import EmbedGuestSession, EmbedToken
 from saas.security import generate_embed_token, hash_secret
-from rag.chain import RAG_ERROR_MESSAGE, stream_rag_answer
-from rag.evidence import public_bundle
 
 router = APIRouter(prefix="/embed", tags=["embed"])
 
@@ -89,8 +90,7 @@ def _check_origin(row: EmbedToken, origin: str | None, parent_origin: str | None
         return
     if not origin:
         raise HTTPException(status_code=403, detail="Thiếu Origin header")
-    allowed = {_origin_of(o) or o.strip().rstrip("/").lower()
-               for o in row.allowed_origins.split(",") if o.strip()}
+    allowed = {_origin_of(o) or o.strip().rstrip("/").lower() for o in row.allowed_origins.split(",") if o.strip()}
     origin_norm = _origin_of(origin) or origin.rstrip("/").lower()
     if origin_norm in allowed:
         return
@@ -107,9 +107,7 @@ async def _embed_user_plan(db: Session, user_id: int) -> str:
     return u.subscription_plan or "free"
 
 
-def _guest_conversation(
-    db: Session, row: EmbedToken, body: EmbedChatIn
-) -> tuple[int, str]:
+def _guest_conversation(db: Session, row: EmbedToken, body: EmbedChatIn) -> tuple[int, str]:
     if body.conversation_id is not None or body.session_token is not None:
         if body.conversation_id is None or body.session_token is None:
             raise HTTPException(status_code=404, detail="Không tìm thấy phiên chat")
@@ -120,7 +118,7 @@ def _guest_conversation(
                 EmbedGuestSession.token_hash == hash_secret(body.session_token),
                 EmbedGuestSession.embed_token_id == row.id,
                 EmbedGuestSession.conversation_id == body.conversation_id,
-                EmbedGuestSession.expires_at > datetime.now(timezone.utc),
+                EmbedGuestSession.expires_at > datetime.now(UTC),
                 Conversation.user_id == row.user_id,
             )
             .first()
@@ -137,7 +135,7 @@ def _guest_conversation(
             token_hash=hash_secret(raw_session),
             embed_token_id=row.id,
             conversation_id=conv.id,
-            expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+            expires_at=datetime.now(UTC) + timedelta(hours=24),
         )
     )
     db.commit()
@@ -161,10 +159,7 @@ def create_embed_token(
     db.add(row)
     db.commit()
     db.refresh(row)
-    snippet = (
-        f'<script src="{API_PUBLIC_URL}/embed/widget.js" '
-        f'data-token="{raw}" data-api="{API_PUBLIC_URL}"></script>'
-    )
+    snippet = f'<script src="{API_PUBLIC_URL}/embed/widget.js" data-token="{raw}" data-api="{API_PUBLIC_URL}"></script>'
     return EmbedTokenCreated(
         id=row.id,
         label=row.label,
@@ -181,12 +176,7 @@ def list_embed_tokens(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    rows = (
-        db.query(EmbedToken)
-        .filter(EmbedToken.user_id == user.id)
-        .order_by(EmbedToken.created_at.desc())
-        .all()
-    )
+    rows = db.query(EmbedToken).filter(EmbedToken.user_id == user.id).order_by(EmbedToken.created_at.desc()).all()
     return [
         EmbedTokenOut(
             id=r.id,
@@ -205,17 +195,11 @@ def revoke_embed_token(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    row = (
-        db.query(EmbedToken)
-        .filter(EmbedToken.id == token_id, EmbedToken.user_id == user.id)
-        .first()
-    )
+    row = db.query(EmbedToken).filter(EmbedToken.id == token_id, EmbedToken.user_id == user.id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Không tìm thấy token")
     row.active = False
-    db.query(EmbedGuestSession).filter(
-        EmbedGuestSession.embed_token_id == row.id
-    ).delete(synchronize_session=False)
+    db.query(EmbedGuestSession).filter(EmbedGuestSession.embed_token_id == row.id).delete(synchronize_session=False)
     db.commit()
     return {"message": "Đã vô hiệu hóa embed token"}
 
@@ -228,7 +212,9 @@ async def embed_chat(
     db: Session = Depends(get_db),
 ):
     if LLM_PROVIDER != "ollama" and not GEMINI_API_KEY:
-        raise HTTPException(status_code=503, detail="Thiếu GEMINI_API_KEY")  # chưa cấu hình: dịch vụ chưa sẵn sàng, không phải lỗi máy chủ
+        raise HTTPException(
+            status_code=503, detail="Thiếu GEMINI_API_KEY"
+        )  # chưa cấu hình: dịch vụ chưa sẵn sàng, không phải lỗi máy chủ
 
     row = _get_embed_row(db, x_embed_token)
     _check_origin(row, request.headers.get("origin"), request.headers.get("x-embed-parent-origin"))
@@ -270,7 +256,9 @@ async def embed_chat(
 
         set_request_usage(user_id=user_id, feature="embed_chat")
         try:
-            async with aclosing(stream_rag_answer(user_id, question, history_snapshot, include_evidence=True)) as answer_stream:
+            async with aclosing(
+                stream_rag_answer(user_id, question, history_snapshot, include_evidence=True)
+            ) as answer_stream:
                 async for kind, payload in answer_stream:
                     if kind == "evidence":
                         evidence_bundle.update(payload)
@@ -292,7 +280,12 @@ async def embed_chat(
                                 ),
                             )
                             chat_service.add_message(
-                                db_save, conv_id, "assistant", "".join(full_answer), sources, **({"evidence": evidence_bundle} if evidence_bundle else {})
+                                db_save,
+                                conv_id,
+                                "assistant",
+                                "".join(full_answer),
+                                sources,
+                                **({"evidence": evidence_bundle} if evidence_bundle else {}),
                             )
                         finally:
                             db_save.close()
@@ -303,12 +296,13 @@ async def embed_chat(
             yield f"data: {json.dumps({'error': RAG_ERROR_MESSAGE, 'code': 'rag_unavailable'}, ensure_ascii=False)}\n\n"
             return
         finally:
-            await budget.release_async()   # chi phí thật đã được ghi; trả khoản đặt trước
+            await budget.release_async()  # chi phí thật đã được ghi; trả khoản đặt trước
 
     from costs.budget import budgeted_stream
 
     return budgeted_stream(
-        event_generator(), budget,
+        event_generator(),
+        budget,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

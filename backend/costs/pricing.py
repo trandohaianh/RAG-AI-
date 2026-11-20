@@ -8,6 +8,7 @@ Ghi đè/ bổ sung bằng biến môi trường LLM_PRICING_JSON, ví dụ:
   {"gemini-3-flash": {"input": 0.5, "output": 3.0}}
 Đơn vị: input/output = USD trên 1 triệu token; unit = USD trên 1 đơn vị (lượt rerank...).
 """
+
 from __future__ import annotations
 
 import json
@@ -72,7 +73,7 @@ def reload_prices() -> None:
 def _normalize(model: str) -> str:
     name = (model or "").strip().lower()
     if name.startswith("models/"):
-        name = name[len("models/"):]
+        name = name[len("models/") :]
     return name
 
 
@@ -106,7 +107,11 @@ def billing_tier() -> str:
 
 def price_table() -> list[dict]:
     return [
-        {"model": name, "input_per_million": spec.get("input", 0.0),
-         "output_per_million": spec.get("output", 0.0), "per_unit": spec.get("unit", 0.0)}
+        {
+            "model": name,
+            "input_per_million": spec.get("input", 0.0),
+            "output_per_million": spec.get("output", 0.0),
+            "per_unit": spec.get("unit", 0.0),
+        }
         for name, spec in sorted(_PRICES)
     ]

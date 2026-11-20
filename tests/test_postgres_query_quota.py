@@ -1,6 +1,7 @@
 """Exercise quota locking and migration with isolated PostgreSQL schemas."""
+
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime, timezone
 from threading import Barrier
 
 from fastapi import HTTPException
@@ -10,8 +11,8 @@ import saas.limits as limits
 from auth.models import User
 from chat.models import Conversation, Message
 from database import Base
-from schema_migrations import run_migrations
 from saas.models import DailyQueryUsage, QueryUsageMigration
+from schema_migrations import run_migrations
 from test_postgres_migrations import postgres_engine  # noqa: F401
 
 
@@ -23,11 +24,17 @@ def _seed(engine, *, reply_day=None):
         db.add(Conversation(id=1, user_id=1, title="PostgreSQL quota test"))
         db.flush()
         if reply_day is not None:
-            db.add_all([
-                Message(conversation_id=1, role="assistant", content="retained",
-                        created_at=datetime.combine(reply_day, datetime.min.time(), tzinfo=timezone.utc))
-                for _ in range(3)
-            ])
+            db.add_all(
+                [
+                    Message(
+                        conversation_id=1,
+                        role="assistant",
+                        content="retained",
+                        created_at=datetime.combine(reply_day, datetime.min.time(), tzinfo=UTC),
+                    )
+                    for _ in range(3)
+                ]
+            )
         db.commit()
 
 
@@ -87,8 +94,14 @@ def test_postgres_release_and_history_delete_preserve_other_utc_day(postgres_eng
     with Session(postgres_engine) as db:
         # A delayed answer from yesterday is persisted today. Restart must not
         # seed a second charge from retained history on the new UTC day.
-        db.add(Message(conversation_id=1, role="assistant", content="delayed reply",
-                       created_at=datetime(2026, 10, 22, tzinfo=timezone.utc)))
+        db.add(
+            Message(
+                conversation_id=1,
+                role="assistant",
+                content="delayed reply",
+                created_at=datetime(2026, 10, 22, tzinfo=UTC),
+            )
+        )
         db.commit()
     limits.initialize_query_usage(postgres_engine)
     with Session(postgres_engine) as db:

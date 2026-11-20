@@ -1,4 +1,5 @@
 """Kết nối PostgreSQL — Medallion warehouse (tách khỏi SQLite app)."""
+
 from collections.abc import Generator
 from contextlib import contextmanager
 

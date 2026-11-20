@@ -1,7 +1,8 @@
 """Durable quotas across channels, failure paths, upgrades, and real DB races."""
+
 import json
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from threading import Barrier
 from types import SimpleNamespace
 
@@ -37,23 +38,29 @@ def quota_db(tmp_path):
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine, autoflush=False)
     with sessions() as db:
-        db.add_all([
-            User(id=1, email="owner@example.com", hashed_password="unused"),
-            User(id=2, email="other@example.com", hashed_password="unused"),
-        ])
+        db.add_all(
+            [
+                User(id=1, email="owner@example.com", hashed_password="unused"),
+                User(id=2, email="other@example.com", hashed_password="unused"),
+            ]
+        )
         db.flush()
-        db.add_all([
-            Conversation(id=1, user_id=1, title="Own conversation"),
-            Conversation(id=2, user_id=2, title="Private conversation"),
-            FieldWorkspace(id=1, created_by=1, name="Field team"),
-            ApiKey(user_id=1, name="Test", key_prefix="test", key_hash=hash_secret("quota-api-key")),
-            EmbedToken(user_id=1, token_hash=hash_secret("quota-embed-token")),
-        ])
+        db.add_all(
+            [
+                Conversation(id=1, user_id=1, title="Own conversation"),
+                Conversation(id=2, user_id=2, title="Private conversation"),
+                FieldWorkspace(id=1, created_by=1, name="Field team"),
+                ApiKey(user_id=1, name="Test", key_prefix="test", key_hash=hash_secret("quota-api-key")),
+                EmbedToken(user_id=1, token_hash=hash_secret("quota-embed-token")),
+            ]
+        )
         db.flush()
-        db.add_all([
-            FieldWorkspaceMember(workspace_id=1, user_id=1, role="owner"),
-            ServiceCase(id=1, workspace_id=1, created_by=1, title="Disconnected", symptom="PON red"),
-        ])
+        db.add_all(
+            [
+                FieldWorkspaceMember(workspace_id=1, user_id=1, role="owner"),
+                ServiceCase(id=1, workspace_id=1, created_by=1, title="Disconnected", symptom="PON red"),
+            ]
+        )
         db.commit()
     yield SimpleNamespace(engine=engine, sessions=sessions)
     engine.dispose()
@@ -134,13 +141,28 @@ def test_all_paths_share_a_durable_quota_after_conversation_delete(quota_client,
 def test_permission_and_guest_session_rejections_do_not_charge(quota_client, quota_db):
     client, calls, actor = quota_client
     assert client.post("/chat/2", json={"question": "Private?"}).status_code == 404
-    assert client.post("/embed/chat", json={
-        "question": "Private?", "conversation_id": 2,
-        "session_token": "unpredictable-but-invalid-session",
-    }, headers={"X-Embed-Token": "quota-embed-token"}).status_code == 404
-    assert client.post("/v1/ask", json={"question": "Private?"}, headers={
-        "X-API-Key": "wrong-key",
-    }).status_code == 401
+    assert (
+        client.post(
+            "/embed/chat",
+            json={
+                "question": "Private?",
+                "conversation_id": 2,
+                "session_token": "unpredictable-but-invalid-session",
+            },
+            headers={"X-Embed-Token": "quota-embed-token"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            "/v1/ask",
+            json={"question": "Private?"},
+            headers={
+                "X-API-Key": "wrong-key",
+            },
+        ).status_code
+        == 401
+    )
     actor["id"] = 2
     assert client.post("/field/cases/1/assist", json={"question": "Private?"}).status_code in {403, 404}
     assert _usage(quota_db) == _usage(quota_db, 2) == 0
@@ -214,7 +236,7 @@ def test_quota_is_atomic_across_connections(quota_db, monkeypatch):
 
 
 def test_utc_rollover_and_plan_limits_are_independent_of_history(quota_db, monkeypatch):
-    first_day = datetime(2026, 10, 21, tzinfo=timezone.utc).date()
+    first_day = datetime(2026, 10, 21, tzinfo=UTC).date()
     monkeypatch.setattr(limits, "_utc_today", lambda: first_day)
     monkeypatch.setattr(limits, "FREE_PLAN_DAILY_QUERIES", 1)
     monkeypatch.setattr(limits, "PRO_PLAN_DAILY_QUERIES", 2)
@@ -232,16 +254,31 @@ def test_utc_rollover_and_plan_limits_are_independent_of_history(quota_db, monke
 
 
 def test_legacy_backfill_is_one_time_and_includes_field_usage(quota_db, monkeypatch):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     with quota_db.sessions() as db:
-        db.add_all([
-            Message(conversation_id=1, role="assistant", content="Legacy reply", created_at=day_start),
-            Message(conversation_id=1, role="user", content="Not usage", created_at=day_start),
-            Message(conversation_id=1, role="assistant", content="Yesterday", created_at=day_start - timedelta(seconds=1)),
-            ServiceCaseEvent(case_id=1, actor_id=1, event_type="assistant_recommendation", detail="Legacy field reply", created_at=day_start),
-            ServiceCaseEvent(case_id=1, actor_id=1, event_type="field_note", detail="Not usage", created_at=day_start),
-        ])
+        db.add_all(
+            [
+                Message(conversation_id=1, role="assistant", content="Legacy reply", created_at=day_start),
+                Message(conversation_id=1, role="user", content="Not usage", created_at=day_start),
+                Message(
+                    conversation_id=1,
+                    role="assistant",
+                    content="Yesterday",
+                    created_at=day_start - timedelta(seconds=1),
+                ),
+                ServiceCaseEvent(
+                    case_id=1,
+                    actor_id=1,
+                    event_type="assistant_recommendation",
+                    detail="Legacy field reply",
+                    created_at=day_start,
+                ),
+                ServiceCaseEvent(
+                    case_id=1, actor_id=1, event_type="field_note", detail="Not usage", created_at=day_start
+                ),
+            ]
+        )
         db.commit()
     limits.initialize_query_usage(quota_db.engine)
     assert _usage(quota_db) == 2
@@ -283,9 +320,13 @@ def test_exhausted_embed_quota_does_not_create_empty_guest_sessions(quota_client
         conversation_count = db.query(Conversation).count()
         guest_count = db.query(EmbedGuestSession).count()
     for _ in range(3):
-        response = client.post("/embed/chat", json={"question": "Check?"}, headers={
-            "X-Embed-Token": "quota-embed-token",
-        })
+        response = client.post(
+            "/embed/chat",
+            json={"question": "Check?"},
+            headers={
+                "X-Embed-Token": "quota-embed-token",
+            },
+        )
         assert response.status_code == 429, response.text
     with quota_db.sessions() as db:
         assert db.query(Conversation).count() == conversation_count
@@ -319,17 +360,23 @@ def test_expired_widget_guest_does_not_use_another_query(quota_client, quota_db)
     first = client.post("/embed/chat", json={"question": "Check?"}, headers=headers)
     assert first.status_code == 200
     completed = next(
-        json.loads(line[6:]) for line in first.text.splitlines()
+        json.loads(line[6:])
+        for line in first.text.splitlines()
         if line.startswith("data: ") and json.loads(line[6:]).get("done")
     )
     with quota_db.sessions() as db:
         guest = db.query(EmbedGuestSession).one()
-        guest.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        guest.expires_at = datetime.now(UTC) - timedelta(seconds=1)
         db.commit()
-    rejected = client.post("/embed/chat", json={
-        "question": "Check again?", "conversation_id": completed["conversation_id"],
-        "session_token": completed["session_token"],
-    }, headers=headers)
+    rejected = client.post(
+        "/embed/chat",
+        json={
+            "question": "Check again?",
+            "conversation_id": completed["conversation_id"],
+            "session_token": completed["session_token"],
+        },
+        headers=headers,
+    )
     assert rejected.status_code == 404
     assert _usage(quota_db) == 1
     assert len(calls) == 1

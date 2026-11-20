@@ -4,6 +4,7 @@ Frontend lấy `credential` (ID token) từ nút "Đăng nhập với Google" v�
 POST /auth/google. Backend tự kiểm chữ ký RS256, `aud` (client ID của ta), `iss`,
 hạn dùng và `email_verified` — không tin bất kỳ thông tin nào frontend tự gửi.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -73,6 +74,9 @@ def identity_from_claims(claims: dict) -> GoogleIdentity:
     if not verified:
         raise GoogleTokenError("Email Google chưa được xác minh")
     return GoogleIdentity(
-        sub=sub, email=email.strip().lower(), email_verified=True,
-        name=claims.get("name"), picture=claims.get("picture"),
+        sub=sub,
+        email=email.strip().lower(),
+        email_verified=True,
+        name=claims.get("name"),
+        picture=claims.get("picture"),
     )

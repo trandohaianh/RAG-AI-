@@ -1,4 +1,5 @@
 """Tests rerank: short-circuit, và bản dự phòng khi không có Cohere API key."""
+
 import sys
 from pathlib import Path
 
@@ -7,8 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from rag.rerank import lexical_rerank, rerank_chunks
 
 SAFETY = (
-    "1. AN TOÀN LAO ĐỘNG\n"
-    "Không leo cột khi trời mưa. Luôn đeo dây an toàn và ngắt điện trước khi thao tác.",
+    "1. AN TOÀN LAO ĐỘNG\nKhông leo cột khi trời mưa. Luôn đeo dây an toàn và ngắt điện trước khi thao tác.",
     "SOP-ATLD-002",
     1,
 )
@@ -41,11 +41,10 @@ def test_rerank_khong_co_api_key_van_xep_lai(monkeypatch):
     ``chunks[:top_n]``, nên "đèn LOS đỏ" lấy phải mục an toàn lao động.
     """
     monkeypatch.setattr("rag.rerank.COHERE_API_KEY", "", raising=False)
-    q = ("Mất mạng hoàn toàn, modem có đèn đỏ. "
-         "Câu hỏi kỹ thuật viên: đèn LOS đỏ thì kiểm tra gì trước?")
+    q = "Mất mạng hoàn toàn, modem có đèn đỏ. Câu hỏi kỹ thuật viên: đèn LOS đỏ thì kiểm tra gì trước?"
     out = rerank_chunks(q, RAW, top_n=5)
     assert len(out) == 5
-    assert out[0][1] == "SOP-GPON-014"          # mục xử lý, không phải mục an toàn
+    assert out[0][1] == "SOP-GPON-014"  # mục xử lý, không phải mục an toàn
     assert SAFETY not in out[:1]
 
 
@@ -59,5 +58,5 @@ def test_lexical_rerank_khong_co_nhan_cau_hoi():
 def test_lexical_rerank_truong_hop_bien():
     """Danh sách rỗng, query rỗng, và ít chunk hơn top_n đều không làm vỡ."""
     assert rerank_chunks("q", [], top_n=5) == []
-    assert len(lexical_rerank("", RAW, top_n=5)) == 5          # rơi về thứ tự thô
+    assert len(lexical_rerank("", RAW, top_n=5)) == 5  # rơi về thứ tự thô
     assert lexical_rerank("đèn LOS", [LOS], top_n=5) == [LOS]

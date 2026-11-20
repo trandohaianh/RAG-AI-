@@ -1,9 +1,10 @@
 """API chi phí: tổng hợp cho admin, chi phí hạ tầng, và mức dùng của chính người dùng."""
+
 from __future__ import annotations
 
 import calendar
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
@@ -44,21 +45,19 @@ class InfraCostOut(InfraCostIn):
 
 
 def _window(days: int) -> tuple[datetime, datetime]:
-    now = datetime.now(timezone.utc)
-    end = datetime(now.year, now.month, now.day, tzinfo=timezone.utc) + timedelta(days=1)
+    now = datetime.now(UTC)
+    end = datetime(now.year, now.month, now.day, tzinfo=UTC) + timedelta(days=1)
     return end - timedelta(days=days), end
 
 
 def _month_bounds(today: date) -> tuple[datetime, datetime, int]:
-    start = datetime(today.year, today.month, 1, tzinfo=timezone.utc)
+    start = datetime(today.year, today.month, 1, tzinfo=UTC)
     days_in_month = calendar.monthrange(today.year, today.month)[1]
     return start, start + timedelta(days=days_in_month), days_in_month
 
 
 def _aggregate(db: Session, start: datetime, end: datetime, user_id: int | None = None):
-    base = db.query(LlmUsageEvent).filter(
-        LlmUsageEvent.created_at >= start, LlmUsageEvent.created_at < end
-    )
+    base = db.query(LlmUsageEvent).filter(LlmUsageEvent.created_at >= start, LlmUsageEvent.created_at < end)
     if user_id is not None:
         base = base.filter(LlmUsageEvent.user_id == user_id)
     return base
@@ -75,8 +74,13 @@ def _sum_cols():
 
 def _rows_to_breakdown(rows, key: str) -> list[dict]:
     return [
-        {key: name, "cost_usd": round(float(cost), 6), "input_tokens": int(inp),
-         "output_tokens": int(out), "requests": int(count)}
+        {
+            key: name,
+            "cost_usd": round(float(cost), 6),
+            "input_tokens": int(inp),
+            "output_tokens": int(out),
+            "requests": int(count),
+        }
         for name, cost, inp, out, count in rows
     ]
 
@@ -89,40 +93,46 @@ def build_summary(db: Session, days: int, user_id: int | None = None) -> dict:
     from database import utc_date
 
     day_col = utc_date(LlmUsageEvent.created_at, db)
-    by_day_rows = (
-        scoped.with_entities(day_col, *_sum_cols()).group_by(day_col).order_by(day_col).all()
-    )
+    by_day_rows = scoped.with_entities(day_col, *_sum_cols()).group_by(day_col).order_by(day_col).all()
     by_day_map = {str(r[0]): r for r in by_day_rows}
     by_day = []
     for offset in range(days):
         day = (start + timedelta(days=offset)).date().isoformat()
         row = by_day_map.get(day)
-        by_day.append({
-            "date": day,
-            "cost_usd": round(float(row[1]), 6) if row else 0.0,
-            "input_tokens": int(row[2]) if row else 0,
-            "output_tokens": int(row[3]) if row else 0,
-            "requests": int(row[4]) if row else 0,
-        })
+        by_day.append(
+            {
+                "date": day,
+                "cost_usd": round(float(row[1]), 6) if row else 0.0,
+                "input_tokens": int(row[2]) if row else 0,
+                "output_tokens": int(row[3]) if row else 0,
+                "requests": int(row[4]) if row else 0,
+            }
+        )
 
     by_feature = _rows_to_breakdown(
         scoped.with_entities(LlmUsageEvent.feature, *_sum_cols())
-        .group_by(LlmUsageEvent.feature).order_by(func.sum(LlmUsageEvent.cost_usd).desc()).all(),
+        .group_by(LlmUsageEvent.feature)
+        .order_by(func.sum(LlmUsageEvent.cost_usd).desc())
+        .all(),
         "feature",
     )
     by_model = _rows_to_breakdown(
         scoped.with_entities(LlmUsageEvent.model, *_sum_cols())
-        .group_by(LlmUsageEvent.model).order_by(func.sum(LlmUsageEvent.cost_usd).desc()).all(),
+        .group_by(LlmUsageEvent.model)
+        .order_by(func.sum(LlmUsageEvent.cost_usd).desc())
+        .all(),
         "model",
     )
     chat_queries = (
         scoped.filter(LlmUsageEvent.feature.in_(("chat", "public_api", "embed_chat", "field_assistant")))
-        .with_entities(func.count(LlmUsageEvent.id)).scalar() or 0
+        .with_entities(func.count(LlmUsageEvent.id))
+        .scalar()
+        or 0
     )
-    estimated = scoped.filter(LlmUsageEvent.estimated.is_(True)).with_entities(
-        func.count(LlmUsageEvent.id)).scalar() or 0
-    errors = scoped.filter(LlmUsageEvent.status != "ok").with_entities(
-        func.count(LlmUsageEvent.id)).scalar() or 0
+    estimated = (
+        scoped.filter(LlmUsageEvent.estimated.is_(True)).with_entities(func.count(LlmUsageEvent.id)).scalar() or 0
+    )
+    errors = scoped.filter(LlmUsageEvent.status != "ok").with_entities(func.count(LlmUsageEvent.id)).scalar() or 0
 
     summary = {
         "period": {"days": days, "start": start.isoformat(), "end": end.isoformat()},
@@ -160,24 +170,33 @@ def admin_cost_summary(
         .with_entities(LlmUsageEvent.user_id, *_sum_cols())
         .group_by(LlmUsageEvent.user_id)
         .order_by(func.sum(LlmUsageEvent.cost_usd).desc())
-        .limit(10).all()
+        .limit(10)
+        .all()
     )
-    emails = dict(
-        db.query(User.id, User.email).filter(User.id.in_([r[0] for r in top])).all()
-    ) if top else {}
+    emails = dict(db.query(User.id, User.email).filter(User.id.in_([r[0] for r in top])).all()) if top else {}
     summary["top_users"] = [
-        {"user_id": uid, "email": emails.get(uid, f"#{uid}"), "cost_usd": round(float(c), 6),
-         "input_tokens": int(i), "output_tokens": int(o), "requests": int(n)}
+        {
+            "user_id": uid,
+            "email": emails.get(uid, f"#{uid}"),
+            "cost_usd": round(float(c), 6),
+            "input_tokens": int(i),
+            "output_tokens": int(o),
+            "requests": int(n),
+        }
         for uid, c, i, o, n in top
     ]
 
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     month_start, month_end, days_in_month = _month_bounds(today)
     month_key = today.strftime("%Y-%m")
     infra_rows = db.query(InfraCost).filter(InfraCost.month == month_key).all()
     infra_month = round(sum(r.amount_usd for r in infra_rows), 4)
-    llm_mtd = float(_aggregate(db, month_start, month_end).with_entities(
-        func.coalesce(func.sum(LlmUsageEvent.cost_usd), 0.0)).scalar() or 0.0)
+    llm_mtd = float(
+        _aggregate(db, month_start, month_end)
+        .with_entities(func.coalesce(func.sum(LlmUsageEvent.cost_usd), 0.0))
+        .scalar()
+        or 0.0
+    )
     elapsed = max(1, today.day)
     llm_projected = llm_mtd / elapsed * days_in_month
 
@@ -211,12 +230,21 @@ def admin_cost_events(
         query = query.filter(LlmUsageEvent.feature == feature)
     return [
         {
-            "id": e.id, "created_at": e.created_at.isoformat() if e.created_at else None,
-            "user_id": e.user_id, "workspace_id": e.workspace_id, "feature": e.feature,
-            "provider": e.provider, "model": e.model, "input_tokens": e.input_tokens,
-            "output_tokens": e.output_tokens, "thinking_tokens": e.thinking_tokens,
-            "units": e.units, "estimated": e.estimated, "cost_usd": e.cost_usd,
-            "latency_ms": e.latency_ms, "status": e.status,
+            "id": e.id,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+            "user_id": e.user_id,
+            "workspace_id": e.workspace_id,
+            "feature": e.feature,
+            "provider": e.provider,
+            "model": e.model,
+            "input_tokens": e.input_tokens,
+            "output_tokens": e.output_tokens,
+            "thinking_tokens": e.thinking_tokens,
+            "units": e.units,
+            "estimated": e.estimated,
+            "cost_usd": e.cost_usd,
+            "latency_ms": e.latency_ms,
+            "status": e.status,
         }
         for e in query.limit(limit).all()
     ]
@@ -284,9 +312,11 @@ def _refresh_infra_gauge(db: Session) -> None:
     try:
         from metrics import INFRA_COST_MONTH_USD
 
-        month_key = datetime.now(timezone.utc).strftime("%Y-%m")
-        total = db.query(func.coalesce(func.sum(InfraCost.amount_usd), 0.0)).filter(
-            InfraCost.month == month_key).scalar() or 0.0
+        month_key = datetime.now(UTC).strftime("%Y-%m")
+        total = (
+            db.query(func.coalesce(func.sum(InfraCost.amount_usd), 0.0)).filter(InfraCost.month == month_key).scalar()
+            or 0.0
+        )
         INFRA_COST_MONTH_USD.set(float(total))
     except Exception:
         pass

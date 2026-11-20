@@ -4,6 +4,7 @@ BM25 chạy SONG SONG với tìm vector ở PHA TRUY XUẤT, không phải ở p
 `rag.rerank` chỉ xếp lại nhóm ứng viên đã lấy về, nên nếu đoạn chứa đúng mã lỗi mà
 tìm vector bỏ sót thì nó không có mặt để mà xếp. Xem `rag/bm25.py`.
 """
+
 import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -12,11 +13,14 @@ import chromadb
 
 from config import CHROMA_DIR, RETRIEVE_CANDIDATES, TOP_K
 from rag.bm25 import bm25_search, reciprocal_rank_fusion
-from rag.evidence import EvidenceChunk, RetrievedChunks
 from rag.cache import get_cached_chunks, set_cached_chunks
 from rag.document_lifecycle import (
-    DocumentRecoveryError, collection_read_lock, read_revision, sync_bm25_revision,
+    DocumentRecoveryError,
+    collection_read_lock,
+    read_revision,
+    sync_bm25_revision,
 )
+from rag.evidence import EvidenceChunk, RetrievedChunks
 from rag.ingest import _collection_name, get_vectorstore
 from rag.rerank import rerank_chunks
 
@@ -39,7 +43,15 @@ def _search_sync(
         source_out = doc.metadata.get("source", "unknown")
         page = doc.metadata.get("page")
         page_out = int(page) + 1 if page is not None else None
-        results.append(EvidenceChunk(doc.page_content, source_out, page_out, chunk_id=getattr(doc, "id", None), document_version=doc.metadata.get("document_version")))
+        results.append(
+            EvidenceChunk(
+                doc.page_content,
+                source_out,
+                page_out,
+                chunk_id=getattr(doc, "id", None),
+                document_version=doc.metadata.get("document_version"),
+            )
+        )
     return results
 
 
@@ -97,8 +109,12 @@ def _hybrid_search_sync(
 
 
 def _read_snapshot(
-    user_id: int, query: str, k: int, source: str | None,
-    workspace_id: int | None, final_k: int | None = None,
+    user_id: int,
+    query: str,
+    k: int,
+    source: str | None,
+    workspace_id: int | None,
+    final_k: int | None = None,
 ):
     collection_name = _collection_name(user_id, workspace_id)
     with collection_read_lock(CHROMA_DIR, collection_name):
@@ -124,8 +140,13 @@ async def _hybrid_search(
 
 
 def _cache_snapshot(
-    user_id: int, query: str, final_k: int, ranked,
-    source: str | None, workspace_id: int | None, revision: str,
+    user_id: int,
+    query: str,
+    final_k: int,
+    ranked,
+    source: str | None,
+    workspace_id: int | None,
+    revision: str,
 ) -> None:
     collection_name = _collection_name(user_id, workspace_id)
     with collection_read_lock(CHROMA_DIR, collection_name):
@@ -150,7 +171,5 @@ async def retrieve(
     # Rerank can call an external service; it must neither block the event loop
     # nor keep the publication lock after the retrieval snapshot is complete.
     ranked = await asyncio.to_thread(rerank_chunks, query, raw, top_n=final_k)
-    await asyncio.to_thread(
-        _cache_snapshot, user_id, query, final_k, ranked, source, workspace_id, revision
-    )
+    await asyncio.to_thread(_cache_snapshot, user_id, query, final_k, ranked, source, workspace_id, revision)
     return RetrievedChunks(ranked, collection=_collection_name(user_id, workspace_id), revision=revision)

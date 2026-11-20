@@ -1,6 +1,7 @@
 """Bronze layer — raw document metadata + text snapshot."""
+
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import text
@@ -85,7 +86,7 @@ def finish_ingest_run(
             ),
             {
                 "id": run_id,
-                "finished_at": datetime.now(timezone.utc),
+                "finished_at": datetime.now(UTC),
                 "status": status,
                 "files_processed": files_processed,
                 "error_message": error_message,

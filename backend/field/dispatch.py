@@ -12,11 +12,12 @@ Thuật toán (VRP có khung giờ, heuristic — đủ nhanh cho vài trăm ca,
 Thời gian đi = khoảng cách đường chim bay (haversine) × hệ số đường phố 1,35 ÷ tốc độ trung bình.
 Đây là ước lượng, không phải dẫn đường thực tế — kỹ thuật viên vẫn dùng bản đồ khi đi.
 """
+
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
@@ -45,7 +46,7 @@ class Tech:
     id: int
     lat: float
     lng: float
-    start: int          # phút kể từ 00:00 giờ địa phương
+    start: int  # phút kể từ 00:00 giờ địa phương
     end: int
 
 
@@ -57,7 +58,7 @@ class Job:
     duration: int
     priority: str = "normal"
     earliest: int | None = None
-    latest: int | None = None       # khung giờ hẹn = khung giờ ĐẾN: phải bắt đầu xử lý trước mốc này
+    latest: int | None = None  # khung giờ hẹn = khung giờ ĐẾN: phải bắt đầu xử lý trước mốc này
 
 
 @dataclass
@@ -68,7 +69,7 @@ class Stop:
     end: int
     travel: int
     distance_km: float
-    wait_weight: float = 0.0        # phạt mỗi phút ca này phải chờ kể từ đầu ca làm (theo ưu tiên)
+    wait_weight: float = 0.0  # phạt mỗi phút ca này phải chờ kể từ đầu ca làm (theo ưu tiên)
 
 
 @dataclass
@@ -120,8 +121,9 @@ def plan_routes(techs: list[Tech], jobs: list[Job], speed_kmh: float = 30.0) -> 
         return plan
     seqs: dict[int, list[Job]] = {t.id: [] for t in techs}
     by_id = {t.id: t for t in techs}
-    order = sorted(jobs, key=lambda j: (PRIORITY_RANK.get(j.priority, 2),
-                                        j.latest if j.latest is not None else 10**6, j.id))
+    order = sorted(
+        jobs, key=lambda j: (PRIORITY_RANK.get(j.priority, 2), j.latest if j.latest is not None else 10**6, j.id)
+    )
     for job in order:
         best = None
         for tech in techs:
@@ -165,7 +167,7 @@ def _two_opt(tech: Tech, seq: list[Job], speed_kmh: float) -> list[Job]:
         improved = False
         for i in range(len(best) - 1):
             for k in range(i + 1, len(best)):
-                trial = best[:i] + best[i:k + 1][::-1] + best[k + 1:]
+                trial = best[:i] + best[i : k + 1][::-1] + best[k + 1 :]
                 stops = _simulate(tech, trial, speed_kmh)
                 if stops is not None and _cost(stops, tech.start) < _cost(best_stops, tech.start):
                     best, best_stops, improved = trial, stops, True
@@ -199,7 +201,7 @@ class MemberDispatchUpdate(BaseModel):
 
 class PlanRequest(BaseModel):
     date: date
-    tz_offset_minutes: int = Field(default=420, ge=-720, le=840)    # mặc định giờ Việt Nam (UTC+7)
+    tz_offset_minutes: int = Field(default=420, ge=-720, le=840)  # mặc định giờ Việt Nam (UTC+7)
     speed_kmh: float = Field(default=30.0, ge=5, le=100)
     technician_ids: list[int] | None = None
     include_scheduled: bool = False
@@ -215,8 +217,11 @@ class ApplyRequest(PlanRequest):
 
 
 def _owner(db: Session, workspace_id: int, user_id: int) -> FieldWorkspaceMember:
-    member = db.scalar(select(FieldWorkspaceMember).where(
-        FieldWorkspaceMember.workspace_id == workspace_id, FieldWorkspaceMember.user_id == user_id))
+    member = db.scalar(
+        select(FieldWorkspaceMember).where(
+            FieldWorkspaceMember.workspace_id == workspace_id, FieldWorkspaceMember.user_id == user_id
+        )
+    )
     if not member:
         raise HTTPException(status_code=404, detail="Không tìm thấy đội")
     return member
@@ -231,7 +236,7 @@ def _local_minutes(moment: datetime | None, day: date, tz: timezone) -> int | No
     if moment is None:
         return None
     if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
+        moment = moment.replace(tzinfo=UTC)
     local = moment.astimezone(tz)
     return int((local - datetime.combine(day, time(0), tz)).total_seconds() // 60)
 
@@ -249,8 +254,9 @@ def _inputs(db: Session, workspace_id: int, body: PlanRequest):
         techs.append(Tech(m.user_id, m.base_latitude, m.base_longitude, _minutes(m.shift_start), _minutes(m.shift_end)))
     day_start = datetime.combine(body.date, time(0), tz)
     day_end = day_start + timedelta(days=1)
-    cases = db.scalars(select(ServiceCase).where(
-        ServiceCase.workspace_id == workspace_id, ServiceCase.status.in_(ACTIVE_STATUSES))).all()
+    cases = db.scalars(
+        select(ServiceCase).where(ServiceCase.workspace_id == workspace_id, ServiceCase.status.in_(ACTIVE_STATUSES))
+    ).all()
     jobs, unassigned, by_id = [], {}, {}
     for case in cases:
         if case.scheduled_start is not None and not body.include_scheduled:
@@ -265,33 +271,59 @@ def _inputs(db: Session, workspace_id: int, body: PlanRequest):
             continue
         earliest = _local_minutes(case.window_start, body.date, tz)
         latest = _local_minutes(case.window_end, body.date, tz)
-        jobs.append(Job(case.id, case.latitude, case.longitude, case.est_minutes or 60, case.priority or "normal",
-                        max(earliest, 0) if earliest is not None else None,
-                        min(latest, 24 * 60) if latest is not None else None))
+        jobs.append(
+            Job(
+                case.id,
+                case.latitude,
+                case.longitude,
+                case.est_minutes or 60,
+                case.priority or "normal",
+                max(earliest, 0) if earliest is not None else None,
+                min(latest, 24 * 60) if latest is not None else None,
+            )
+        )
     return tz, techs, skipped_techs, jobs, unassigned, by_id
 
 
 def _aware(moment: datetime) -> datetime:
-    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
 
 
 def _plan_out(plan: Plan, body: PlanRequest, tz: timezone, by_id: dict, emails: dict) -> dict:
     def clock(minutes: int) -> str:
         return (datetime.combine(body.date, time(0), tz) + timedelta(minutes=minutes)).isoformat()
+
     return {
         "date": body.date.isoformat(),
         "routes": [
-            {"technician_id": tech_id, "technician": emails.get(tech_id),
-             "travel_minutes": _travel(stops), "distance_km": round(sum(s.distance_km for s in stops), 2),
-             "stops": [{"case_id": s.job_id, "title": by_id[s.job_id].title, "address": by_id[s.job_id].address,
-                        "latitude": by_id[s.job_id].latitude, "longitude": by_id[s.job_id].longitude,
-                        "priority": by_id[s.job_id].priority, "arrive": clock(s.arrive), "start": clock(s.start),
-                        "end": clock(s.end), "travel_minutes": s.travel, "distance_km": s.distance_km}
-                       for s in stops]}
+            {
+                "technician_id": tech_id,
+                "technician": emails.get(tech_id),
+                "travel_minutes": _travel(stops),
+                "distance_km": round(sum(s.distance_km for s in stops), 2),
+                "stops": [
+                    {
+                        "case_id": s.job_id,
+                        "title": by_id[s.job_id].title,
+                        "address": by_id[s.job_id].address,
+                        "latitude": by_id[s.job_id].latitude,
+                        "longitude": by_id[s.job_id].longitude,
+                        "priority": by_id[s.job_id].priority,
+                        "arrive": clock(s.arrive),
+                        "start": clock(s.start),
+                        "end": clock(s.end),
+                        "travel_minutes": s.travel,
+                        "distance_km": s.distance_km,
+                    }
+                    for s in stops
+                ],
+            }
             for tech_id, stops in plan.routes.items()
         ],
-        "unassigned": [{"case_id": cid, "title": by_id[cid].title if cid in by_id else None, "reason": reason}
-                       for cid, reason in plan.unassigned.items()],
+        "unassigned": [
+            {"case_id": cid, "title": by_id[cid].title if cid in by_id else None, "reason": reason}
+            for cid, reason in plan.unassigned.items()
+        ],
         "travel_minutes": plan.travel_minutes,
         "distance_km": plan.distance_km,
         "estimate_note": "Thời gian đi ước lượng theo đường chim bay × 1,35 và tốc độ trung bình.",
@@ -303,8 +335,9 @@ def _emails(db: Session, ids) -> dict[int, str]:
 
 
 @router.patch("/cases/{case_id}/dispatch")
-def update_case_dispatch(case_id: int, body: CaseDispatchUpdate, user: CurrentUser = Depends(get_current_user),
-                         db: Session = Depends(get_db)):
+def update_case_dispatch(
+    case_id: int, body: CaseDispatchUpdate, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)
+):
     case = db.get(ServiceCase, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Không tìm thấy ca sửa")
@@ -325,18 +358,33 @@ def update_case_dispatch(case_id: int, body: CaseDispatchUpdate, user: CurrentUs
         value = getattr(body, name)
         if isinstance(value, datetime):
             # Luôn lưu UTC: SQLite bỏ múi giờ khi lưu, đọc ra sẽ được hiểu là UTC.
-            value = (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+            value = (value if value.tzinfo else value.replace(tzinfo=UTC)).astimezone(UTC)
         setattr(case, name, value)
-    db.add(ServiceCaseEvent(case_id=case.id, actor_id=user.id, event_type="dispatch",
-                            detail="Cập nhật vị trí/khung giờ/ưu tiên của ca"))
+    db.add(
+        ServiceCaseEvent(
+            case_id=case.id, actor_id=user.id, event_type="dispatch", detail="Cập nhật vị trí/khung giờ/ưu tiên của ca"
+        )
+    )
     db.commit()
-    return {"id": case.id, "latitude": case.latitude, "longitude": case.longitude, "priority": case.priority,
-            "window_start": case.window_start, "window_end": case.window_end, "est_minutes": case.est_minutes}
+    return {
+        "id": case.id,
+        "latitude": case.latitude,
+        "longitude": case.longitude,
+        "priority": case.priority,
+        "window_start": case.window_start,
+        "window_end": case.window_end,
+        "est_minutes": case.est_minutes,
+    }
 
 
 @router.patch("/workspaces/{workspace_id}/members/{member_user_id}/dispatch")
-def update_member_dispatch(workspace_id: int, member_user_id: int, body: MemberDispatchUpdate,
-                           user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+def update_member_dispatch(
+    workspace_id: int,
+    member_user_id: int,
+    body: MemberDispatchUpdate,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     actor = _owner(db, workspace_id, user.id)
     if actor.role != "owner" and member_user_id != user.id:
         raise HTTPException(status_code=403, detail="Chỉ trưởng đội hoặc chính kỹ thuật viên được sửa")
@@ -350,8 +398,9 @@ def update_member_dispatch(workspace_id: int, member_user_id: int, body: MemberD
 
 
 @router.post("/workspaces/{workspace_id}/schedule/plan")
-def plan_schedule(workspace_id: int, body: PlanRequest, user: CurrentUser = Depends(get_current_user),
-                  db: Session = Depends(get_db)):
+def plan_schedule(
+    workspace_id: int, body: PlanRequest, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)
+):
     if _owner(db, workspace_id, user.id).role != "owner":
         raise HTTPException(status_code=403, detail="Chỉ trưởng đội được lập lịch")
     tz, techs, skipped, jobs, unassigned, by_id = _inputs(db, workspace_id, body)
@@ -363,8 +412,9 @@ def plan_schedule(workspace_id: int, body: PlanRequest, user: CurrentUser = Depe
 
 
 @router.post("/workspaces/{workspace_id}/schedule/apply")
-def apply_schedule(workspace_id: int, body: ApplyRequest, user: CurrentUser = Depends(get_current_user),
-                   db: Session = Depends(get_db)):
+def apply_schedule(
+    workspace_id: int, body: ApplyRequest, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)
+):
     """Lưu lịch (có thể đã được trưởng đội sửa tay): tính lại giờ và kiểm tra khả thi trước khi ghi."""
     if _owner(db, workspace_id, user.id).role != "owner":
         raise HTTPException(status_code=403, detail="Chỉ trưởng đội được lập lịch")
@@ -389,52 +439,80 @@ def apply_schedule(workspace_id: int, body: ApplyRequest, user: CurrentUser = De
             seen.add(case_id)
             earliest = _local_minutes(case.window_start, body.date, tz)
             latest = _local_minutes(case.window_end, body.date, tz)
-            jobs.append(Job(case.id, case.latitude, case.longitude, case.est_minutes or 60, case.priority,
-                            earliest, latest))
+            jobs.append(
+                Job(case.id, case.latitude, case.longitude, case.est_minutes or 60, case.priority, earliest, latest)
+            )
             cases.append(case)
         stops = _simulate(tech, jobs, body.speed_kmh)
         if stops is None:
-            raise HTTPException(status_code=422, detail=f"Tuyến của kỹ thuật viên {tech.id} vi phạm khung giờ hoặc ca làm")
+            raise HTTPException(
+                status_code=422, detail=f"Tuyến của kỹ thuật viên {tech.id} vi phạm khung giờ hoặc ca làm"
+            )
         day0 = datetime.combine(body.date, time(0), tz)
-        for order, (case, stop) in enumerate(zip(cases, stops), start=1):
+        for order, (case, stop) in enumerate(zip(cases, stops, strict=False), start=1):
             case.assigned_to = tech.id
-            case.scheduled_start = (day0 + timedelta(minutes=stop.start)).astimezone(timezone.utc)
+            case.scheduled_start = (day0 + timedelta(minutes=stop.start)).astimezone(UTC)
             case.route_order = order
-            db.add(ServiceCaseEvent(case_id=case.id, actor_id=user.id, event_type="scheduled",
-                                    detail=f"Xếp lịch {body.date.isoformat()} — thứ tự {order}, bắt đầu "
-                                           f"{(day0 + timedelta(minutes=stop.start)).strftime('%H:%M')}"))
+            db.add(
+                ServiceCaseEvent(
+                    case_id=case.id,
+                    actor_id=user.id,
+                    event_type="scheduled",
+                    detail=f"Xếp lịch {body.date.isoformat()} — thứ tự {order}, bắt đầu "
+                    f"{(day0 + timedelta(minutes=stop.start)).strftime('%H:%M')}",
+                )
+            )
             applied.append(case.id)
             from field.integrations import enqueue_case_event
+
             queued = enqueue_case_event(db, case, "case.scheduled")
             if queued:
                 applied_notify.append(case.id)
     db.commit()
     if applied_notify:
         from field.integrations import kick
+
         kick()
     return {"scheduled": applied}
 
 
 @router.get("/workspaces/{workspace_id}/schedule")
-def day_schedule(workspace_id: int, day: date = Query(alias="date"),
-                 tz_offset_minutes: int = Query(420, ge=-720, le=840),
-                 technician_id: int | None = None, user: CurrentUser = Depends(get_current_user),
-                 db: Session = Depends(get_db)):
+def day_schedule(
+    workspace_id: int,
+    day: date = Query(alias="date"),
+    tz_offset_minutes: int = Query(420, ge=-720, le=840),
+    technician_id: int | None = None,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     _owner(db, workspace_id, user.id)
     tz = timezone(timedelta(minutes=tz_offset_minutes))
-    start = datetime.combine(day, time(0), tz).astimezone(timezone.utc)
-    query = select(ServiceCase).where(ServiceCase.workspace_id == workspace_id,
-                                      ServiceCase.scheduled_start >= start,
-                                      ServiceCase.scheduled_start < start + timedelta(days=1))
+    start = datetime.combine(day, time(0), tz).astimezone(UTC)
+    query = select(ServiceCase).where(
+        ServiceCase.workspace_id == workspace_id,
+        ServiceCase.scheduled_start >= start,
+        ServiceCase.scheduled_start < start + timedelta(days=1),
+    )
     if technician_id is not None:
         query = query.where(ServiceCase.assigned_to == technician_id)
     cases = db.scalars(query.order_by(ServiceCase.assigned_to, ServiceCase.route_order)).all()
     emails = _emails(db, {c.assigned_to for c in cases if c.assigned_to})
     routes: dict[int, list] = {}
     for c in cases:
-        routes.setdefault(c.assigned_to, []).append({
-            "case_id": c.id, "title": c.title, "address": c.address, "status": c.status, "priority": c.priority,
-            "latitude": c.latitude, "longitude": c.longitude, "route_order": c.route_order,
-            "scheduled_start": _aware(c.scheduled_start).astimezone(tz).isoformat()})
-    return {"date": day.isoformat(),
-            "routes": [{"technician_id": t, "technician": emails.get(t), "stops": s} for t, s in routes.items()]}
+        routes.setdefault(c.assigned_to, []).append(
+            {
+                "case_id": c.id,
+                "title": c.title,
+                "address": c.address,
+                "status": c.status,
+                "priority": c.priority,
+                "latitude": c.latitude,
+                "longitude": c.longitude,
+                "route_order": c.route_order,
+                "scheduled_start": _aware(c.scheduled_start).astimezone(tz).isoformat(),
+            }
+        )
+    return {
+        "date": day.isoformat(),
+        "routes": [{"technician_id": t, "technician": emails.get(t), "stops": s} for t, s in routes.items()],
+    }

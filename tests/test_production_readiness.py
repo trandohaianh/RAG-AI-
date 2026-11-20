@@ -1,5 +1,6 @@
 """Regression tests for the production-readiness audit (2026-11-17, round 7).
 Each test fails on commit 4d7068a."""
+
 from __future__ import annotations
 
 import os
@@ -90,9 +91,14 @@ def test_unusual_production_env_names_still_get_production_checks(monkeypatch):
         config.validate_security_config()
 
 
-@pytest.mark.parametrize("name,value", [("APP_PUBLIC_URL", "http://localhost:3000"),
-                                        ("API_PUBLIC_URL", "http://localhost:8000"),
-                                        ("APP_PUBLIC_URL", "https://127.0.0.1")])
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("APP_PUBLIC_URL", "http://localhost:3000"),
+        ("API_PUBLIC_URL", "http://localhost:8000"),
+        ("APP_PUBLIC_URL", "https://127.0.0.1"),
+    ],
+)
 def test_production_refuses_localhost_public_urls(monkeypatch, name, value):
     _production(monkeypatch)
     monkeypatch.setattr(config, name, value)
@@ -115,8 +121,14 @@ def test_valid_production_config_starts(monkeypatch):
 
 def test_heroku_style_database_url_is_normalised():
     env = {**os.environ, "DATABASE_URL": "postgres://u:p@db.example.com:5432/app", "PYTHONPATH": str(BACKEND)}
-    out = subprocess.run([sys.executable, "-c", "import config; print(config.DATABASE_URL)"], cwd=BACKEND,
-                         env=env, capture_output=True, text=True, timeout=60)
+    out = subprocess.run(
+        [sys.executable, "-c", "import config; print(config.DATABASE_URL)"],
+        cwd=BACKEND,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert out.stdout.strip() == "postgresql://u:p@db.example.com:5432/app", out.stderr[-500:]
 
 
@@ -157,8 +169,9 @@ def test_real_client_ip_is_read_from_the_right_of_x_forwarded_for(monkeypatch):
     from types import SimpleNamespace
 
     monkeypatch.setattr(ratelimit, "TRUSTED_PROXY_HOPS", 2)
-    request = SimpleNamespace(headers={"x-forwarded-for": "6.6.6.6, 198.51.100.7, 10.0.0.2"},
-                              client=SimpleNamespace(host="10.0.0.3"))
+    request = SimpleNamespace(
+        headers={"x-forwarded-for": "6.6.6.6, 198.51.100.7, 10.0.0.2"}, client=SimpleNamespace(host="10.0.0.3")
+    )
     assert ratelimit.client_ip(request) == "198.51.100.7", "a spoofed left-most value must be ignored"
     monkeypatch.setattr(ratelimit, "TRUSTED_PROXY_HOPS", 0)
     assert ratelimit.client_ip(request) == "10.0.0.3"
@@ -177,11 +190,14 @@ def test_hot_query_indexes_exist_on_new_and_upgraded_databases(tmp_path):
 
     def names():
         inspector = inspect(engine)
-        return {ix["name"] for table in ("messages", "llm_usage_events", "field_service_cases")
-                for ix in inspector.get_indexes(table)}
+        return {
+            ix["name"]
+            for table in ("messages", "llm_usage_events", "field_service_cases")
+            for ix in inspector.get_indexes(table)
+        }
 
     assert expected <= names(), "fresh databases get the indexes from the models"
-    with engine.begin() as conn:                       # an existing database from before migration 7
+    with engine.begin() as conn:  # an existing database from before migration 7
         for name in expected:
             conn.execute(text(f"DROP INDEX {name}"))
     with engine.begin() as conn:
@@ -216,7 +232,7 @@ def test_render_keeps_app_data_in_postgres_and_uses_the_public_api_url():
     api, web = text.split("name: rag-web", 1)
     assert "key: DATABASE_URL\n        fromDatabase:" in api
     assert "key: APP_PUBLIC_URL" in api
-    assert "key: LLM_DAILY_BUDGET_USD\n        value: \"2\"" in api
+    assert 'key: LLM_DAILY_BUDGET_USD\n        value: "2"' in api
     import yaml
 
     services = {s["name"]: s for s in yaml.safe_load(text)["services"]}
@@ -340,7 +356,7 @@ def test_shared_edge_is_an_opt_in_overlay():
     assert "import /etc/caddy/fieldops.caddy" in shared and "import /etc/caddy/sites/*.caddy" in shared
     for script in ("deploy.sh", "setup-vm.sh"):
         text = (ROOT / "deploy/cloud" / script).read_text(encoding="utf-8")
-        assert 'SHARED_EDGE:-0' in text, script
+        assert "SHARED_EDGE:-0" in text, script
         before, _, _ = text.partition('if [ "${SHARED_EDGE:-0}" = "1" ]')
         assert "network create edge" not in before, f"{script} must not create the shared network by default"
 

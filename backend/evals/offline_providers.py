@@ -4,6 +4,7 @@ Không đo chất lượng model thật. Mục đích: chạy TOÀN BỘ đườ
 (ingest → Chroma + BM25 → RRF → rerank → prompt → kiểm tra trích dẫn) trong CI,
 và kiểm tra chính bộ chấm điểm. Chất lượng câu trả lời thật đo bằng chế độ live.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -24,7 +25,7 @@ class HashingEmbeddings:
         norm = normalize(text)
         features = content_tokens(text)
         compact = norm.replace(" ", "_")
-        features += [compact[i:i + 3] for i in range(max(0, len(compact) - 2))]
+        features += [compact[i : i + 3] for i in range(max(0, len(compact) - 2))]
         for feat in features:
             digest = hashlib.blake2b(feat.encode("utf-8"), digest_size=8).digest()
             idx = int.from_bytes(digest[:4], "little") % DIM
@@ -76,8 +77,9 @@ def extractive_answer(prompt: str, *, min_overlap: float = 0.35, max_sentences: 
     candidates.sort(reverse=True)
     if not candidates or candidates[0][0] < min_overlap:
         return REFUSAL_TEXT
-    chosen = [f"{sentence} 【{ref}】" for score, _, ref, sentence in candidates[:max_sentences]
-              if score >= min_overlap / 2]
+    chosen = [
+        f"{sentence} 【{ref}】" for score, _, ref, sentence in candidates[:max_sentences] if score >= min_overlap / 2
+    ]
     return " ".join(chosen)
 
 
@@ -85,6 +87,12 @@ def fake_generate_text(prompt: str, **_kwargs) -> str:
     from costs.recorder import estimate_tokens, record_usage
 
     answer = extractive_answer(prompt)
-    record_usage(provider="local", model="local-extractive", input_tokens=estimate_tokens(prompt),
-                 output_tokens=estimate_tokens(answer), estimated=True, latency_ms=0)
+    record_usage(
+        provider="local",
+        model="local-extractive",
+        input_tokens=estimate_tokens(prompt),
+        output_tokens=estimate_tokens(answer),
+        estimated=True,
+        latency_ms=0,
+    )
     return answer

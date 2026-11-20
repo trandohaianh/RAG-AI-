@@ -2,12 +2,13 @@
 
 Each test reproduces a concrete failure seen on the pre-fix code.
 """
+
 from __future__ import annotations
 
 import io
 import json
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -28,7 +29,8 @@ from chat import models as chat_models  # noqa: F401
 from costs import models as cost_models  # noqa: F401  (llm_budget_reservations)
 from database import Base, _enable_sqlite_foreign_keys, get_db
 from dependencies import get_current_user
-from field import integrations, models as field_models, photos
+from field import integrations, photos
+from field import models as field_models
 from rag import evidence, llm, prompt
 from saas import models as saas_models  # noqa: F401
 from test_field_dispatch_photos_integrations import _case, env  # noqa: F401
@@ -71,8 +73,10 @@ def test_concurrent_checkout_reuses_the_stored_customer(sessions, monkeypatch):
         checkout.append(kwargs)
         return SimpleNamespace(url="https://checkout.example/session")
 
-    sdk = SimpleNamespace(Customer=SimpleNamespace(create=customer_create),
-                          checkout=SimpleNamespace(Session=SimpleNamespace(create=session_create)))
+    sdk = SimpleNamespace(
+        Customer=SimpleNamespace(create=customer_create),
+        checkout=SimpleNamespace(Session=SimpleNamespace(create=session_create)),
+    )
     monkeypatch.setattr(billing, "_stripe", lambda: sdk)
     monkeypatch.setattr(billing, "STRIPE_PRICE_PRO", "price_pro")
     monkeypatch.setattr(billing, "STRIPE_WEBHOOK_SECRET", "whsec_test_only")
@@ -146,7 +150,9 @@ def test_interrupted_gemini_stream_still_meters_generated_output(monkeypatch):
     monkeypatch.setattr(llm, "record_usage", lambda **kw: recorded.append(kw))
     partial = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=900, candidates_token_count=None))
     llm._record_gemini(partial, "prompt", "x" * 400, 0.0, "chat", status="partial")
-    assert recorded[0]["input_tokens"] == 900 and recorded[0]["output_tokens"] == 160   # 400 ký tự / 2.5 (ước lượng tiếng Việt, 2026-11-17)
+    assert (
+        recorded[0]["input_tokens"] == 900 and recorded[0]["output_tokens"] == 160
+    )  # 400 ký tự / 2.5 (ước lượng tiếng Việt, 2026-11-17)
 
 
 def test_ollama_stream_closed_by_client_is_metered_once(monkeypatch):
@@ -187,16 +193,16 @@ def test_photo_between_one_and_two_times_the_pixel_cap_is_rejected():
 
 def test_outbound_webhook_rejects_shared_address_space(monkeypatch):
     monkeypatch.delenv("FIELD_WEBHOOK_ALLOW_PRIVATE", raising=False)
-    monkeypatch.setattr(integrations.socket, "getaddrinfo",
-                        lambda *a, **k: [(2, 1, 6, "", ("100.64.0.10", 443))])
+    monkeypatch.setattr(integrations.socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("100.64.0.10", 443))])
     with pytest.raises(ValueError):
         integrations.validate_outbound_url("https://crm.example.com/hook")
 
 
 def test_deactivated_member_is_removed_as_integration_default_assignee(env):  # noqa: F811
     client, _, ws, sessions_ = env
-    integ = client.post(f"/field/workspaces/{ws}/integrations",
-                        json={"name": "CRM", "kind": "crm", "default_assignee": 2})
+    integ = client.post(
+        f"/field/workspaces/{ws}/integrations", json={"name": "CRM", "kind": "crm", "default_assignee": 2}
+    )
     assert integ.status_code in (200, 201), integ.text
     with sessions_() as db:
         deactivate_account(db, 2, actor_id=1)
@@ -210,25 +216,32 @@ def test_dispatch_patch_rejects_explicit_nulls_and_inverted_merged_window(env): 
     path = f"/field/cases/{case['id']}/dispatch"
     assert client.patch(path, json={"priority": None}).status_code == 422
     assert client.patch(path, json={"est_minutes": None}).status_code == 422
-    start = datetime(2030, 1, 2, 13, tzinfo=timezone.utc)
-    assert client.patch(path, json={"window_start": start.isoformat(),
-                                    "window_end": (start + timedelta(hours=2)).isoformat()}).status_code == 200
+    start = datetime(2030, 1, 2, 13, tzinfo=UTC)
+    assert (
+        client.patch(
+            path, json={"window_start": start.isoformat(), "window_end": (start + timedelta(hours=2)).isoformat()}
+        ).status_code
+        == 200
+    )
     assert client.patch(path, json={"window_end": (start - timedelta(hours=1)).isoformat()}).status_code == 422
 
 
 def test_schedule_rejects_closed_cases_and_out_of_range_offsets(env):  # noqa: F811
     client, _, ws, _ = env
-    client.patch(f"/field/workspaces/{ws}/members/1/dispatch",
-                 json={"base_latitude": 21.03, "base_longitude": 105.85})
+    client.patch(f"/field/workspaces/{ws}/members/1/dispatch", json={"base_latitude": 21.03, "base_longitude": 105.85})
     case = _case(client, ws)
     client.patch(f"/field/cases/{case['id']}/dispatch", json={"latitude": 21.04, "longitude": 105.86})
     assert client.patch(f"/field/cases/{case['id']}", json={"status": "resolved"}).status_code == 200
     day = (date.today() + timedelta(days=1)).isoformat()
-    applied = client.post(f"/field/workspaces/{ws}/schedule/apply",
-                          json={"date": day, "routes": [{"technician_id": 1, "case_ids": [case["id"]]}]})
+    applied = client.post(
+        f"/field/workspaces/{ws}/schedule/apply",
+        json={"date": day, "routes": [{"technician_id": 1, "case_ids": [case["id"]]}]},
+    )
     assert applied.status_code == 422
-    assert client.get(f"/field/workspaces/{ws}/schedule",
-                      params={"date": day, "tz_offset_minutes": 2000}).status_code == 422
+    assert (
+        client.get(f"/field/workspaces/{ws}/schedule", params={"date": day, "tz_offset_minutes": 2000}).status_code
+        == 422
+    )
 
 
 # ----------------------------------------------------------------------------- medallion
@@ -269,9 +282,13 @@ def test_silver_count_excludes_rows_skipped_by_on_conflict(monkeypatch):
     def fake_scope():
         def execute(statement, params=None):
             return SimpleNamespace(rowcount=0) if "DELETE" in str(statement) else next(results)
+
         yield SimpleNamespace(execute=execute)
 
     monkeypatch.setattr(silver, "session_scope", fake_scope)
-    chunks = [{"content": "lặp lại", "content_hash": "h"}, {"content": "mới", "content_hash": "n"},
-              {"content": "lặp lại", "content_hash": "h"}]
+    chunks = [
+        {"content": "lặp lại", "content_hash": "h"},
+        {"content": "mới", "content_hash": "n"},
+        {"content": "lặp lại", "content_hash": "h"},
+    ]
     assert silver.write_silver_chunks(1, 7, "a.txt", chunks, ValidationResult(success=True)) == 1

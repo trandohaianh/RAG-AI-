@@ -1,4 +1,5 @@
 """Ngưỡng chất lượng (gates), so sánh baseline và xuất báo cáo Markdown."""
+
 from __future__ import annotations
 
 import json
@@ -6,8 +7,14 @@ from pathlib import Path
 
 # Chỉ số "càng cao càng tốt" và "càng thấp càng tốt" để so baseline đúng chiều.
 HIGHER_IS_BETTER = [
-    "pass_rate", "retrieval_recall_at_k", "retrieval_mrr", "retrieval_ndcg_at_k",
-    "fact_coverage", "groundedness", "refusal_accuracy", "citation_present_rate",
+    "pass_rate",
+    "retrieval_recall_at_k",
+    "retrieval_mrr",
+    "retrieval_ndcg_at_k",
+    "fact_coverage",
+    "groundedness",
+    "refusal_accuracy",
+    "citation_present_rate",
 ]
 LOWER_IS_BETTER = ["false_refusal_rate", "safety_violations", "citation_invalid_count", "errors"]
 
@@ -88,7 +95,9 @@ def to_markdown(report: dict, gate_failures: list[str], regressions: list[str], 
         f"- Ingest {len(report['corpus']['files'])} tài liệu: {report['corpus']['ingest_s']}s, {report['corpus']['ingest_tokens']:,} token, ${report['corpus']['ingest_cost_usd']}",
     ]
     if report["mode"] == "offline":
-        lines.append("- ⚠️ Offline dùng embedding băm + bộ sinh trích xuất: đo đường ống truy xuất và bộ chấm, KHÔNG đo chất lượng Gemini.")
+        lines.append(
+            "- ⚠️ Offline dùng embedding băm + bộ sinh trích xuất: đo đường ống truy xuất và bộ chấm, KHÔNG đo chất lượng Gemini."
+        )
     lines += ["", "## Chỉ số tổng", "", "| Chỉ số | Giá trị | Δ so baseline |", "|---|---:|---:|"]
     for key, label in LABELS.items():
         if key in m:
@@ -99,10 +108,18 @@ def to_markdown(report: dict, gate_failures: list[str], regressions: list[str], 
     if regressions:
         lines += ["", "## Hồi quy so với baseline", ""] + [f"- {r}" for r in regressions]
 
-    lines += ["", "## Theo nhóm câu hỏi", "", "| Nhóm | Số câu | Đạt | Recall@k | Phủ dữ kiện | Từ chối đúng | Vi phạm |", "|---|---:|---:|---:|---:|---:|---:|"]
+    lines += [
+        "",
+        "## Theo nhóm câu hỏi",
+        "",
+        "| Nhóm | Số câu | Đạt | Recall@k | Phủ dữ kiện | Từ chối đúng | Vi phạm |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
     for cat, cm in report["by_category"].items():
-        lines.append(f"| {cat} | {cm['cases']} | {_fmt(cm['pass_rate'])} | {_fmt(cm['retrieval_recall_at_k'])} | "
-                     f"{_fmt(cm['fact_coverage'])} | {_fmt(cm['refusal_accuracy'])} | {cm['safety_violations']} |")
+        lines.append(
+            f"| {cat} | {cm['cases']} | {_fmt(cm['pass_rate'])} | {_fmt(cm['retrieval_recall_at_k'])} | "
+            f"{_fmt(cm['fact_coverage'])} | {_fmt(cm['refusal_accuracy'])} | {cm['safety_violations']} |"
+        )
 
     failed = [c for c in report["cases"] if not c["passed"]]
     if failed:
@@ -122,9 +139,18 @@ def to_markdown(report: dict, gate_failures: list[str], regressions: list[str], 
 def history_row(report: dict, passed: bool) -> str:
     m = report["metrics"]
     keep = {k: m.get(k) for k in HIGHER_IS_BETTER + LOWER_IS_BETTER + ["latency_p95_ms", "cost_usd", "cases"]}
-    return json.dumps({"at": report["started_at"], "mode": report["mode"], "dataset": report["dataset_id"],
-                       "split": report["split"], "llm": report["config"]["llm_model"], "passed": passed,
-                       **keep}, ensure_ascii=False)
+    return json.dumps(
+        {
+            "at": report["started_at"],
+            "mode": report["mode"],
+            "dataset": report["dataset_id"],
+            "split": report["split"],
+            "llm": report["config"]["llm_model"],
+            "passed": passed,
+            **keep,
+        },
+        ensure_ascii=False,
+    )
 
 
 def load_json(path: Path) -> dict:

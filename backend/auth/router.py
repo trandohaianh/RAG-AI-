@@ -1,10 +1,10 @@
 """Đăng ký, đăng nhập (mật khẩu + Google), xác thực email và khôi phục mật khẩu."""
+
 import asyncio
+from datetime import UTC
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
-
-from auth.session_cookie import clear_session_cookie, set_session_cookie, wants_cookie
 
 from auth import google as google_auth
 from auth import ratelimit
@@ -32,6 +32,7 @@ from auth.service import (
     reset_password_with_token,
     verify_email_with_token,
 )
+from auth.session_cookie import clear_session_cookie, set_session_cookie, wants_cookie
 from config import APP_PUBLIC_URL
 from database import get_db
 from dependencies import email_verification_required, get_current_user_allow_unverified
@@ -116,8 +117,7 @@ def login(data: UserLogin, request: Request, response: Response, db: Session = D
 
 
 @router.post("/google", response_model=AuthResponse)
-async def google_login(data: GoogleLoginRequest, request: Request, response: Response,
-                       db: Session = Depends(get_db)):
+async def google_login(data: GoogleLoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     ratelimit.hit("google:ip", ratelimit.client_ip(request))
     if not google_auth.is_enabled():
         raise HTTPException(status_code=404, detail="Đăng nhập Google chưa được bật")
@@ -148,7 +148,7 @@ def upgrade_to_cookie_session(
     Cookie mới GIỮ NGUYÊN hạn của token gốc. Trước đây mỗi lần gọi lại cấp hạn 7 ngày mới, nên
     một token bị lộ có thể được gia hạn mãi mãi (chính sách chủ sản phẩm chọn 2026-11-17).
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from auth.service import decode_access_token
     from dependencies import request_token
@@ -159,8 +159,8 @@ def upgrade_to_cookie_session(
     auth_header = request.headers.get("authorization", "")
     bearer = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
     claims = decode_access_token(request_token(request, bearer) or "") or {}
-    expires_at = datetime.fromtimestamp(int(claims["exp"]), tz=timezone.utc)
-    remaining = int((expires_at - datetime.now(timezone.utc)).total_seconds())
+    expires_at = datetime.fromtimestamp(int(claims["exp"]), tz=UTC)
+    remaining = int((expires_at - datetime.now(UTC)).total_seconds())
     if remaining <= 0:
         raise HTTPException(status_code=401, detail="Token đã hết hạn")
     set_session_cookie(response, create_access_token(row, expires_at=expires_at), max_age=remaining)
@@ -176,9 +176,10 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     chứng minh được không phải CSRF (bearer, hoặc cookie kèm header chống CSRF); thiếu header thì
     vẫn xoá cookie của chính trình duyệt như cũ (vô hại), không đụng tới thiết bị khác.
     """
+    from sqlalchemy import update
+
     import config
     from auth.service import decode_access_token
-    from sqlalchemy import update
 
     auth_header = request.headers.get("authorization", "")
     token = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
@@ -186,8 +187,11 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
         token = request.cookies.get(config.AUTH_COOKIE_NAME)
     claims = decode_access_token(token) if token else None
     if claims:
-        db.execute(update(User).where(User.id == int(claims["sub"]), User.token_version == claims["version"])
-                   .values(token_version=User.token_version + 1))
+        db.execute(
+            update(User)
+            .where(User.id == int(claims["sub"]), User.token_version == claims["version"])
+            .values(token_version=User.token_version + 1)
+        )
         db.commit()
     clear_session_cookie(response)
     return {"message": "Đã đăng xuất"}
@@ -235,9 +239,7 @@ async def forgot_password(data: ForgotPasswordRequest, request: Request, db: Ses
     # chặn email đặt lại mật khẩu của người khác trong 1 giờ.
     ratelimit.hit("email:address", f"{ip}|{data.email}")
     ratelimit.hit("email:ip", ip)
-    generic = {
-        "message": "Nếu email tồn tại, một link đặt lại mật khẩu đã được gửi."
-    }
+    generic = {"message": "Nếu email tồn tại, một link đặt lại mật khẩu đã được gửi."}
     user = find_active_user_by_email(db, data.email)
     # Keep the response identical for unknown and disabled accounts, including
     # installations where email delivery is not configured.
@@ -245,9 +247,7 @@ async def forgot_password(data: ForgotPasswordRequest, request: Request, db: Ses
         return generic
     token = create_reset_token(db, user)
     # Gửi nền: chờ SMTP chỉ với tài khoản có thật làm thời gian phản hồi lộ email nào tồn tại.
-    _send_in_background(send_reset_email(
-        user.email, f"{APP_PUBLIC_URL}/reset-password?token={token}"
-    ))
+    _send_in_background(send_reset_email(user.email, f"{APP_PUBLIC_URL}/reset-password?token={token}"))
     return generic
 
 

@@ -2,6 +2,7 @@
 
 Dùng `/chat/{conv_id}` thay vì `/chat/123` để số series không tăng theo dữ liệu.
 """
+
 import time
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -30,6 +31,4 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         finally:
             route = _route_template(request)
             HTTP_REQUESTS.labels(method=request.method, endpoint=route, status=status).inc()
-            HTTP_DURATION.labels(method=request.method, route=route).observe(
-                time.perf_counter() - start
-            )
+            HTTP_DURATION.labels(method=request.method, route=route).observe(time.perf_counter() - start)

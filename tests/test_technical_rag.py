@@ -2,6 +2,7 @@
 
 No paid API, downloaded weights, application DB or customer documents.
 """
+
 import json
 import threading
 from contextlib import nullcontext
@@ -15,23 +16,45 @@ from langchain_core.embeddings import Embeddings
 from rag.technical.adapters import CohereReranker, LocalBGEReranker
 from rag.technical.chunking import chunk_bundle
 from rag.technical.layout import approve, table_layout
-from rag.technical.models import Approval, Block, LayoutBundle, REFUSAL, Scope, Selection, TechnicalRAGError, digest
+from rag.technical.models import REFUSAL, Approval, Block, LayoutBundle, Scope, Selection, TechnicalRAGError, digest
 from rag.technical.pipeline import Policy, TechnicalRAG, exact_match, rrf
 from rag.technical.store import Snapshot, build_index
 
+SCOPE = Scope(
+    tenant="demo",
+    workspace="fieldops",
+    vendor="SYNTHETIC",
+    model="LAB-X01",
+    hardware_revision="demo-r1",
+    manual_revision="training-v1",
+)
 
-SCOPE = Scope(tenant="demo", workspace="fieldops", vendor="SYNTHETIC", model="LAB-X01",
-              hardware_revision="demo-r1", manual_revision="training-v1")
 
-
-def bundle(text="Error 504: ví dụ giả lập; E01; −48 V; 0.50 A. Không thao tác trên thiết bị.",
-           source="demo-1", blocks=None, scope=SCOPE):
-    b = LayoutBundle(source_id=source, source_name=source + ".pdf", raw_sha256=digest("raw:" + text),
-                     parser="test:1", scope=scope, scope_reviewed=True,
-                     blocks=blocks or [Block(kind="text", text=text, section="procedure-1", pages=[2],
-                                             single_equipment=True)])
-    return b.model_copy(update={"approval": Approval(reviewer="test-reviewer", reviewed_at="2026-10-26",
-                           raw_sha256=b.raw_sha256, extraction_sha256=b.extraction_hash())})
+def bundle(
+    text="Error 504: ví dụ giả lập; E01; −48 V; 0.50 A. Không thao tác trên thiết bị.",
+    source="demo-1",
+    blocks=None,
+    scope=SCOPE,
+):
+    b = LayoutBundle(
+        source_id=source,
+        source_name=source + ".pdf",
+        raw_sha256=digest("raw:" + text),
+        parser="test:1",
+        scope=scope,
+        scope_reviewed=True,
+        blocks=blocks or [Block(kind="text", text=text, section="procedure-1", pages=[2], single_equipment=True)],
+    )
+    return b.model_copy(
+        update={
+            "approval": Approval(
+                reviewer="test-reviewer",
+                reviewed_at="2026-10-26",
+                raw_sha256=b.raw_sha256,
+                extraction_sha256=b.extraction_hash(),
+            )
+        }
+    )
 
 
 class FakeEmbeddings(Embeddings):
@@ -61,8 +84,11 @@ class FakeSelector:
 
     def select(self, query, scope, context):
         self.calls.append(context)
-        return self.value if self.value is not None else Selection(enough_information=True,
-                                               evidence_ids=[c["id"] for c in context])
+        return (
+            self.value
+            if self.value is not None
+            else Selection(enough_information=True, evidence_ids=[c["id"] for c in context])
+        )
 
 
 def service(root, reranker=None, selector=None, **settings):
@@ -78,13 +104,23 @@ def indexed(tmp_path_factory):
     return root
 
 
-@pytest.mark.parametrize("query,text,expected", [
-    ("E01", "E01", True), ("E01", "E1", False), ("E01", "E010", False),
-    ("Error 504", "Error 5040", False), ("Error 504", "Error 504", True),
-    ("−48 V", "48 V", False), ("48 V", "−48 V", False), ("0.50 A", "0.50A", True),
-    ("0.50 A", "0.5 A", False), ("0.5 A", "500 mA", False),
-    ("0.5 A", "5 A", False), ("LAB-X01", "LAB-X010", False),
-])
+@pytest.mark.parametrize(
+    "query,text,expected",
+    [
+        ("E01", "E01", True),
+        ("E01", "E1", False),
+        ("E01", "E010", False),
+        ("Error 504", "Error 5040", False),
+        ("Error 504", "Error 504", True),
+        ("−48 V", "48 V", False),
+        ("48 V", "−48 V", False),
+        ("0.50 A", "0.50A", True),
+        ("0.50 A", "0.5 A", False),
+        ("0.5 A", "500 mA", False),
+        ("0.5 A", "5 A", False),
+        ("LAB-X01", "LAB-X010", False),
+    ],
+)
 def test_exact_anchors(query, text, expected):
     assert exact_match(query, text) is expected
 
@@ -124,12 +160,19 @@ def test_oversize_atomic_section_is_never_truncated():
 
 
 def test_table_rows_headers_and_footnote_preserved():
-    html, spans, headers = table_layout("<table><tr><th>Mã</th><th>A</th></tr>"
-        "<tr><td>E01</td><td>0.50 A</td></tr><tr><td>E02</td><td>2.5 A</td></tr></table>")
-    blocks = [Block(kind="table", text=html, section="table-1", row_spans=spans,
-                    header_rows=headers, single_equipment=True),
-              Block(kind="text", text="Chú thích: số liệu giả lập, không áp dụng thiết bị.",
-                    section="table-1", single_equipment=True)]
+    html, spans, headers = table_layout(
+        "<table><tr><th>Mã</th><th>A</th></tr>"
+        "<tr><td>E01</td><td>0.50 A</td></tr><tr><td>E02</td><td>2.5 A</td></tr></table>"
+    )
+    blocks = [
+        Block(kind="table", text=html, section="table-1", row_spans=spans, header_rows=headers, single_equipment=True),
+        Block(
+            kind="text",
+            text="Chú thích: số liệu giả lập, không áp dụng thiết bị.",
+            section="table-1",
+            single_equipment=True,
+        ),
+    ]
     parents, children = chunk_bundle(bundle(blocks=blocks))
     rows = [c for c in children if c.anchor_eligible and "<tr>" in c.text]
     assert len(rows) == 2 and all("<th>Mã</th>" in c.text for c in rows)
@@ -137,12 +180,15 @@ def test_table_rows_headers_and_footnote_preserved():
     assert "Chú thích" in parents[0].text and html in parents[0].text
 
 
-@pytest.mark.parametrize("markup", [
-    '<table><tr><td colspan="2">E01</td></tr></table>',
-    '<table><tr><td rowspan="2">E01</td></tr></table>',
-    '<table><tr><td>E01</tr></td></table>',
-    '<table><tr><td><script>E01</script></td></tr></table>',
-])
+@pytest.mark.parametrize(
+    "markup",
+    [
+        '<table><tr><td colspan="2">E01</td></tr></table>',
+        '<table><tr><td rowspan="2">E01</td></tr></table>',
+        "<table><tr><td>E01</tr></td></table>",
+        "<table><tr><td><script>E01</script></td></tr></table>",
+    ],
+)
 def test_unsupported_table_requires_review(markup):
     with pytest.raises(TechnicalRAGError):
         table_layout(markup)
@@ -150,8 +196,10 @@ def test_unsupported_table_requires_review(markup):
 
 def test_mutated_text_or_scope_invalidates_approval():
     b = bundle()
-    for changed in [b.model_copy(update={"scope": SCOPE.model_copy(update={"model": "OTHER"})}),
-                    b.model_copy(update={"blocks": [b.blocks[0].model_copy(update={"text": "5 A"})]})]:
+    for changed in [
+        b.model_copy(update={"scope": SCOPE.model_copy(update={"model": "OTHER"})}),
+        b.model_copy(update={"blocks": [b.blocks[0].model_copy(update={"text": "5 A"})]}),
+    ]:
         with pytest.raises(TechnicalRAGError, match="Unreviewed"):
             chunk_bundle(changed)
 
@@ -188,12 +236,15 @@ def test_unknown_code_does_not_reach_reranker_or_llm(indexed):
     assert not reranker.calls and not selector.calls
 
 
-@pytest.mark.parametrize("value", [
-    {"enough_information": True, "evidence_ids": ["E999"]},
-    {"enough_information": True, "evidence_ids": ["E1", "E1"]},
-    {"enough_information": True, "evidence_ids": ["E1"], "answer": "100 A"},
-    {"enough_information": False, "evidence_ids": []},
-])
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"enough_information": True, "evidence_ids": ["E999"]},
+        {"enough_information": True, "evidence_ids": ["E1", "E1"]},
+        {"enough_information": True, "evidence_ids": ["E1"], "answer": "100 A"},
+        {"enough_information": False, "evidence_ids": []},
+    ],
+)
 def test_invalid_model_selection_cannot_emit_free_text(indexed, value):
     result = service(indexed, selector=FakeSelector(value)).answer("E01", SCOPE)
     assert result.text == REFUSAL and not result.evidence
@@ -209,13 +260,16 @@ def test_provider_failure_has_no_lexical_fallback(indexed):
     class Broken(FakeReranker):
         def score(self, query, docs):
             raise TimeoutError("provider secret must not appear")
+
     result = service(indexed, reranker=Broken()).answer("E01", SCOPE)
     assert result.status == "abstained" and "secret" not in result.model_dump_json()
 
 
 def test_wrong_hardware_and_tenant_fail_closed(indexed):
-    for scope in [SCOPE.model_copy(update={"hardware_revision": "other"}),
-                  SCOPE.model_copy(update={"tenant": "other"})]:
+    for scope in [
+        SCOPE.model_copy(update={"hardware_revision": "other"}),
+        SCOPE.model_copy(update={"tenant": "other"}),
+    ]:
         assert service(indexed).answer("E01", scope).text == REFUSAL
 
 
@@ -237,9 +291,11 @@ def test_snapshot_pinned_while_new_generation_is_published(tmp_path):
 
 def test_failed_build_keeps_old_active_generation(indexed):
     old = Snapshot(indexed, SCOPE, FakeEmbeddings(), "fake:v1").generation
+
     class BrokenEmbeddings(FakeEmbeddings):
         def embed_documents(self, texts):
             raise RuntimeError("failed build")
+
     with pytest.raises(RuntimeError):
         build_index(indexed, [bundle("E01 updated")], BrokenEmbeddings(), "fake:v1")
     assert Snapshot(indexed, SCOPE, FakeEmbeddings(), "fake:v1").generation == old
@@ -258,15 +314,19 @@ def test_parent_context_budget_abstains_instead_of_slicing(tmp_path):
     assert service(tmp_path, context_char_budget=1000).answer("E01", SCOPE).text == REFUSAL
 
 
-@pytest.mark.parametrize("results", [
-    [{"index": True, "relevance_score": 0.9}],
-    [{"index": 3, "relevance_score": 0.9}],
-    [{"index": 0, "relevance_score": float("nan")}],
-    [],
-])
+@pytest.mark.parametrize(
+    "results",
+    [
+        [{"index": True, "relevance_score": 0.9}],
+        [{"index": 3, "relevance_score": 0.9}],
+        [{"index": 0, "relevance_score": float("nan")}],
+        [],
+    ],
+)
 def test_cohere_response_validation(results):
     def handler(request):
         return httpx.Response(200, content=json.dumps({"results": results}).encode())
+
     adapter = CohereReranker("not-a-real-key", transport=httpx.MockTransport(handler))
     with pytest.raises(TechnicalRAGError):
         adapter.score("E01", ["E01"])
@@ -276,8 +336,10 @@ def test_cohere_v2_explicit_budget_and_result_order():
     def handler(request):
         payload = json.loads(request.content)
         assert request.url.path == "/v2/rerank" and payload["max_tokens_per_doc"] == 8192
-        return httpx.Response(200, json={"results": [
-            {"index": 1, "relevance_score": 0.9}, {"index": 0, "relevance_score": 0.2}]})
+        return httpx.Response(
+            200, json={"results": [{"index": 1, "relevance_score": 0.9}, {"index": 0, "relevance_score": 0.2}]}
+        )
+
     adapter = CohereReranker("not-a-real-key", transport=httpx.MockTransport(handler))
     assert adapter.score("E01", ["first", "second"]) == [0.2, 0.9]
     with pytest.raises(TechnicalRAGError, match="budgets"):
@@ -289,26 +351,36 @@ def test_local_reranker_checks_combined_token_budget_without_truncation():
     adapter.lock = threading.Lock()
     adapter.torch = SimpleNamespace(inference_mode=nullcontext)
     adapter.batch_size, adapter.max_pair_tokens = 8, 512
+
     def tokenizer(*args, **kwargs):
         assert kwargs["truncation"] is False
         return {"input_ids": SimpleNamespace(shape=(1, 513))}
+
     adapter.tokenizer = tokenizer
     with pytest.raises(TechnicalRAGError, match="too long"):
         adapter.score("query", ["document"])
 
 
-@pytest.mark.parametrize("reason,parsing_error", [("MAX_TOKENS", None), ("SAFETY", None), (None, None), ("STOP", ValueError("bad json"))])
+@pytest.mark.parametrize(
+    "reason,parsing_error", [("MAX_TOKENS", None), ("SAFETY", None), (None, None), ("STOP", ValueError("bad json"))]
+)
 def test_langchain_selector_rejects_unfinished_or_invalid_output(reason, parsing_error):
     from langchain_core.messages import AIMessage
     from langchain_core.runnables import RunnableLambda
+
     from rag.technical.adapters import LangChainSelector
+
     class Chat:
         def with_structured_output(self, schema, include_raw):
             assert schema is Selection and include_raw is True
-            return RunnableLambda(lambda prompt: {
-                "raw": AIMessage(content="", response_metadata={"finish_reason": reason}),
-                "parsed": Selection(enough_information=True, evidence_ids=["E1"]),
-                "parsing_error": parsing_error})
+            return RunnableLambda(
+                lambda prompt: {
+                    "raw": AIMessage(content="", response_metadata={"finish_reason": reason}),
+                    "parsed": Selection(enough_information=True, evidence_ids=["E1"]),
+                    "parsing_error": parsing_error,
+                }
+            )
+
     with pytest.raises(TechnicalRAGError):
         LangChainSelector(Chat()).select("E01", SCOPE, [])
 
@@ -316,23 +388,30 @@ def test_langchain_selector_rejects_unfinished_or_invalid_output(reason, parsing
 def test_langchain_selector_system_prompt_and_stop():
     from langchain_core.messages import AIMessage
     from langchain_core.runnables import RunnableLambda
+
     from rag.technical.adapters import LangChainSelector
+
     class Chat:
         def with_structured_output(self, schema, include_raw):
             def invoke(prompt):
                 messages = prompt.to_messages()
                 assert REFUSAL in messages[0].content
                 assert "CONTEXT=" in messages[1].content
-                return {"raw": AIMessage(content="", response_metadata={"finish_reason": "STOP"}),
-                        "parsed": Selection(enough_information=True, evidence_ids=["E1"]),
-                        "parsing_error": None}
+                return {
+                    "raw": AIMessage(content="", response_metadata={"finish_reason": "STOP"}),
+                    "parsed": Selection(enough_information=True, evidence_ids=["E1"]),
+                    "parsing_error": None,
+                }
+
             return RunnableLambda(invoke)
+
     assert LangChainSelector(Chat()).select("E01", SCOPE, []).evidence_ids == ["E1"]
 
 
 def test_table_keeps_empty_cell_and_rejects_ragged_rows():
-    text, _, _ = table_layout("<table><tr><th>Model</th><th>A</th><th>V</th></tr>"
-                              "<tr><td>LAB-X01</td><td></td><td>−48 V</td></tr></table>")
+    text, _, _ = table_layout(
+        "<table><tr><th>Model</th><th>A</th><th>V</th></tr><tr><td>LAB-X01</td><td></td><td>−48 V</td></tr></table>"
+    )
     assert "<td></td><td>−48 V</td>" in text
     with pytest.raises(TechnicalRAGError):
         table_layout("<table><tr><th>A</th><th>V</th></tr><tr><td>48</td></tr></table>")
@@ -341,8 +420,11 @@ def test_table_keeps_empty_cell_and_rejects_ragged_rows():
 def test_build_rejects_partial_row_offsets():
     text, spans, headers = table_layout("<table><tr><th>Code</th></tr><tr><td>E01</td></tr></table>")
     spans[-1][0] += 1
-    b = bundle(blocks=[Block(kind="table", text=text, section="s", row_spans=spans,
-                             header_rows=headers, single_equipment=True)])
+    b = bundle(
+        blocks=[
+            Block(kind="table", text=text, section="s", row_spans=spans, header_rows=headers, single_equipment=True)
+        ]
+    )
     with pytest.raises(TechnicalRAGError, match="complete canonical rows"):
         chunk_bundle(b)
 
@@ -350,6 +432,7 @@ def test_build_rejects_partial_row_offsets():
 def test_branch_failure_blocks_selector(indexed, monkeypatch):
     def broken(*args):
         raise TimeoutError("vector unavailable")
+
     monkeypatch.setattr(Snapshot, "vector", broken)
     selector = FakeSelector()
     result = service(indexed, selector=selector).answer("E01", SCOPE)
@@ -365,15 +448,17 @@ def test_source_filter_is_applied_in_both_branches(tmp_path):
     assert service(tmp_path).answer("E01", SCOPE, "one").status == "evidence"
 
 
-
 def test_publish_pointer_failure_keeps_previous_generation(tmp_path, monkeypatch):
     import rag.technical.store as store
+
     previous = build_index(tmp_path, [bundle()], FakeEmbeddings(), "fake:v1")
     real_replace = store.os.replace
+
     def fail_pointer(src, dst):
         if Path(dst).name == "active.json":
             raise OSError("simulated crash before pointer publication")
         return real_replace(src, dst)
+
     monkeypatch.setattr(store.os, "replace", fail_pointer)
     with pytest.raises(OSError):
         build_index(tmp_path, [bundle("E01 newer")], FakeEmbeddings(), "fake:v1")
@@ -391,11 +476,13 @@ def test_vector_parent_metadata_must_match_pinned_corpus(tmp_path):
 
 def test_gemini_structured_adapter_constructs_without_network():
     from langchain_google_genai import ChatGoogleGenerativeAI
-    from rag.technical.adapters import LangChainSelector
-    model = ChatGoogleGenerativeAI(model="gemini-test-only-no-invoke", api_key="fake-not-a-real-key",
-                                   temperature=0, timeout=60, max_retries=0)
-    assert LangChainSelector(model).chain is not None
 
+    from rag.technical.adapters import LangChainSelector
+
+    model = ChatGoogleGenerativeAI(
+        model="gemini-test-only-no-invoke", api_key="fake-not-a-real-key", temperature=0, timeout=60, max_retries=0
+    )
+    assert LangChainSelector(model).chain is not None
 
 
 def test_confirmed_asset_prefix_is_search_only_not_a_quote(indexed):
@@ -411,7 +498,6 @@ def test_scope_model_never_substitutes_an_explicit_error_code():
     assert not exact_match("Error E01", "some other error", confirmed_model="E01")
     assert not exact_match("E01", "some other error", confirmed_model="E01")
     assert exact_match("model E01 Error 504", "Error 504", confirmed_model="E01")
-
 
 
 def test_search_prefix_cannot_satisfy_a_quantity_anchor(indexed):

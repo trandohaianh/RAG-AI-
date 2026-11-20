@@ -1,12 +1,19 @@
 """Production must not start with a development signing key."""
+
 import pytest
 
 import config
 
 
-@pytest.mark.parametrize("secret", [
-    "", "short", "dev-secret-change-in-production-32ch", "your_jwt_secret_32chars_minimum",
-])
+@pytest.mark.parametrize(
+    "secret",
+    [
+        "",
+        "short",
+        "dev-secret-change-in-production-32ch",
+        "your_jwt_secret_32chars_minimum",
+    ],
+)
 def test_production_refuses_weak_or_placeholder_secret(monkeypatch, secret):
     monkeypatch.setattr(config, "APP_ENV", "production")
     monkeypatch.setattr(config, "SECRET_KEY", secret)

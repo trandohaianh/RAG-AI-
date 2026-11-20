@@ -11,11 +11,12 @@ câu hỏi "đèn LOS đỏ" lấy phải mục an toàn lao động thay vì m�
 Lỗi im lặng kiểu đó nguy hiểm hơn lỗi báo đỏ, nên không có nhánh nào ở đây được
 phép bỏ qua việc xếp lại.
 """
+
 from __future__ import annotations
 
 import re
-import unicodedata
 import time
+import unicodedata
 
 import httpx
 
@@ -25,8 +26,29 @@ Chunk = tuple[str, str, int | None]
 
 _WORD = re.compile(r"[0-9a-zA-ZÀ-ỹà-ỹ]+", re.UNICODE)
 # Hư từ tiếng Việt: có mặt trong mọi câu nên không phân biệt được chunk nào hợp hơn.
-_STOP = {"thì", "là", "và", "của", "có", "các", "cho", "khi", "phải", "gì", "nào",
-         "trước", "sau", "này", "đó", "một", "được", "với", "trong", "ở", "ra"}
+_STOP = {
+    "thì",
+    "là",
+    "và",
+    "của",
+    "có",
+    "các",
+    "cho",
+    "khi",
+    "phải",
+    "gì",
+    "nào",
+    "trước",
+    "sau",
+    "này",
+    "đó",
+    "một",
+    "được",
+    "với",
+    "trong",
+    "ở",
+    "ra",
+}
 # Dòng tiêu đề mục kiểu "4. XỬ LÝ KHI ĐÈN LOS ĐỎ" — số thứ tự rồi chữ in hoa.
 _HEADING = re.compile(r"^\d+\.\s+[^a-zà-ỹ]")
 # Ca hiện trường gửi cả bản bàn giao làm query; câu hỏi của kỹ thuật viên nằm sau nhãn này.
@@ -69,8 +91,7 @@ def lexical_rerank(query: str, chunks: list[Chunk], top_n: int, keep_order: bool
         text = chunk[0]
         head = _tokens(_section_title(text))
         body = _tokens(text)
-        return (4 * len(primary & head) + 2 * len(primary & body)
-                + len(context & head))
+        return 4 * len(primary & head) + 2 * len(primary & body) + len(context & head)
 
     if not keep_order:
         # Đầu vào chỉ có MỘT tín hiệu (vector, khi nhánh BM25 hỏng/không có): độ trùng từ là tín
@@ -83,8 +104,7 @@ def lexical_rerank(query: str, chunks: list[Chunk], top_n: int, keep_order: bool
     # điểm thì giữ thứ tự hybrid (chủ sản phẩm chọn 2026-11-17).
     scores = [score(chunk) for chunk in chunks]
     lexical_rank = {i: r for r, i in enumerate(sorted(range(len(chunks)), key=lambda i: -scores[i]), 1)}
-    fused = sorted(range(len(chunks)),
-                   key=lambda i: (-(1 / (60 + i + 1) + 1 / (60 + lexical_rank[i])), i))
+    fused = sorted(range(len(chunks)), key=lambda i: (-(1 / (60 + i + 1) + 1 / (60 + lexical_rank[i])), i))
     return [chunks[i] for i in fused[:top_n]]
 
 
@@ -95,9 +115,12 @@ def _record_rerank(data: dict, doc_count: int, started: float) -> None:
     billed = ((data.get("meta") or {}).get("billed_units") or {}).get("search_units")
     units = float(billed) if isinstance(billed, (int, float)) else float(max(1, -(-doc_count // 100)))
     record_usage(
-        provider="cohere", model=COHERE_RERANK_MODEL, units=units,
+        provider="cohere",
+        model=COHERE_RERANK_MODEL,
+        units=units,
         estimated=not isinstance(billed, (int, float)),
-        latency_ms=int((time.perf_counter() - started) * 1000), feature="rerank",
+        latency_ms=int((time.perf_counter() - started) * 1000),
+        feature="rerank",
     )
 
 

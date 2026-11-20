@@ -1,5 +1,8 @@
 """Prometheus metrics — latency, errors, RAG retrieval."""
-from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
+
+from datetime import UTC
+
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
 HTTP_REQUESTS = Counter(
     "rag_http_requests_total",
@@ -97,13 +100,17 @@ class _PipelineCollector:
 
         last_success = GaugeMetricFamily(
             "fieldops_pipeline_last_success_timestamp_seconds",
-            "Thời điểm job pipeline chạy thành công gần nhất (unix)", labels=["task"])
+            "Thời điểm job pipeline chạy thành công gần nhất (unix)",
+            labels=["task"],
+        )
         last_status = GaugeMetricFamily(
-            "fieldops_pipeline_last_status",
-            "Trạng thái lần chạy gần nhất: 1=ok, 0.5=warn, 0=fail", labels=["task"])
+            "fieldops_pipeline_last_status", "Trạng thái lần chạy gần nhất: 1=ok, 0.5=warn, 0=fail", labels=["task"]
+        )
         quality = GaugeMetricFamily(
             "fieldops_data_quality_violations",
-            "Số vi phạm của từng check chất lượng dữ liệu (lần chạy gần nhất)", labels=["check", "severity"])
+            "Số vi phạm của từng check chất lượng dữ liệu (lần chạy gần nhất)",
+            labels=["check", "severity"],
+        )
         # Nhãn "task" thay vì "job": "job" bị Prometheus/Grafana Cloud ghi đè bằng tên scrape job.
         try:
             import json
@@ -114,19 +121,25 @@ class _PipelineCollector:
 
             with SessionLocal() as db:
                 for job in DAILY_CHAIN:
-                    last = (db.query(PipelineRun).filter(PipelineRun.job == job, PipelineRun.status != "running")
-                            .order_by(PipelineRun.id.desc()).first())
+                    last = (
+                        db.query(PipelineRun)
+                        .filter(PipelineRun.job == job, PipelineRun.status != "running")
+                        .order_by(PipelineRun.id.desc())
+                        .first()
+                    )
                     if last is None:
                         continue
                     last_status.add_metric([job], {"ok": 1.0, "warn": 0.5}.get(last.status, 0.0))
-                    ok = (db.query(PipelineRun).filter(PipelineRun.job == job, PipelineRun.status.in_(("ok", "warn")))
-                          .order_by(PipelineRun.id.desc()).first())
+                    ok = (
+                        db.query(PipelineRun)
+                        .filter(PipelineRun.job == job, PipelineRun.status.in_(("ok", "warn")))
+                        .order_by(PipelineRun.id.desc())
+                        .first()
+                    )
                     if ok and ok.finished_at:
                         finished = ok.finished_at
                         if finished.tzinfo is None:  # SQLite trả datetime không múi giờ (đã lưu UTC)
-                            from datetime import timezone
-
-                            finished = finished.replace(tzinfo=timezone.utc)
+                            finished = finished.replace(tzinfo=UTC)
                         last_success.add_metric([job], finished.timestamp())
                     if job == "data_quality" and last.details_json:
                         for name, item in (json.loads(last.details_json).get("checks") or {}).items():
@@ -142,7 +155,9 @@ class _PipelineCollector:
         # không bao giờ tới Prometheus; gauge này thì API luôn xuất được.
         deliveries = GaugeMetricFamily(
             "fieldops_field_webhook_deliveries",
-            "Số lượt webhook ra CRM/NMS theo trạng thái (pending/delivered/dead)", labels=["status"])
+            "Số lượt webhook ra CRM/NMS theo trạng thái (pending/delivered/dead)",
+            labels=["status"],
+        )
         try:
             from sqlalchemy import func
 
@@ -150,8 +165,11 @@ class _PipelineCollector:
             from field.models import FieldWebhookDelivery
 
             with SessionLocal() as db:
-                counts = dict(db.query(FieldWebhookDelivery.status, func.count(FieldWebhookDelivery.id))
-                              .group_by(FieldWebhookDelivery.status).all())
+                counts = dict(
+                    db.query(FieldWebhookDelivery.status, func.count(FieldWebhookDelivery.id))
+                    .group_by(FieldWebhookDelivery.status)
+                    .all()
+                )
             for status in ("pending", "delivered", "dead"):
                 deliveries.add_metric([status], float(counts.get(status, 0)))
         except Exception:

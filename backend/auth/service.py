@@ -1,7 +1,8 @@
 """Authentication with typed JWTs and transactional credential revocation."""
+
 import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 import jwt
@@ -39,7 +40,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(user: User, expires_at: datetime | None = None) -> str:
     """`expires_at`: giữ nguyên hạn của token gốc khi chỉ đổi hình thức phiên (bearer -> cookie)."""
-    expire = expires_at or datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
+    expire = expires_at or datetime.now(UTC) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
     payload = {
         "sub": str(user.id),
         "exp": expire,
@@ -83,7 +84,7 @@ def decode_access_token(token: str) -> dict | None:
 
 
 def create_reset_token(db: Session, user: User) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(UTC) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
     token_id = secrets.token_urlsafe(32)
     payload = {
         "sub": str(user.id),
@@ -111,9 +112,7 @@ def decode_reset_token(token: str) -> dict | None:
     return payload
 
 
-def _change_password(
-    db: Session, user_id: int, version: int, new_password: str
-) -> bool:
+def _change_password(db: Session, user_id: int, version: int, new_password: str) -> bool:
     changed = db.execute(
         update(User)
         .where(
@@ -134,7 +133,7 @@ def reset_password_with_token(db: Session, token: str, new_password: str) -> boo
     payload = decode_reset_token(token)
     if not payload:
         return False
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     token_hash = hashlib.sha256(payload["jti"].encode("utf-8")).hexdigest()
     try:
         # This conditional UPDATE serializes concurrent consumers. The claim and
@@ -151,9 +150,7 @@ def reset_password_with_token(db: Session, token: str, new_password: str) -> boo
             .values(used_at=now)
             .execution_options(synchronize_session=False)
         )
-        if claimed.rowcount != 1 or not _change_password(
-            db, int(payload["sub"]), payload["version"], new_password
-        ):
+        if claimed.rowcount != 1 or not _change_password(db, int(payload["sub"]), payload["version"], new_password):
             db.rollback()
             return False
         db.commit()
@@ -213,10 +210,7 @@ def find_active_user_by_email(db: Session, email: str) -> User | None:
     if exact is not None:
         return exact
     matches = (
-        db.query(User)
-        .filter(sa_func.lower(User.email) == email.lower(), User.deleted_at.is_(None))
-        .limit(2)
-        .all()
+        db.query(User).filter(sa_func.lower(User.email) == email.lower(), User.deleted_at.is_(None)).limit(2).all()
     )
     return matches[0] if len(matches) == 1 else None
 
@@ -232,7 +226,7 @@ def authenticate_user(db: Session, email: str, password: str) -> User | None:
 def create_email_verification_token(user: User) -> str:
     from config import EMAIL_VERIFY_EXPIRE_HOURS
 
-    expire = datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFY_EXPIRE_HOURS)
+    expire = datetime.now(UTC) + timedelta(hours=EMAIL_VERIFY_EXPIRE_HOURS)
     payload = {
         "sub": str(user.id),
         "exp": expire,
@@ -248,17 +242,13 @@ def verify_email_with_token(db: Session, token: str) -> User | None:
     payload = _typed_claims(token, "verify_email")
     if not payload or not isinstance(payload.get("email"), str):
         return None
-    user = (
-        db.query(User)
-        .filter(User.id == int(payload["sub"]), User.deleted_at.is_(None))
-        .first()
-    )
+    user = db.query(User).filter(User.id == int(payload["sub"]), User.deleted_at.is_(None)).first()
     if user is None:
         return None
     if not hmac_compare(payload["email"], hashlib.sha256(user.email.lower().encode("utf-8")).hexdigest()):
         return None
     if user.email_verified_at is None:
-        user.email_verified_at = datetime.now(timezone.utc)
+        user.email_verified_at = datetime.now(UTC)
         db.commit()
         db.refresh(user)
     return user
@@ -283,7 +273,7 @@ def login_with_google(db: Session, identity) -> tuple[User, bool]:
     """
     from sqlalchemy import func as sa_func
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     user = db.query(User).filter(User.google_sub == identity.sub).first()
     if user is not None:
         if user.deleted_at is not None:

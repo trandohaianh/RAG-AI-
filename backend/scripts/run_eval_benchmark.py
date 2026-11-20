@@ -4,6 +4,7 @@ Default/offline mode calls BM25 only: no embeddings, vector database, LLM, judge
 or paid API. It does not measure production RAG accuracy or generated refusal.
 Every invocation starts a fresh report and ignores legacy eval_results.partial.json.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -11,7 +12,7 @@ import hashlib
 import json
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -35,7 +36,10 @@ def load_dataset(path: Path) -> dict:
     identities = [(doc["text"], doc["source"], doc["page"]) for doc in documents]
     if len(ids) != len(set(ids)) or len(identities) != len(set(identities)):
         raise ValueError("Document IDs and evidence identities must be unique")
-    if any((doc["page"] is not None and (type(doc["page"]) is not int or doc["page"] < 1)) or not doc["text"].strip() for doc in documents):
+    if any(
+        (doc["page"] is not None and (type(doc["page"]) is not int or doc["page"] < 1)) or not doc["text"].strip()
+        for doc in documents
+    ):
         raise ValueError("Evidence needs nonempty text and a one-based positive page or null for unpaged text")
     case_ids = [case["id"] for case in cases]
     if len(case_ids) != len(set(case_ids)):
@@ -57,7 +61,10 @@ class FixtureCollection:
     def get(self, include=None):
         return {
             "documents": [doc["text"] for doc in self.documents],
-            "metadatas": [{"source": doc["source"], "page": doc["page"] - 1 if doc["page"] is not None else None} for doc in self.documents],
+            "metadatas": [
+                {"source": doc["source"], "page": doc["page"] - 1 if doc["page"] is not None else None}
+                for doc in self.documents
+            ],
         }
 
 
@@ -80,19 +87,19 @@ def run_offline(dataset_path: Path = DEFAULT_DATASET, k: int = 3, search=None) -
     collection_name = "fieldops-eval-" + run_id
     invalidate(collection_name)
     if search is None:
+
         def search(query, limit, source):
             return bm25_search(collection, collection_name, query, limit, source, raise_errors=True)
-    evidence_ids = {
-        (doc["text"], doc["source"], doc["page"]): doc["id"]
-        for doc in dataset["documents"]
-    }
+
+    evidence_ids = {(doc["text"], doc["source"], doc["page"]): doc["id"] for doc in dataset["documents"]}
     results = []
     supported_count = sum(bool(case["expected_evidence"]) for case in dataset["cases"])
     no_evidence_count = len(dataset["cases"]) - supported_count
     recall_sum = mrr_sum = no_evidence_correct = 0
     for case in dataset["cases"]:
         result = {
-            "id": case["id"], "query": case["query"],
+            "id": case["id"],
+            "query": case["query"],
             "expected_evidence": case["expected_evidence"],
             "expect_no_evidence": case.get("expect_no_evidence", False),
         }
@@ -105,14 +112,17 @@ def run_offline(dataset_path: Path = DEFAULT_DATASET, k: int = 3, search=None) -
             rank = next((i for i, item in enumerate(retrieved, 1) if item in expected), None)
             reciprocal_rank = 1 / rank if rank else 0.0
             passed = found == expected if expected else not rows
-            result.update({
-                "status": "completed", "passed": passed,
-                "retrieved_evidence": retrieved,
-                "retrieved_sources": [{"source": row[1], "page": row[2]} for row in rows],
-                "evidence_recall_at_k": recall,
-                "reciprocal_rank": reciprocal_rank if expected else None,
-                "no_evidence_detected": not rows,
-            })
+            result.update(
+                {
+                    "status": "completed",
+                    "passed": passed,
+                    "retrieved_evidence": retrieved,
+                    "retrieved_sources": [{"source": row[1], "page": row[2]} for row in rows],
+                    "evidence_recall_at_k": recall,
+                    "reciprocal_rank": reciprocal_rank if expected else None,
+                    "no_evidence_detected": not rows,
+                }
+            )
             # Account only after the whole result is constructed successfully.
             # A malformed hit must not contribute to a case reported as failed.
             recall_sum += recall or 0
@@ -131,27 +141,36 @@ def run_offline(dataset_path: Path = DEFAULT_DATASET, k: int = 3, search=None) -
     except PackageNotFoundError:
         bm25_version = None
     return {
-        "schema_version": 1, "run_id": run_id,
+        "schema_version": 1,
+        "run_id": run_id,
         "runtime": {"python": sys.version.split()[0], "rank_bm25": bm25_version},
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "dataset_id": dataset["dataset_id"],
         "dataset_sha256": hashlib.sha256(canonical).hexdigest(),
         "implementation_sha256": _implementation_hash(),
-        "mode": "offline", "scope": "synthetic BM25-only retrieval",
-        "model": None, "k": k,
+        "mode": "offline",
+        "scope": "synthetic BM25-only retrieval",
+        "model": None,
+        "k": k,
         "status": "completed" if not failed else "failed",
-        "planned": len(dataset["cases"]), "completed": completed,
-        "failed": failed, "skipped": 0, "all_expectations_passed": all_passed,
+        "planned": len(dataset["cases"]),
+        "completed": completed,
+        "failed": failed,
+        "skipped": 0,
+        "all_expectations_passed": all_passed,
         "metrics": {
             "supported_planned": supported_count,
             "no_evidence_planned": no_evidence_count,
             "evidence_recall_at_k": round(recall_sum / supported_count, 4) if supported_count else None,
             "mrr_at_k": round(mrr_sum / supported_count, 4) if supported_count else None,
-            "no_evidence_detection_accuracy": round(no_evidence_correct / no_evidence_count, 4) if no_evidence_count else None,
+            "no_evidence_detection_accuracy": round(no_evidence_correct / no_evidence_count, 4)
+            if no_evidence_count
+            else None,
             "failure_policy": "Failed cases count as zero in their planned denominator.",
         },
         "generation": {
-            "status": "not_evaluated", "refusal_rate": None,
+            "status": "not_evaluated",
+            "refusal_rate": None,
             "reason": "No answer generation or judge was invoked. Empty retrieval is not proof of generated refusal.",
         },
         "limitations": "Authored synthetic fixture; no production vector, rerank, generation, safety, or semantic accuracy claim.",
@@ -170,7 +189,11 @@ def main(argv=None) -> int:
     report = run_offline(args.dataset, args.k)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({key: report[key] for key in ["scope", "planned", "completed", "failed", "metrics"]}, ensure_ascii=False))
+    print(
+        json.dumps(
+            {key: report[key] for key in ["scope", "planned", "completed", "failed", "metrics"]}, ensure_ascii=False
+        )
+    )
     print(f"Report: {args.output}")
     return int(args.fail_on_regression and not report["all_expectations_passed"])
 

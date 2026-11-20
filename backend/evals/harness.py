@@ -3,6 +3,7 @@
 QUAN TRỌNG: gọi `prepare_environment()` TRƯỚC khi import bất kỳ module ứng dụng nào,
 vì config.py đọc DATA_DIR/REDIS_URL... ngay lúc import.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -13,7 +14,7 @@ import tempfile
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 EVAL_USER_ID = 900_001
@@ -49,8 +50,8 @@ def _install_providers(ctx: EvalContext) -> None:
 
     import rag.chain as chain
     import rag.ingest as ingest
-    from costs import recorder
     from costs import models as _cost_models  # noqa: F401
+    from costs import recorder
     from database import Base
     from rag.embed_utils import MeteredEmbeddings
 
@@ -92,8 +93,8 @@ def load_dataset(path: Path) -> dict:
 
 
 def _ingest_corpus(dataset: dict, ctx: EvalContext) -> list[str]:
-    from rag.ingest import _ingest_file_sync
     from costs.context import usage_scope
+    from rag.ingest import _ingest_file_sync
 
     corpus_dir = ROOT / dataset["corpus_dir"]
     files = sorted(corpus_dir.glob(dataset.get("corpus_glob", "*")))
@@ -117,9 +118,15 @@ def _usage_since(ctx: EvalContext, last_id: int) -> tuple[list, int]:
     with ctx.usage_factory() as db:  # type: ignore[operator]
         rows = db.query(LlmUsageEvent).filter(LlmUsageEvent.id > last_id).order_by(LlmUsageEvent.id).all()
         events = [
-            {"feature": r.feature, "model": r.model, "input": r.input_tokens,
-             "output": r.output_tokens + r.thinking_tokens, "cost": r.cost_usd,
-             "latency_ms": r.latency_ms or 0, "estimated": r.estimated}
+            {
+                "feature": r.feature,
+                "model": r.model,
+                "input": r.input_tokens,
+                "output": r.output_tokens + r.thinking_tokens,
+                "cost": r.cost_usd,
+                "latency_ms": r.latency_ms or 0,
+                "estimated": r.estimated,
+            }
             for r in rows
         ]
         return events, (rows[-1].id if rows else last_id)
@@ -173,18 +180,35 @@ def _grade(case: dict, answer: str, bundle: dict, k: int, error: str | None) -> 
         if audit == "invalid":
             reasons.append("invalid_citation")
     return {
-        "id": case["id"], "category": case.get("category", "other"), "split": case.get("split", "dev"),
-        "query": case["query"], "answer": answer, "passed": not reasons, "reasons": reasons,
-        "refused": refused, "expect_refusal": case["expect_refusal"],
-        "fact_coverage": coverage, "missing_facts": missing, "forbidden_hits": forbidden,
-        "citation_status": audit, "groundedness": grounded, "retrieval": retrieval,
+        "id": case["id"],
+        "category": case.get("category", "other"),
+        "split": case.get("split", "dev"),
+        "query": case["query"],
+        "answer": answer,
+        "passed": not reasons,
+        "reasons": reasons,
+        "refused": refused,
+        "expect_refusal": case["expect_refusal"],
+        "fact_coverage": coverage,
+        "missing_facts": missing,
+        "forbidden_hits": forbidden,
+        "citation_status": audit,
+        "groundedness": grounded,
+        "retrieval": retrieval,
         "retrieved_sources": graders.ranked_unique_sources(ranked),
         "expected_sources": case.get("expected_sources", []),
     }
 
 
-def run_suite(ctx: EvalContext, dataset_path: Path, *, k: int = 5, judge: bool = False,
-              split: str | None = None, limit: int | None = None) -> dict:
+def run_suite(
+    ctx: EvalContext,
+    dataset_path: Path,
+    *,
+    k: int = 5,
+    judge: bool = False,
+    split: str | None = None,
+    limit: int | None = None,
+) -> dict:
     _install_providers(ctx)
     import config
     from costs.context import usage_scope
@@ -225,7 +249,9 @@ def run_suite(ctx: EvalContext, dataset_path: Path, *, k: int = 5, judge: bool =
                 graded["judge"] = _judge(case["query"], context, answer)
         events, last_id = _usage_since(ctx, last_id)
         graded["latency_ms"] = round(latency, 1)
-        graded["llm_latency_ms"] = sum(e["latency_ms"] for e in events if e["feature"] not in {"embed_query", "eval_judge"})
+        graded["llm_latency_ms"] = sum(
+            e["latency_ms"] for e in events if e["feature"] not in {"embed_query", "eval_judge"}
+        )
         graded["tokens_in"] = sum(e["input"] for e in events)
         graded["tokens_out"] = sum(e["output"] for e in events)
         graded["cost_usd"] = round(sum(e["cost"] for e in events), 8)
@@ -236,14 +262,19 @@ def run_suite(ctx: EvalContext, dataset_path: Path, *, k: int = 5, judge: bool =
         "suite": "fieldops-rag-eval",
         "mode": ctx.mode,
         "dataset_id": dataset["dataset_id"],
-        "dataset_path": str(Path(dataset_path).resolve().relative_to(ROOT)) if str(Path(dataset_path).resolve()).startswith(str(ROOT)) else str(dataset_path),
+        "dataset_path": str(Path(dataset_path).resolve().relative_to(ROOT))
+        if str(Path(dataset_path).resolve()).startswith(str(ROOT))
+        else str(dataset_path),
         "split": split or "all",
-        "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "started_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "duration_s": round(time.perf_counter() - started, 2),
         "config": _config_snapshot(ctx, k, judge),
-        "corpus": {"files": corpus, "ingest_s": round(ingest_s, 2),
-                   "ingest_cost_usd": round(sum(e["cost"] for e in ingest_events), 8),
-                   "ingest_tokens": sum(e["input"] for e in ingest_events)},
+        "corpus": {
+            "files": corpus,
+            "ingest_s": round(ingest_s, 2),
+            "ingest_cost_usd": round(sum(e["cost"] for e in ingest_events), 8),
+            "ingest_tokens": sum(e["input"] for e in ingest_events),
+        },
         "metrics": aggregate(results),
         "by_category": {cat: aggregate(rows) for cat, rows in _group(results, "category").items()},
         "by_split": {sp: aggregate(rows) for sp, rows in _group(results, "split").items()},
@@ -257,7 +288,9 @@ def _config_snapshot(ctx: EvalContext, k: int, judge: bool) -> dict:
 
     offline = ctx.mode == "offline"
     return {
-        "k": k, "retrieve_candidates": config.RETRIEVE_CANDIDATES, "chunk_size": config.CHUNK_SIZE,
+        "k": k,
+        "retrieve_candidates": config.RETRIEVE_CANDIDATES,
+        "chunk_size": config.CHUNK_SIZE,
         "chunk_overlap": config.CHUNK_OVERLAP,
         "rerank": config.COHERE_RERANK_MODEL if os.environ.get("COHERE_API_KEY") else "lexical",
         "llm_model": "local-extractive" if offline else config.LLM_MODEL,

@@ -1,8 +1,10 @@
 """Signed webhooks must preserve account boundaries and current entitlement."""
+
 import hashlib
 import hmac
 import json
 import time
+from datetime import UTC
 from types import SimpleNamespace
 
 import pytest
@@ -25,12 +27,24 @@ def billing_client(monkeypatch):
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine)
     with sessions() as db:
-        db.add_all([
-            User(id=701, email="payer@example.com", hashed_password="unused",
-                 stripe_customer_id="cus_payer", subscription_plan="free"),
-            User(id=702, email="other@example.com", hashed_password="unused",
-                 stripe_customer_id="cus_other", subscription_plan="free"),
-        ])
+        db.add_all(
+            [
+                User(
+                    id=701,
+                    email="payer@example.com",
+                    hashed_password="unused",
+                    stripe_customer_id="cus_payer",
+                    subscription_plan="free",
+                ),
+                User(
+                    id=702,
+                    email="other@example.com",
+                    hashed_password="unused",
+                    stripe_customer_id="cus_other",
+                    subscription_plan="free",
+                ),
+            ]
+        )
         db.commit()
     state = {"status": "active", "price": "price_pro", "failure": False, "calls": []}
 
@@ -39,10 +53,17 @@ def billing_client(monkeypatch):
         if state["failure"]:
             raise RuntimeError("provider unavailable")
         matches = state["status"] == params["status"] and state["price"] == params["price"]
-        return {"data": [{
-            "customer": "cus_payer", "status": state["status"],
-            "items": {"data": [{"price": {"id": state["price"]}}]},
-        }] if matches else []}
+        return {
+            "data": [
+                {
+                    "customer": "cus_payer",
+                    "status": state["status"],
+                    "items": {"data": [{"price": {"id": state["price"]}}]},
+                }
+            ]
+            if matches
+            else []
+        }
 
     sdk = SimpleNamespace(Webhook=stripe.Webhook, Subscription=SimpleNamespace(list=subscriptions_list))
     monkeypatch.setattr(billing, "_stripe", lambda: sdk)
@@ -61,15 +82,25 @@ def billing_client(monkeypatch):
     engine.dispose()
 
 
-def post_event(client, event_type="customer.subscription.updated", customer="cus_payer",
-               status="active", signature=True):
-    payload = json.dumps({
-        "id": "evt_test", "object": "event", "type": event_type,
-        "data": {"object": {
-            "id": "sub_test", "customer": customer, "status": status,
-            "metadata": {"user_id": "702"},
-        }},
-    }, separators=(",", ":"))
+def post_event(
+    client, event_type="customer.subscription.updated", customer="cus_payer", status="active", signature=True
+):
+    payload = json.dumps(
+        {
+            "id": "evt_test",
+            "object": "event",
+            "type": event_type,
+            "data": {
+                "object": {
+                    "id": "sub_test",
+                    "customer": customer,
+                    "status": status,
+                    "metadata": {"user_id": "702"},
+                }
+            },
+        },
+        separators=(",", ":"),
+    )
     now = str(int(time.time()))
     digest = hmac.new(b"whsec_test_only", f"{now}.{payload}".encode(), hashlib.sha256).hexdigest()
     headers = {"Content-Type": "application/json"}
@@ -106,10 +137,16 @@ def test_signed_event_uses_current_customer_not_metadata_or_old_status(billing_c
     assert plan(sessions) == "free"
 
 
-@pytest.mark.parametrize("status,price", [
-    ("incomplete", "price_pro"), ("past_due", "price_pro"), ("unpaid", "price_pro"),
-    ("paused", "price_pro"), ("active", "price_other"),
-])
+@pytest.mark.parametrize(
+    "status,price",
+    [
+        ("incomplete", "price_pro"),
+        ("past_due", "price_pro"),
+        ("unpaid", "price_pro"),
+        ("paused", "price_pro"),
+        ("active", "price_other"),
+    ],
+)
 def test_unentitled_subscription_never_grants_pro(billing_client, status, price):
     client, sessions, state = billing_client
     state.update(status=status, price=price)
@@ -128,9 +165,10 @@ def test_provider_failure_and_unknown_customer_do_not_change_plan(billing_client
 
 def test_deleted_account_cannot_be_reactivated(billing_client):
     from datetime import datetime, timezone
+
     client, sessions, state = billing_client
     with sessions() as db:
-        db.get(User, 701).deleted_at = datetime.now(timezone.utc)
+        db.get(User, 701).deleted_at = datetime.now(UTC)
         db.commit()
     assert post_event(client).status_code == 200
     assert not state["calls"]
@@ -146,11 +184,17 @@ def test_current_trial_with_matching_price_grants_pro(billing_client):
 
 def test_tampered_signature_is_rejected_without_provider_lookup(billing_client):
     client, sessions, state = billing_client
-    payload = json.dumps({"object": "event", "type": "customer.subscription.updated",
-                          "data": {"object": {"customer": "cus_payer"}}})
-    response = client.post("/billing/webhook", content=payload, headers={
-        "Content-Type": "application/json", "stripe-signature": f"t={int(time.time())},v1=wrong",
-    })
+    payload = json.dumps(
+        {"object": "event", "type": "customer.subscription.updated", "data": {"object": {"customer": "cus_payer"}}}
+    )
+    response = client.post(
+        "/billing/webhook",
+        content=payload,
+        headers={
+            "Content-Type": "application/json",
+            "stripe-signature": f"t={int(time.time())},v1=wrong",
+        },
+    )
     assert response.status_code == 400
     assert not state["calls"]
     assert plan(sessions) == "free"
@@ -158,9 +202,12 @@ def test_tampered_signature_is_rejected_without_provider_lookup(billing_client):
 
 def test_checkout_is_disabled_without_working_webhook(billing_client, monkeypatch):
     from auth.schemas import CurrentUser
+
     client, sessions, state = billing_client
     client.app.dependency_overrides[billing.get_current_user] = lambda: CurrentUser(
-        id=701, email="payer@example.com", role="user",
+        id=701,
+        email="payer@example.com",
+        role="user",
     )
     monkeypatch.setattr(billing, "STRIPE_WEBHOOK_SECRET", "")
     assert client.post("/billing/checkout").status_code == 503
@@ -180,8 +227,15 @@ def test_concurrent_newer_webhook_wins_over_delayed_lookup(billing_client, monke
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine)
     with sessions() as db:
-        db.add(User(id=701, email="payer@example.com", hashed_password="unused",
-                    stripe_customer_id="cus_payer", subscription_plan="free"))
+        db.add(
+            User(
+                id=701,
+                email="payer@example.com",
+                hashed_password="unused",
+                stripe_customer_id="cus_payer",
+                subscription_plan="free",
+            )
+        )
         db.commit()
     first_started = threading.Event()
     release_first = threading.Event()
@@ -200,10 +254,14 @@ def test_concurrent_newer_webhook_wins_over_delayed_lookup(billing_client, monke
         return "free"
 
     monkeypatch.setattr(billing, "_current_customer_plan", lookup)
-    payload = json.dumps({
-        "object": "event", "id": "evt_race", "type": "customer.subscription.updated",
-        "data": {"object": {"customer": "cus_payer"}},
-    }).encode()
+    payload = json.dumps(
+        {
+            "object": "event",
+            "id": "evt_race",
+            "type": "customer.subscription.updated",
+            "data": {"object": {"customer": "cus_payer"}},
+        }
+    ).encode()
     now = str(int(time.time()))
     digest = hmac.new(b"whsec_test_only", now.encode() + b"." + payload, hashlib.sha256).hexdigest()
 
@@ -239,7 +297,7 @@ def test_account_disabled_during_lookup_cannot_receive_pro(billing_client, monke
 
     def lookup(_stripe, _customer):
         with sessions() as db:
-            db.get(User, 701).deleted_at = datetime.now(timezone.utc)
+            db.get(User, 701).deleted_at = datetime.now(UTC)
             db.commit()
         return "pro"
 

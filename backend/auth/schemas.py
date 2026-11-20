@@ -1,4 +1,5 @@
 """Pydantic schemas cho auth."""
+
 from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -57,7 +58,9 @@ class UserOut(BaseModel):
     @classmethod
     def from_user(cls, user) -> "UserOut":
         return cls(
-            id=user.id, email=user.email, role=user.role,
+            id=user.id,
+            email=user.email,
+            role=user.role,
             subscription_plan=user.subscription_plan or "free",
             auth_provider=getattr(user, "auth_provider", None) or "password",
             email_verified=getattr(user, "email_verified_at", None) is not None,

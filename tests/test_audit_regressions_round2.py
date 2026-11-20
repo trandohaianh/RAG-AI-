@@ -1,6 +1,7 @@
 """Regression tests for the second round of audit fixes (2026-11-16): owner decisions D1–D7 and
 issues U1–U19 in reports/01_*.md. Every test reproduces a concrete failure of the pre-fix code.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -9,7 +10,7 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -29,7 +30,8 @@ from auth.service import create_access_token, hash_password
 from costs import models as cost_models  # noqa: F401  (llm_budget_reservations)
 from database import Base, _enable_sqlite_foreign_keys
 from evals import graders
-from field import integrations, models as field_models, photos
+from field import integrations, photos
+from field import models as field_models
 from rag.evidence import audit_citations, capture_evidence
 from saas import models as saas_models  # noqa: F401
 from test_auth_providers import _fake_google, client, db_factory  # noqa: F401
@@ -45,6 +47,7 @@ def sessions():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     event.listen(engine, "connect", _enable_sqlite_foreign_keys)
     import pipeline.jobs.models  # noqa: F401  (pipeline_runs table)
+
     Base.metadata.create_all(engine)
     yield sessionmaker(bind=engine, autoflush=False)
     engine.dispose()
@@ -97,22 +100,29 @@ def test_forgot_password_limit_is_per_requester_and_does_not_wait_for_smtp(clien
     from auth import ratelimit
 
     ratelimit.reset()
-    monkeypatch.setattr(ratelimit, "client_ip", lambda request: "203.0.113.9")       # attacker
+    monkeypatch.setattr(ratelimit, "client_ip", lambda request: "203.0.113.9")  # attacker
     for _ in range(5):
         client.post("/auth/forgot-password", json={"email": "victim@example.com"})
-    monkeypatch.setattr(ratelimit, "client_ip", lambda request: "198.51.100.7")      # real owner
+    monkeypatch.setattr(ratelimit, "client_ip", lambda request: "198.51.100.7")  # real owner
     assert client.post("/auth/forgot-password", json={"email": "victim@example.com"}).status_code == 200
 
 
 def test_deactivating_an_account_cancels_its_stripe_subscription(sessions, monkeypatch):
     cancelled = []
-    sdk = SimpleNamespace(Subscription=SimpleNamespace(
-        list=lambda **kw: {"data": [{"id": "sub_1"}] if kw["status"] == "active" else []},
-        cancel=lambda sub_id: cancelled.append(sub_id)))
+    sdk = SimpleNamespace(
+        Subscription=SimpleNamespace(
+            list=lambda **kw: {"data": [{"id": "sub_1"}] if kw["status"] == "active" else []},
+            cancel=lambda sub_id: cancelled.append(sub_id),
+        )
+    )
     monkeypatch.setattr(billing, "_stripe", lambda: sdk)
     with sessions() as db:
-        db.add_all([User(id=1, email="admin@example.com", hashed_password="x", role="admin"),
-                    User(id=2, email="payer@example.com", hashed_password="x", stripe_customer_id="cus_2")])
+        db.add_all(
+            [
+                User(id=1, email="admin@example.com", hashed_password="x", role="admin"),
+                User(id=2, email="payer@example.com", hashed_password="x", stripe_customer_id="cus_2"),
+            ]
+        )
         db.commit()
         deactivate_account(db, 2, actor_id=1)
     assert cancelled == ["sub_1"]
@@ -124,8 +134,13 @@ def test_invalid_signing_or_chunking_config_fails_at_startup(env_overrides):
 
     # Không nạp .env cục bộ của máy chạy test: chỉ biến môi trường của test được tính.
     script = "import dotenv; dotenv.load_dotenv = lambda *a, **k: False; import config"
-    result = subprocess.run([sys.executable, "-B", "-c", script], cwd=BACKEND,
-                            env={**os.environ, **env_overrides}, capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", script],
+        cwd=BACKEND,
+        env={**os.environ, **env_overrides},
+        capture_output=True,
+        text=True,
+    )
     assert result.returncode != 0
 
 
@@ -133,8 +148,8 @@ def test_invalid_signing_or_chunking_config_fails_at_startup(env_overrides):
 def test_widget_origin_is_checked_against_the_framing_site(monkeypatch):
     monkeypatch.setattr(embed, "APP_PUBLIC_URL", "https://app.fieldops.vn")
     row = SimpleNamespace(allowed_origins="https://khach.vn")
-    embed._check_origin(row, "https://app.fieldops.vn", "https://khach.vn")      # widget on the customer site
-    embed._check_origin(row, "https://khach.vn")                                  # customer calls the API directly
+    embed._check_origin(row, "https://app.fieldops.vn", "https://khach.vn")  # widget on the customer site
+    embed._check_origin(row, "https://khach.vn")  # customer calls the API directly
     with pytest.raises(Exception):
         embed._check_origin(row, "https://app.fieldops.vn", "https://evil.example")
     with pytest.raises(Exception):
@@ -169,17 +184,27 @@ class _Client:
 
 def _queued_delivery(env_):
     client, _, ws, sessions_ = env_
-    integ = client.post(f"/field/workspaces/{ws}/integrations",
-                        json={"name": "CRM", "kind": "crm", "outbound_url": "https://crm.example.com/hook"}).json()
-    created = _send(client, integ, {"event_id": "e1", "type": "ticket.created", "external_ref": "T-1",
-                                    "data": {"title": "Mất mạng", "description": "LOS đỏ"}}).json()
+    integ = client.post(
+        f"/field/workspaces/{ws}/integrations",
+        json={"name": "CRM", "kind": "crm", "outbound_url": "https://crm.example.com/hook"},
+    ).json()
+    created = _send(
+        client,
+        integ,
+        {
+            "event_id": "e1",
+            "type": "ticket.created",
+            "external_ref": "T-1",
+            "data": {"title": "Mất mạng", "description": "LOS đỏ"},
+        },
+    ).json()
     client.patch(f"/field/cases/{created['case_id']}", json={"status": "in_progress"})
     return integ, sessions_
 
 
 def test_two_dispatchers_never_send_the_same_delivery_twice(env):  # noqa: F811
     _, sessions_ = _queued_delivery(env)
-    later = datetime.now(timezone.utc) + timedelta(minutes=1)
+    later = datetime.now(UTC) + timedelta(minutes=1)
 
     def concurrent_worker():
         with sessions_() as other:
@@ -198,7 +223,7 @@ def test_outbound_request_is_pinned_to_the_checked_ip(env, monkeypatch):  # noqa
     monkeypatch.setattr(integrations.socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("93.184.216.34", 443))])
     client = _Client()
     with sessions_() as db:
-        integrations.dispatch_due(db, client=client, now=datetime.now(timezone.utc) + timedelta(minutes=1))
+        integrations.dispatch_due(db, client=client, now=datetime.now(UTC) + timedelta(minutes=1))
     url, headers, kwargs = client.calls[0]
     assert url.startswith("https://93.184.216.34/"), "connect to the validated address, not a re-resolved one"
     assert headers["Host"] == "crm.example.com" and kwargs["extensions"]["sni_hostname"] == "crm.example.com"
@@ -208,7 +233,7 @@ def test_delivered_webhook_cannot_be_retried(env):  # noqa: F811
     integ, sessions_ = _queued_delivery(env)
     client = env[0]
     with sessions_() as db:
-        integrations.dispatch_due(db, client=_Client(), now=datetime.now(timezone.utc) + timedelta(minutes=1))
+        integrations.dispatch_due(db, client=_Client(), now=datetime.now(UTC) + timedelta(minutes=1))
         delivery = db.query(field_models.FieldWebhookDelivery).filter_by(status="delivered").first()
     assert client.post(f"/field/integrations/{integ['id']}/deliveries/{delivery.id}/retry").status_code == 409
 
@@ -245,24 +270,35 @@ def test_concurrent_retry_with_the_same_action_id_replays_instead_of_500(env, mo
     case = _case(client, ws)
     body = field_router.CaseUpdate(status="in_progress", client_action_id="act-race-1")
     with sessions_() as other:
-        other.add(field_models.FieldClientAction(client_action_id="act-race-1", case_id=case["id"], actor_id=1,
-                                                 action_type="case_update",
-                                                 request_hash=field_router.hashlib.sha256(json.dumps(
-                                                     {"status": "in_progress"}, sort_keys=True,
-                                                     separators=(",", ":")).encode()).hexdigest()))
+        other.add(
+            field_models.FieldClientAction(
+                client_action_id="act-race-1",
+                case_id=case["id"],
+                actor_id=1,
+                action_type="case_update",
+                request_hash=field_router.hashlib.sha256(
+                    json.dumps({"status": "in_progress"}, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest(),
+            )
+        )
         other.commit()
     with sessions_() as db:
         real_get = db.get
         calls = {"n": 0}
 
-        def stale_get(model, key, **kw):   # the first lookup ran before the other request committed
+        def stale_get(model, key, **kw):  # the first lookup ran before the other request committed
             calls["n"] += 1
             return None if model is field_models.FieldClientAction and calls["n"] == 1 else real_get(model, key, **kw)
 
         monkeypatch.setattr(db, "get", stale_get)
         action, replay = field_router._claim_client_action(
-            db, client_action_id="act-race-1", case_id=case["id"], actor_id=1,
-            action_type="case_update", request_body=body)
+            db,
+            client_action_id="act-race-1",
+            case_id=case["id"],
+            actor_id=1,
+            action_type="case_update",
+            request_body=body,
+        )
     assert replay is True and action.client_action_id == "act-race-1"
 
 
@@ -275,10 +311,20 @@ def test_photo_limit_is_rechecked_after_slow_processing(env, monkeypatch):  # no
 
     def process_while_another_upload_commits(data):
         result = real(data)
-        with sessions_() as other:      # the parallel upload finishes first
-            other.add(field_models.ServiceCasePhoto(
-                case_id=case["id"], uploaded_by=1, storage_key=f"{ws}/{case['id']}/other", sha256="0" * 64,
-                content_type="image/jpeg", size_bytes=10, width=1, height=1, caption=""))
+        with sessions_() as other:  # the parallel upload finishes first
+            other.add(
+                field_models.ServiceCasePhoto(
+                    case_id=case["id"],
+                    uploaded_by=1,
+                    storage_key=f"{ws}/{case['id']}/other",
+                    sha256="0" * 64,
+                    content_type="image/jpeg",
+                    size_bytes=10,
+                    width=1,
+                    height=1,
+                    caption="",
+                )
+            )
             other.commit()
         return result
 
@@ -398,7 +444,7 @@ def test_interrupted_pipeline_runs_are_failed_and_db_outage_does_not_raise(sessi
     from pipeline.jobs.models import PipelineRun
 
     with sessions() as db:
-        db.add(PipelineRun(job="backup", status="running", started_at=datetime.now(timezone.utc) - timedelta(days=1)))
+        db.add(PipelineRun(job="backup", status="running", started_at=datetime.now(UTC) - timedelta(days=1)))
         db.commit()
     assert runner.fail_interrupted_runs(session_factory=sessions) == 1
     with sessions() as db:
@@ -436,8 +482,10 @@ def test_gold_daily_stats_bucket_by_utc_day(monkeypatch):
 
     @contextmanager
     def scope():
-        yield SimpleNamespace(execute=lambda sql, params=None: executed.append(str(sql)) or SimpleNamespace(
-            fetchone=lambda: (0, 0, 0, 0), mappings=lambda: SimpleNamespace(first=lambda: {})))
+        yield SimpleNamespace(
+            execute=lambda sql, params=None: executed.append(str(sql))
+            or SimpleNamespace(fetchone=lambda: (0, 0, 0, 0), mappings=lambda: SimpleNamespace(first=lambda: {}))
+        )
 
     monkeypatch.setattr(gold, "session_scope", scope)
     try:

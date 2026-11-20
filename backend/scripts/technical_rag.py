@@ -1,4 +1,5 @@
 """Operator CLI; does not read the app .env, app DB or active RAG collections."""
+
 from __future__ import annotations
 
 import argparse
@@ -64,6 +65,7 @@ def main():
     else:
         from rag.technical.adapters import OllamaEmbeddings
         from rag.technical.store import build_index
+
         embeddings = OllamaEmbeddings(args.embedding_model, args.ollama_url)
         if args.command == "build":
             bundles = [LayoutBundle.model_validate(read_json(p)) for p in args.layouts]
@@ -72,18 +74,25 @@ def main():
             if not args.allow_external_calls:
                 parser.error("Gemini (and optional Cohere) requires --allow-external-calls")
             from langchain_google_genai import ChatGoogleGenerativeAI
+
             from rag.technical.adapters import CohereReranker, LangChainSelector, LocalBGEReranker
             from rag.technical.pipeline import Policy, TechnicalRAG
+
             if args.reranker == "local":
                 if not args.reranker_path:
                     parser.error("--reranker-path must point to reviewed local safetensors weights")
                 reranker = LocalBGEReranker(args.reranker_path, args.reranker_id)
             else:
-                reranker = CohereReranker(os.environ["COHERE_API_KEY"], args.cohere_model,
-                                          identity=args.reranker_id)
+                reranker = CohereReranker(os.environ["COHERE_API_KEY"], args.cohere_model, identity=args.reranker_id)
             llm = ChatGoogleGenerativeAI(model=args.llm, temperature=0, timeout=60, max_retries=0)
-            service = TechnicalRAG(Path(args.root), embeddings, args.embedding_id, reranker,
-                                   LangChainSelector(llm), Policy.model_validate(read_json(args.policy)))
+            service = TechnicalRAG(
+                Path(args.root),
+                embeddings,
+                args.embedding_id,
+                reranker,
+                LangChainSelector(llm),
+                Policy.model_validate(read_json(args.policy)),
+            )
             result = service.answer(args.question, Scope.model_validate(read_json(args.scope)), args.source_id)
             print(result.model_dump_json(indent=2))
 

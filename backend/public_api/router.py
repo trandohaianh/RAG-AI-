@@ -1,5 +1,6 @@
 """Public REST API v1 + API key management — tuần 7–8."""
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -10,12 +11,12 @@ from auth.schemas import CurrentUser
 from config import GEMINI_API_KEY, LLM_PROVIDER
 from database import get_db
 from dependencies import get_current_user
+from rag.chain import RagGenerationError, answer_rag_once
+from rag.evidence import CitationAudit, EvidenceOut, public_bundle
+from rag.ingest import list_user_docs
 from saas.limits import enforce_query_quota
 from saas.models import ApiKey
 from saas.security import generate_api_key, hash_secret
-from rag.chain import RagGenerationError, answer_rag_once
-from rag.evidence import EvidenceOut, CitationAudit, public_bundle
-from rag.ingest import list_user_docs
 
 router = APIRouter(tags=["public-api"])
 v1 = APIRouter(prefix="/v1", tags=["v1"])
@@ -59,7 +60,7 @@ async def get_api_key_user(
     user = db.query(User).filter(User.id == row.user_id, User.deleted_at.is_(None)).first()
     if not user:
         raise HTTPException(status_code=401, detail="User không tồn tại")
-    row.last_used_at = datetime.now(timezone.utc)
+    row.last_used_at = datetime.now(UTC)
     db.commit()
     return user
 
@@ -93,12 +94,7 @@ def list_api_keys(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    rows = (
-        db.query(ApiKey)
-        .filter(ApiKey.user_id == user.id)
-        .order_by(ApiKey.created_at.desc())
-        .all()
-    )
+    rows = db.query(ApiKey).filter(ApiKey.user_id == user.id).order_by(ApiKey.created_at.desc()).all()
     return [
         ApiKeyOut(
             id=r.id,
@@ -132,7 +128,9 @@ async def v1_ask(
     api_user: User = Depends(get_api_key_user),
 ):
     if LLM_PROVIDER != "ollama" and not GEMINI_API_KEY:
-        raise HTTPException(status_code=503, detail="Thiếu GEMINI_API_KEY")  # chưa cấu hình: dịch vụ chưa sẵn sàng, không phải lỗi máy chủ
+        raise HTTPException(
+            status_code=503, detail="Thiếu GEMINI_API_KEY"
+        )  # chưa cấu hình: dịch vụ chưa sẵn sàng, không phải lỗi máy chủ
     plan = api_user.subscription_plan or "free"
     from costs.budget import enforce_budget_async
     from costs.context import set_request_usage
@@ -156,10 +154,7 @@ async def v1_ask(
 @v1.get("/documents")
 async def v1_documents(api_user: User = Depends(get_api_key_user)):
     docs = await list_user_docs(api_user.id)
-    return [
-        {"name": d["name"], "chunks": d["chunks"], "uploaded_at": d.get("uploaded_at")}
-        for d in docs
-    ]
+    return [{"name": d["name"], "chunks": d["chunks"], "uploaded_at": d.get("uploaded_at")} for d in docs]
 
 
 router.include_router(v1)

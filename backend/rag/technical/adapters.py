@@ -1,4 +1,5 @@
 """Real cross-encoders and LangChain adapters. No lexical rerank fallback."""
+
 from __future__ import annotations
 
 import math
@@ -34,8 +35,10 @@ class Selector(Protocol):
 
 
 def validate_scores(scores, expected: int) -> list[float]:
-    if len(scores) != expected or any(isinstance(v, bool) or not isinstance(v, (float, int))
-                                      or not math.isfinite(v) or not 0 <= v <= 1 for v in scores):
+    if len(scores) != expected or any(
+        isinstance(v, bool) or not isinstance(v, (float, int)) or not math.isfinite(v) or not 0 <= v <= 1
+        for v in scores
+    ):
         raise TechnicalRAGError("Invalid reranker output")
     return [float(v) for v in scores]
 
@@ -47,8 +50,9 @@ class LocalBGEReranker:
     downloads, fp16, or tokenizer truncation. Pin the weights' version in identity.
     """
 
-    def __init__(self, model_path: str, identity: str, *, device: str = "cpu",
-                 max_pair_tokens: int = 512, batch_size: int = 8):
+    def __init__(
+        self, model_path: str, identity: str, *, device: str = "cpu", max_pair_tokens: int = 512, batch_size: int = 8
+    ):
         import torch
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
@@ -56,10 +60,10 @@ class LocalBGEReranker:
             raise ValueError("Invalid model configuration")
         self.torch = torch
         self.identity = identity
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True,
-                                                       trust_remote_code=False)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True, trust_remote_code=False)
         self.model = AutoModelForSequenceClassification.from_pretrained(
-            model_path, local_files_only=True, trust_remote_code=False, use_safetensors=True)
+            model_path, local_files_only=True, trust_remote_code=False, use_safetensors=True
+        )
         self.model.to(device).eval()
         self.device, self.max_pair_tokens, self.batch_size = device, max_pair_tokens, batch_size
         self.lock = threading.Lock()
@@ -72,9 +76,8 @@ class LocalBGEReranker:
         scores = []
         with self.lock, self.torch.inference_mode():
             for start in range(0, len(documents), self.batch_size):
-                docs = documents[start:start + self.batch_size]
-                batch = self.tokenizer([query] * len(docs), docs, padding=True,
-                                       truncation=False, return_tensors="pt")
+                docs = documents[start : start + self.batch_size]
+                batch = self.tokenizer([query] * len(docs), docs, padding=True, truncation=False, return_tensors="pt")
                 if batch["input_ids"].shape[1] > self.max_pair_tokens:
                     raise TechnicalRAGError("Reranker pair too long; refusing silent truncation")
                 batch = {k: v.to(self.device) for k, v in batch.items()}
@@ -93,8 +96,7 @@ class CohereReranker:
     closed. Send only reviewed text approved for this external service.
     """
 
-    def __init__(self, api_key: str, model: str = "rerank-v5.0-pro", *,
-                 identity: str | None = None, transport=None):
+    def __init__(self, api_key: str, model: str = "rerank-v5.0-pro", *, identity: str | None = None, transport=None):
         self.api_key, self.model = api_key, model
         self.identity = identity or "cohere:" + model
         self.transport = transport
@@ -103,10 +105,17 @@ class CohereReranker:
         if len(query.encode("utf-8")) > 1024 or any(len(d.encode("utf-8")) > 4096 for d in documents):
             raise TechnicalRAGError("Cohere request exceeds explicit byte budgets")
         with httpx.Client(timeout=60, transport=self.transport) as client:
-            response = client.post("https://api.cohere.com/v2/rerank",
-                                   headers={"Authorization": "Bearer " + self.api_key},
-                                   json={"model": self.model, "query": query, "documents": documents,
-                                         "top_n": len(documents), "max_tokens_per_doc": 8192})
+            response = client.post(
+                "https://api.cohere.com/v2/rerank",
+                headers={"Authorization": "Bearer " + self.api_key},
+                json={
+                    "model": self.model,
+                    "query": query,
+                    "documents": documents,
+                    "top_n": len(documents),
+                    "max_tokens_per_doc": 8192,
+                },
+            )
             response.raise_for_status()
             results = response.json()["results"]
         if len(results) != len(documents):
@@ -122,18 +131,24 @@ class CohereReranker:
 
 class LangChainSelector:
     def __init__(self, chat_model):
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", SYSTEM_PROMPT),
-            ("human", "SCOPE={scope}\nQUESTION={question}\nCONTEXT={context}"),
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", SYSTEM_PROMPT),
+                ("human", "SCOPE={scope}\nQUESTION={question}\nCONTEXT={context}"),
+            ]
+        )
         self.chain = prompt | chat_model.with_structured_output(Selection, include_raw=True)
 
     def select(self, query: str, scope: Scope, context: list[dict]) -> Selection:
-        result = self.chain.invoke({"scope": canonical(scope.model_dump()),
-                                    "question": query, "context": canonical(context)})
+        result = self.chain.invoke(
+            {"scope": canonical(scope.model_dump()), "question": query, "context": canonical(context)}
+        )
         raw = result.get("raw")
-        if (result.get("parsing_error") is not None or raw is None
-                or raw.response_metadata.get("finish_reason") not in {"STOP", "stop"}):
+        if (
+            result.get("parsing_error") is not None
+            or raw is None
+            or raw.response_metadata.get("finish_reason") not in {"STOP", "stop"}
+        ):
             raise TechnicalRAGError("Selector did not finish normally with a valid structured response")
         parsed = result.get("parsed")
         return parsed if isinstance(parsed, Selection) else Selection.model_validate(parsed)
@@ -147,8 +162,9 @@ class OllamaEmbeddings(Embeddings):
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         with httpx.Client(timeout=60) as client:
-            response = client.post(self.base_url + "/api/embed",
-                                   json={"model": self.model, "input": texts, "truncate": False})
+            response = client.post(
+                self.base_url + "/api/embed", json={"model": self.model, "input": texts, "truncate": False}
+            )
             response.raise_for_status()
             return response.json()["embeddings"]
 

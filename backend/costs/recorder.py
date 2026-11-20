@@ -2,12 +2,13 @@
 
 Ghi chi phí là best-effort: lỗi DB không bao giờ làm hỏng câu trả lời cho người dùng.
 """
+
 from __future__ import annotations
 
 import logging
 import math
 import os
-from typing import Callable
+from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
@@ -99,14 +100,23 @@ def record_usage(
         from costs.models import LlmUsageEvent
 
         with _factory()() as db:
-            db.add(LlmUsageEvent(
-                user_id=user_id, workspace_id=workspace_id, feature=feature[:40],
-                provider=provider[:20], model=(model or "unknown")[:80],
-                input_tokens=input_tokens, output_tokens=output_tokens,
-                thinking_tokens=thinking_tokens, units=float(units or 0.0),
-                estimated=bool(estimated), cost_usd=cost, latency_ms=latency_ms,
-                status=status[:12],
-            ))
+            db.add(
+                LlmUsageEvent(
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    feature=feature[:40],
+                    provider=provider[:20],
+                    model=(model or "unknown")[:80],
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    thinking_tokens=thinking_tokens,
+                    units=float(units or 0.0),
+                    estimated=bool(estimated),
+                    cost_usd=cost,
+                    latency_ms=latency_ms,
+                    status=status[:12],
+                )
+            )
             db.commit()
     except Exception as exc:
         logger.warning("Could not persist LLM usage (%s)", type(exc).__name__)

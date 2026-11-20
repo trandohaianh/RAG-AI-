@@ -3,16 +3,16 @@
 Run with the same interpreter used to start the backend. This command does not
 load application configuration, create databases, or call an LLM/embedding API.
 """
+
 from __future__ import annotations
 
 import argparse
-from importlib import import_module, metadata
-from pathlib import Path
 import subprocess
 import sys
+from importlib import import_module, metadata
+from pathlib import Path
 
 from packaging.requirements import InvalidRequirement, Requirement
-
 
 # Include the symbols consumed by the backend, including the adapter's error
 # class: a successful resolver alone cannot detect a moved Python API.
@@ -89,7 +89,9 @@ def main() -> int:
         for error in errors:
             print(f"  - {error}")
         return 1
-    print(f"Dependency validation passed: {checked} declared packages, pip check, {len(IMPORT_CONTRACT)} import contracts.")
+    print(
+        f"Dependency validation passed: {checked} declared packages, pip check, {len(IMPORT_CONTRACT)} import contracts."
+    )
     return 0
 
 

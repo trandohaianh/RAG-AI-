@@ -4,6 +4,7 @@ No embedding provider or LLM is contacted. SQLite commits each fake collection
 mutation, so killing the worker cannot hide an interrupted add/delete/rollback
 behind an in-memory test double.
 """
+
 from __future__ import annotations
 
 import json
@@ -16,7 +17,6 @@ from langchain_core.documents import Document
 
 import rag.document_lifecycle as lifecycle
 import rag.ingest as ingest
-
 
 OLD_ROWS = {
     "legacy-0": ("old revision", {"source": "manual.txt"}, [1.0, 0.0]),
@@ -39,17 +39,21 @@ class DurableCollection:
 
     def get(self, where=None, include=None):
         rows = [(key, row) for key, row in self.rows.items() if not where or row[1]["source"] == where["source"]]
-        return {"ids": [key for key, row in rows], "documents": [row[0] for key, row in rows],
-                "metadatas": [row[1] for key, row in rows], "embeddings": [row[2] for key, row in rows]}
+        return {
+            "ids": [key for key, row in rows],
+            "documents": [row[0] for key, row in rows],
+            "metadatas": [row[1] for key, row in rows],
+            "embeddings": [row[2] for key, row in rows],
+        }
 
     def add(self, ids, documents, metadatas, embeddings):
-        for key, text, meta, vector in zip(ids, documents, metadatas, embeddings):
+        for key, text, meta, vector in zip(ids, documents, metadatas, embeddings, strict=False):
             with sqlite3.connect(self.path) as connection:
                 connection.execute("INSERT INTO rows VALUES (?,?)", (key, json.dumps([text, meta, vector])))
             self.pause("added", key)
 
     def upsert(self, ids, documents, metadatas, embeddings):
-        for key, text, meta, vector in zip(ids, documents, metadatas, embeddings):
+        for key, text, meta, vector in zip(ids, documents, metadatas, embeddings, strict=False):
             with sqlite3.connect(self.path) as connection:
                 connection.execute("INSERT OR REPLACE INTO rows VALUES (?,?)", (key, json.dumps([text, meta, vector])))
             self.pause("restored", key)
@@ -101,45 +105,56 @@ def _writer(index_dir, upload_root, database, target, mode, reached):
     ingest._split_sync = lambda docs: [Document(page_content="new first"), Document(page_content="new second")]
     ingest._invalidate_scope = lambda *args: None
     import pipeline.db
+
     pipeline.db.is_medallion_enabled = lambda: False
 
     original_publish = ingest.publish_raw
+
     def publish(staged, destination):
         if mode in {"rollback_index", "rolled_back_cleanup"}:
             raise RuntimeError("Start rollback before publication")
         original_publish(staged, destination)
         if mode == "published":
             halt()
+
     ingest.publish_raw = publish
 
     original_delete = ingest.delete_raw
+
     def delete(path):
         original_delete(path)
         if mode == "deleted_raw":
             halt()
+
     ingest.delete_raw = delete
 
     original_cleanup = lifecycle._cleanup_transaction
+
     def cleanup(index, record):
         if mode in {"committed_cleanup", "delete_committed_cleanup"} and record["phase"] == "committed":
             halt()
         if mode == "rolled_back_cleanup" and record["phase"] == "rolled_back":
             halt()
         return original_cleanup(index, record)
+
     lifecycle._cleanup_transaction = cleanup
 
     original_copy = lifecycle._copy_durable
+
     def copy(source, destination):
         original_copy(source, destination)
         if mode == "rollback_raw":
             halt()
+
     lifecycle._copy_durable = copy
 
     original_write = lifecycle._write_journal
+
     def write(index, record):
         original_write(index, record)
         if mode == "prepared" and record["phase"] == "prepared":
             halt()
+
     lifecycle._write_journal = write
 
     if mode in {"partial_delete", "deleted_raw", "delete_committed_cleanup"}:
@@ -183,10 +198,22 @@ def terminate_writer(storage, mode):
     assert lifecycle._journal_path(index, "user_1").exists()
 
 
-@pytest.mark.parametrize("mode", [
-    "prepared", "partial_add", "published", "partial_retire", "partial_delete", "deleted_raw",
-    "rollback_index", "rollback_raw", "rolled_back_cleanup", "committed_cleanup", "delete_committed_cleanup",
-])
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "prepared",
+        "partial_add",
+        "published",
+        "partial_retire",
+        "partial_delete",
+        "deleted_raw",
+        "rollback_index",
+        "rollback_raw",
+        "rolled_back_cleanup",
+        "committed_cleanup",
+        "delete_committed_cleanup",
+    ],
+)
 def test_terminated_publication_and_rollback_recover_before_read(storage, mode):
     index, uploads, database, target, collection = storage
     terminate_writer(storage, mode)
@@ -278,6 +305,7 @@ def test_valid_json_journal_corruption_blocks_recovery(storage, field):
 
 def _real_chroma_writer(index_dir, uploads, target, reached):
     import chromadb
+
     import pipeline.db
 
     index_dir, target = Path(index_dir), Path(target)
@@ -299,6 +327,7 @@ def _real_chroma_writer(index_dir, uploads, target, reached):
         reached.set()
         multiprocessing.Event().wait(120)
         raise RuntimeError("Parent did not terminate worker")
+
     ingest.publish_raw = publish
     ingest._ingest_file_sync(1, target, content=b"real Chroma new revision")
 
@@ -327,8 +356,12 @@ def test_real_chroma_recovers_persisted_numpy_snapshot_after_process_termination
     with lifecycle.collection_read_lock(index, "user_1"):
         collection = chromadb.PersistentClient(path=str(index)).get_collection(name="user_1")
         result = collection.get(include=["documents", "metadatas", "embeddings"])
-        restored = {key: (text, meta, vector.tolist()) for key, text, meta, vector in zip(
-            result["ids"], result["documents"], result["metadatas"], result["embeddings"])}
+        restored = {
+            key: (text, meta, vector.tolist())
+            for key, text, meta, vector in zip(
+                result["ids"], result["documents"], result["metadatas"], result["embeddings"], strict=False
+            )
+        }
         assert restored == OLD_ROWS
         assert target.read_bytes() == b"old revision"
     assert not lifecycle._journal_path(index, "user_1").exists()

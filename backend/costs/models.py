@@ -1,4 +1,5 @@
 """Bảng lưu sự kiện dùng AI và chi phí hạ tầng theo tháng."""
+
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, Text, func
@@ -15,9 +16,7 @@ class LlmUsageEvent(Base):
     __table_args__ = (Index("ix_llm_usage_user_created", "user_id", "created_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), index=True
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     # Không đặt FK: sự kiện chi phí phải giữ lại kể cả khi tài khoản bị xoá.
     user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     workspace_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -58,6 +57,4 @@ class InfraCost(Base):
     amount_usd: Mapped[float] = mapped_column(Float, default=0.0)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

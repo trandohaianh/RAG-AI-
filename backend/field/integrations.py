@@ -17,6 +17,7 @@ RA — khi ca có nguồn từ một kết nối đổi trạng thái/người p
     Mỗi lần gửi có hạn chót tổng WEBHOOK_DEADLINE_SECONDS và chỉ đọc tối đa 4 KB phản hồi.
     URL ra phải là https và không trỏ vào mạng nội bộ (chống SSRF).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -31,7 +32,7 @@ import threading
 import time
 import uuid
 from collections import defaultdict, deque
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -65,8 +66,17 @@ WEBHOOK_DEADLINE_SECONDS = float(os.getenv("FIELD_WEBHOOK_DEADLINE_SECONDS", "20
 MAX_RESPONSE_BYTES = 4096
 MAX_INBOUND_BYTES = 256 * 1024
 EVENT_TYPES = {"ticket.created", "ticket.updated", "ticket.closed", "alarm.raised", "alarm.cleared"}
-SEVERITY = {"critical": "urgent", "major": "high", "minor": "normal", "warning": "low", "info": "low",
-            "urgent": "urgent", "high": "high", "normal": "normal", "low": "low"}
+SEVERITY = {
+    "critical": "urgent",
+    "major": "high",
+    "minor": "normal",
+    "warning": "low",
+    "info": "low",
+    "urgent": "urgent",
+    "high": "high",
+    "normal": "normal",
+    "low": "low",
+}
 _rate: dict[int, deque] = defaultdict(deque)
 _rate_lock = threading.Lock()
 
@@ -101,8 +111,15 @@ def validate_outbound_url(url: str) -> list[str]:
             ip = mapped
         # is_private bỏ sót 100.64.0.0/10 (CGNAT, metadata của một số cloud) và 0.0.0.0;
         # chỉ cho phép địa chỉ định tuyến công khai.
-        if (not ip.is_global or ip.is_private or ip.is_loopback or ip.is_link_local
-                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+        if (
+            not ip.is_global
+            or ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
             raise ValueError("URL webhook không được trỏ vào mạng nội bộ")
         if str(ip) not in checked:
             checked.append(str(ip))
@@ -126,8 +143,9 @@ def _post_pinned(client, url: str, ips: list[str], *, content: bytes, headers: d
     netloc = host + (f":{parsed.port}" if parsed.port else "")
     pinned = parsed._replace(netloc=netloc).geturl()
     host_header = parsed.hostname + (f":{parsed.port}" if parsed.port else "")
-    return client.post(pinned, content=content, headers={**headers, "Host": host_header},
-                       extensions={"sni_hostname": parsed.hostname})
+    return client.post(
+        pinned, content=content, headers={**headers, "Host": host_header}, extensions={"sni_hostname": parsed.hostname}
+    )
 
 
 # ----------------------------------------------------------------------------- management API
@@ -145,8 +163,11 @@ class IntegrationUpdate(BaseModel):
 
 
 def _owner_member(db: Session, workspace_id: int, user_id: int) -> FieldWorkspaceMember:
-    member = db.scalar(select(FieldWorkspaceMember).where(
-        FieldWorkspaceMember.workspace_id == workspace_id, FieldWorkspaceMember.user_id == user_id))
+    member = db.scalar(
+        select(FieldWorkspaceMember).where(
+            FieldWorkspaceMember.workspace_id == workspace_id, FieldWorkspaceMember.user_id == user_id
+        )
+    )
     if not member:
         raise HTTPException(status_code=404, detail="Không tìm thấy đội")
     if member.role != "owner":
@@ -170,29 +191,48 @@ def _inbound_url(integration: FieldIntegration) -> str:
 
 def _out(db: Session, integration: FieldIntegration, secret: str | None = None) -> dict:
     counts = defaultdict(int)
-    for status in db.scalars(select(FieldWebhookDelivery.status).where(
-            FieldWebhookDelivery.integration_id == integration.id)).all():
+    for status in db.scalars(
+        select(FieldWebhookDelivery.status).where(FieldWebhookDelivery.integration_id == integration.id)
+    ).all():
         counts[status] += 1
-    last_in = db.scalar(select(FieldIntegrationEvent.received_at).where(
-        FieldIntegrationEvent.integration_id == integration.id).order_by(FieldIntegrationEvent.id.desc()).limit(1))
-    out = {"id": integration.id, "name": integration.name, "kind": integration.kind,
-           "inbound_url": _inbound_url(integration), "outbound_url": integration.outbound_url,
-           "default_assignee": integration.default_assignee, "is_active": integration.is_active,
-           "deliveries": dict(counts), "last_inbound_at": last_in}
+    last_in = db.scalar(
+        select(FieldIntegrationEvent.received_at)
+        .where(FieldIntegrationEvent.integration_id == integration.id)
+        .order_by(FieldIntegrationEvent.id.desc())
+        .limit(1)
+    )
+    out = {
+        "id": integration.id,
+        "name": integration.name,
+        "kind": integration.kind,
+        "inbound_url": _inbound_url(integration),
+        "outbound_url": integration.outbound_url,
+        "default_assignee": integration.default_assignee,
+        "is_active": integration.is_active,
+        "deliveries": dict(counts),
+        "last_inbound_at": last_in,
+    }
     if secret:
-        out["secret"] = secret          # chỉ trả MỘT lần khi tạo / xoay khoá
+        out["secret"] = secret  # chỉ trả MỘT lần khi tạo / xoay khoá
     return out
 
 
 def _check_assignee(db: Session, workspace_id: int, user_id: int | None) -> None:
-    if user_id is not None and not db.scalar(select(FieldWorkspaceMember).where(
-            FieldWorkspaceMember.workspace_id == workspace_id, FieldWorkspaceMember.user_id == user_id)):
+    if user_id is not None and not db.scalar(
+        select(FieldWorkspaceMember).where(
+            FieldWorkspaceMember.workspace_id == workspace_id, FieldWorkspaceMember.user_id == user_id
+        )
+    ):
         raise HTTPException(status_code=422, detail="Người nhận mặc định không thuộc đội")
 
 
 @router.post("/workspaces/{workspace_id}/integrations", status_code=201)
-def create_integration(workspace_id: int, body: IntegrationCreate, user: CurrentUser = Depends(get_current_user),
-                       db: Session = Depends(get_db)):
+def create_integration(
+    workspace_id: int,
+    body: IntegrationCreate,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     _owner_member(db, workspace_id, user.id)
     if body.outbound_url:
         try:
@@ -201,10 +241,16 @@ def create_integration(workspace_id: int, body: IntegrationCreate, user: Current
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     _check_assignee(db, workspace_id, body.default_assignee)
     secret = secrets.token_urlsafe(32)
-    integration = FieldIntegration(workspace_id=workspace_id, name=body.name.strip(), kind=body.kind,
-                                   public_id=secrets.token_urlsafe(18), secret=secret,
-                                   outbound_url=body.outbound_url, default_assignee=body.default_assignee,
-                                   created_by=user.id)
+    integration = FieldIntegration(
+        workspace_id=workspace_id,
+        name=body.name.strip(),
+        kind=body.kind,
+        public_id=secrets.token_urlsafe(18),
+        secret=secret,
+        outbound_url=body.outbound_url,
+        default_assignee=body.default_assignee,
+        created_by=user.id,
+    )
     db.add(integration)
     db.commit()
     db.refresh(integration)
@@ -214,14 +260,19 @@ def create_integration(workspace_id: int, body: IntegrationCreate, user: Current
 @router.get("/workspaces/{workspace_id}/integrations")
 def list_integrations(workspace_id: int, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     _owner_member(db, workspace_id, user.id)
-    rows = db.scalars(select(FieldIntegration).where(FieldIntegration.workspace_id == workspace_id)
-                      .order_by(FieldIntegration.id)).all()
+    rows = db.scalars(
+        select(FieldIntegration).where(FieldIntegration.workspace_id == workspace_id).order_by(FieldIntegration.id)
+    ).all()
     return [_out(db, row) for row in rows]
 
 
 @router.patch("/integrations/{integration_id}")
-def update_integration(integration_id: int, body: IntegrationUpdate, user: CurrentUser = Depends(get_current_user),
-                       db: Session = Depends(get_db)):
+def update_integration(
+    integration_id: int,
+    body: IntegrationUpdate,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     integration = _integration_for_owner(db, integration_id, user.id)
     if "outbound_url" in body.model_fields_set:
         if body.outbound_url:
@@ -248,21 +299,37 @@ def rotate_secret(integration_id: int, user: CurrentUser = Depends(get_current_u
 
 
 @router.get("/integrations/{integration_id}/deliveries")
-def list_deliveries(integration_id: int, status: str | None = None, user: CurrentUser = Depends(get_current_user),
-                    db: Session = Depends(get_db)):
+def list_deliveries(
+    integration_id: int,
+    status: str | None = None,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     _integration_for_owner(db, integration_id, user.id)
     query = select(FieldWebhookDelivery).where(FieldWebhookDelivery.integration_id == integration_id)
     if status:
         query = query.where(FieldWebhookDelivery.status == status)
     rows = db.scalars(query.order_by(FieldWebhookDelivery.id.desc()).limit(100)).all()
-    return [{"id": r.id, "event_type": r.event_type, "status": r.status, "attempts": r.attempts,
-             "next_attempt_at": r.next_attempt_at, "last_error": r.last_error, "response_code": r.response_code,
-             "created_at": r.created_at, "delivered_at": r.delivered_at} for r in rows]
+    return [
+        {
+            "id": r.id,
+            "event_type": r.event_type,
+            "status": r.status,
+            "attempts": r.attempts,
+            "next_attempt_at": r.next_attempt_at,
+            "last_error": r.last_error,
+            "response_code": r.response_code,
+            "created_at": r.created_at,
+            "delivered_at": r.delivered_at,
+        }
+        for r in rows
+    ]
 
 
 @router.post("/integrations/{integration_id}/deliveries/{delivery_id}/retry")
-def retry_delivery(integration_id: int, delivery_id: int, user: CurrentUser = Depends(get_current_user),
-                   db: Session = Depends(get_db)):
+def retry_delivery(
+    integration_id: int, delivery_id: int, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)
+):
     _integration_for_owner(db, integration_id, user.id)
     delivery = db.get(FieldWebhookDelivery, delivery_id)
     if not delivery or delivery.integration_id != integration_id:
@@ -271,7 +338,7 @@ def retry_delivery(integration_id: int, delivery_id: int, user: CurrentUser = De
         # Gửi lại một sự kiện đã giao thành công sẽ tạo bản trùng phía CRM.
         raise HTTPException(status_code=409, detail="Lượt gửi này đã thành công, không cần gửi lại")
     delivery.status, delivery.attempts = "pending", 0
-    delivery.next_attempt_at = datetime.now(timezone.utc)
+    delivery.next_attempt_at = datetime.now(UTC)
     db.commit()
     kick()
     return {"id": delivery.id, "status": delivery.status}
@@ -285,7 +352,7 @@ def _parse_time(value) -> datetime | None:
         moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
-    return (moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+    return (moment if moment.tzinfo else moment.replace(tzinfo=UTC)).astimezone(UTC)
 
 
 def _rate_ok(integration_id: int, limit: int = 120, window: float = 60.0) -> bool:
@@ -302,9 +369,14 @@ def _rate_ok(integration_id: int, limit: int = 120, window: float = 60.0) -> boo
 
 def _apply_fields(case: ServiceCase, data: dict) -> list[str]:
     changed = []
-    mapping = {"title": ("title", 255), "description": ("symptom", 5000), "customer": ("customer_label", 160),
-               "address": ("address", 500), "device_model": ("device_model", 160),
-               "serial_number": ("serial_number", 160)}
+    mapping = {
+        "title": ("title", 255),
+        "description": ("symptom", 5000),
+        "customer": ("customer_label", 160),
+        "address": ("address", 500),
+        "device_model": ("device_model", 160),
+        "serial_number": ("serial_number", 160),
+    }
     for key, (attr, size) in mapping.items():
         if data.get(key) not in (None, "") and str(data[key])[:size] != getattr(case, attr):
             setattr(case, attr, str(data[key])[:size])
@@ -359,20 +431,27 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
         event_id, event_type = str(payload["event_id"])[:128], str(payload["type"])
         external_ref, data = str(payload["external_ref"])[:128], payload.get("data") or {}
     except (ValueError, KeyError, TypeError):
-        raise HTTPException(status_code=422, detail="Body must have event_id, type, external_ref, data")
+        raise HTTPException(status_code=422, detail="Body must have event_id, type, external_ref, data") from None
     if event_type not in EVENT_TYPES or not isinstance(data, dict) or not event_id or not external_ref:
         raise HTTPException(status_code=422, detail=f"type must be one of {sorted(EVENT_TYPES)}")
 
-    seen = db.scalar(select(FieldIntegrationEvent).where(
-        FieldIntegrationEvent.integration_id == integration.id, FieldIntegrationEvent.event_id == event_id))
+    seen = db.scalar(
+        select(FieldIntegrationEvent).where(
+            FieldIntegrationEvent.integration_id == integration.id, FieldIntegrationEvent.event_id == event_id
+        )
+    )
     if seen:
         FIELD_WEBHOOKS.labels("inbound", "duplicate").inc()
         return {"duplicate": True, "case_id": seen.case_id, "outcome": seen.outcome}
 
     source = f"{integration.kind}:{integration.id}"
-    case = db.scalar(select(ServiceCase).where(ServiceCase.workspace_id == integration.workspace_id,
-                                               ServiceCase.external_source == source,
-                                               ServiceCase.external_ref == external_ref))
+    case = db.scalar(
+        select(ServiceCase).where(
+            ServiceCase.workspace_id == integration.workspace_id,
+            ServiceCase.external_source == source,
+            ServiceCase.external_ref == external_ref,
+        )
+    )
     actor = integration.created_by
     outcome = "ignored"
     if case is None and event_type in ("ticket.created", "alarm.raised", "ticket.updated"):
@@ -380,9 +459,15 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
         symptom = str(data.get("description") or "").strip()
         if len(title) < 3 or len(symptom) < 3:
             raise HTTPException(status_code=422, detail="data.title and data.description are required to open a case")
-        case = ServiceCase(workspace_id=integration.workspace_id, created_by=actor,
-                           assigned_to=integration.default_assignee, title=title[:255], symptom=symptom[:5000],
-                           external_source=source, external_ref=external_ref)
+        case = ServiceCase(
+            workspace_id=integration.workspace_id,
+            created_by=actor,
+            assigned_to=integration.default_assignee,
+            title=title[:255],
+            symptom=symptom[:5000],
+            external_source=source,
+            external_ref=external_ref,
+        )
         _apply_fields(case, data)
         db.add(case)
         try:
@@ -392,23 +477,42 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
             # tạo ca trước (ix_field_case_external). Sự kiện này chưa được ghi nhận nên an toàn
             # khi CRM gửi lại: lần sau sẽ đi nhánh cập nhật ca. Trả 503 có thể thử lại, không 500.
             db.rollback()
-            raise HTTPException(status_code=503, detail="Concurrent event for this external_ref; retry",
-                                headers={"Retry-After": "1"})
+            raise HTTPException(
+                status_code=503, detail="Concurrent event for this external_ref; retry", headers={"Retry-After": "1"}
+            ) from None
         label = "ticket CRM" if integration.kind == "crm" else "cảnh báo NMS"
-        db.add(ServiceCaseEvent(case_id=case.id, actor_id=actor, event_type="created",
-                                detail=f"Tạo từ {label} {external_ref} ({integration.name})"))
+        db.add(
+            ServiceCaseEvent(
+                case_id=case.id,
+                actor_id=actor,
+                event_type="created",
+                detail=f"Tạo từ {label} {external_ref} ({integration.name})",
+            )
+        )
         outcome = "created"
     elif case is not None and event_type in ("ticket.created", "alarm.raised", "ticket.updated"):
         changed = _apply_fields(case, data)
         if changed:
-            db.add(ServiceCaseEvent(case_id=case.id, actor_id=actor, event_type="external",
-                                    detail=f"{integration.name} cập nhật: {', '.join(changed)}"))
+            db.add(
+                ServiceCaseEvent(
+                    case_id=case.id,
+                    actor_id=actor,
+                    event_type="external",
+                    detail=f"{integration.name} cập nhật: {', '.join(changed)}",
+                )
+            )
         outcome = "updated" if changed else "unchanged"
     elif case is not None and event_type == "ticket.closed":
         if case.status != "resolved":
             case.status = "resolved"
-            db.add(ServiceCaseEvent(case_id=case.id, actor_id=actor, event_type="status",
-                                    detail=f"Đóng theo ticket {external_ref} trên {integration.name}"))
+            db.add(
+                ServiceCaseEvent(
+                    case_id=case.id,
+                    actor_id=actor,
+                    event_type="status",
+                    detail=f"Đóng theo ticket {external_ref} trên {integration.name}",
+                )
+            )
         outcome = "closed"
     elif case is not None and event_type == "alarm.cleared":
         note = f"Cảnh báo {external_ref} đã hết trên {integration.name}"
@@ -417,11 +521,18 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
             note += " — ca chưa ai xử lý nên được đóng tự động"
         db.add(ServiceCaseEvent(case_id=case.id, actor_id=actor, event_type="external", detail=note))
         outcome = "cleared"
-    db.add(FieldIntegrationEvent(integration_id=integration.id, event_id=event_id, event_type=event_type,
-                                 case_id=case.id if case else None, outcome=outcome))
+    db.add(
+        FieldIntegrationEvent(
+            integration_id=integration.id,
+            event_id=event_id,
+            event_type=event_type,
+            case_id=case.id if case else None,
+            outcome=outcome,
+        )
+    )
     try:
         db.commit()
-    except IntegrityError:          # cùng event_id đến song song: bản kia đã thắng
+    except IntegrityError:  # cùng event_id đến song song: bản kia đã thắng
         db.rollback()
         FIELD_WEBHOOKS.labels("inbound", "duplicate").inc()
         return {"duplicate": True}
@@ -441,15 +552,28 @@ def enqueue_case_event(db: Session, case: ServiceCase, event_type: str, extra: d
     integration = db.get(FieldIntegration, integration_id)
     if not integration or not integration.is_active or not integration.outbound_url:
         return 0
-    payload = {"event_id": uuid.uuid4().hex, "type": event_type,
-               "occurred_at": datetime.now(timezone.utc).isoformat(),
-               "case": {"id": case.id, "external_ref": case.external_ref, "status": case.status,
-                        "assigned_to": case.assigned_to, "title": case.title,
-                        "scheduled_start": case.scheduled_start.isoformat() if case.scheduled_start else None},
-               **(extra or {})}
-    db.add(FieldWebhookDelivery(integration_id=integration.id, event_type=event_type,
-                                payload_json=json.dumps(payload, ensure_ascii=False),
-                                next_attempt_at=datetime.now(timezone.utc)))
+    payload = {
+        "event_id": uuid.uuid4().hex,
+        "type": event_type,
+        "occurred_at": datetime.now(UTC).isoformat(),
+        "case": {
+            "id": case.id,
+            "external_ref": case.external_ref,
+            "status": case.status,
+            "assigned_to": case.assigned_to,
+            "title": case.title,
+            "scheduled_start": case.scheduled_start.isoformat() if case.scheduled_start else None,
+        },
+        **(extra or {}),
+    }
+    db.add(
+        FieldWebhookDelivery(
+            integration_id=integration.id,
+            event_type=event_type,
+            payload_json=json.dumps(payload, ensure_ascii=False),
+            next_attempt_at=datetime.now(UTC),
+        )
+    )
     return 1
 
 
@@ -478,8 +602,9 @@ class _DeadlineClient:
     def post(self, url, content, headers, extensions=None):
         import asyncio
 
-        return asyncio.run(asyncio.wait_for(
-            self._post(url, content, headers, extensions or {}), WEBHOOK_DEADLINE_SECONDS))
+        return asyncio.run(
+            asyncio.wait_for(self._post(url, content, headers, extensions or {}), WEBHOOK_DEADLINE_SECONDS)
+        )
 
     @staticmethod
     async def _post(url, content, headers, extensions):
@@ -488,8 +613,7 @@ class _DeadlineClient:
         import httpx
 
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
-            async with client.stream("POST", url, content=content, headers=headers,
-                                     extensions=extensions) as response:
+            async with client.stream("POST", url, content=content, headers=headers, extensions=extensions) as response:
                 received = 0
                 async for chunk in response.aiter_raw():
                     received += len(chunk)
@@ -504,10 +628,13 @@ class _DeadlineClient:
 def dispatch_due(db: Session, *, now: datetime | None = None, client=None, limit: int = 50) -> dict:
     from metrics import FIELD_WEBHOOKS
 
-    now = now or datetime.now(timezone.utc)
-    rows = db.scalars(select(FieldWebhookDelivery).where(
-        FieldWebhookDelivery.status == "pending", FieldWebhookDelivery.next_attempt_at <= now)
-        .order_by(FieldWebhookDelivery.id).limit(limit)).all()
+    now = now or datetime.now(UTC)
+    rows = db.scalars(
+        select(FieldWebhookDelivery)
+        .where(FieldWebhookDelivery.status == "pending", FieldWebhookDelivery.next_attempt_at <= now)
+        .order_by(FieldWebhookDelivery.id)
+        .limit(limit)
+    ).all()
     summary = defaultdict(int)
     own_client = client is None
     client = client or _DeadlineClient()
@@ -518,9 +645,11 @@ def dispatch_due(db: Session, *, now: datetime | None = None, client=None, limit
             # Nếu tiến trình chết giữa chừng, delivery tự đến hạn lại sau CLAIM_LEASE.
             claimed = db.execute(
                 update(FieldWebhookDelivery)
-                .where(FieldWebhookDelivery.id == delivery.id,
-                       FieldWebhookDelivery.status == "pending",
-                       FieldWebhookDelivery.next_attempt_at <= now)
+                .where(
+                    FieldWebhookDelivery.id == delivery.id,
+                    FieldWebhookDelivery.status == "pending",
+                    FieldWebhookDelivery.next_attempt_at <= now,
+                )
                 .values(next_attempt_at=now + CLAIM_LEASE)
                 .execution_options(synchronize_session=False)
             ).rowcount
@@ -539,21 +668,30 @@ def dispatch_due(db: Session, *, now: datetime | None = None, client=None, limit
             delivery.attempts += 1
             try:
                 ips = validate_outbound_url(integration.outbound_url)
-                response = _post_pinned(client, integration.outbound_url, ips, content=body, headers={
-                    "Content-Type": "application/json", "X-FieldOps-Timestamp": timestamp,
-                    "X-FieldOps-Signature": sign(integration.secret, timestamp, body),
-                    "X-FieldOps-Event": delivery.event_type})
+                response = _post_pinned(
+                    client,
+                    integration.outbound_url,
+                    ips,
+                    content=body,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-FieldOps-Timestamp": timestamp,
+                        "X-FieldOps-Signature": sign(integration.secret, timestamp, body),
+                        "X-FieldOps-Event": delivery.event_type,
+                    },
+                )
                 delivery.response_code = response.status_code
                 ok = 200 <= response.status_code < 300
                 error = None if ok else f"HTTP {response.status_code}"
-            except Exception as exc:          # mạng / DNS / SSRF bị chặn
+            except Exception as exc:  # mạng / DNS / SSRF bị chặn
                 ok, error = False, f"{type(exc).__name__}: {str(exc)[:200]}"
             if ok:
                 delivery.status, delivery.delivered_at, delivery.last_error = "delivered", now, None
                 summary["delivered"] += 1
                 FIELD_WEBHOOKS.labels("outbound", "delivered").inc()
-            elif delivery.attempts >= MAX_ATTEMPTS or _permanent_failure(delivery.response_code if error and
-                                                                          error.startswith("HTTP ") else None):
+            elif delivery.attempts >= MAX_ATTEMPTS or _permanent_failure(
+                delivery.response_code if error and error.startswith("HTTP ") else None
+            ):
                 delivery.status, delivery.last_error = "dead", error
                 summary["dead"] += 1
                 FIELD_WEBHOOKS.labels("outbound", "dead").inc()
@@ -593,12 +731,19 @@ def kick() -> None:
 
 
 def purge_old_records(db: Session, now: datetime | None = None) -> dict:
-    now = now or datetime.now(timezone.utc)
-    events = db.execute(delete(FieldIntegrationEvent).where(
-        FieldIntegrationEvent.received_at < now - timedelta(days=90))).rowcount
-    delivered = db.execute(delete(FieldWebhookDelivery).where(
-        FieldWebhookDelivery.status == "delivered", FieldWebhookDelivery.created_at < now - timedelta(days=30))).rowcount
-    dead = db.execute(delete(FieldWebhookDelivery).where(
-        FieldWebhookDelivery.status == "dead", FieldWebhookDelivery.created_at < now - timedelta(days=90))).rowcount
+    now = now or datetime.now(UTC)
+    events = db.execute(
+        delete(FieldIntegrationEvent).where(FieldIntegrationEvent.received_at < now - timedelta(days=90))
+    ).rowcount
+    delivered = db.execute(
+        delete(FieldWebhookDelivery).where(
+            FieldWebhookDelivery.status == "delivered", FieldWebhookDelivery.created_at < now - timedelta(days=30)
+        )
+    ).rowcount
+    dead = db.execute(
+        delete(FieldWebhookDelivery).where(
+            FieldWebhookDelivery.status == "dead", FieldWebhookDelivery.created_at < now - timedelta(days=90)
+        )
+    ).rowcount
     db.commit()
     return {"integration_events_deleted": events or 0, "webhook_deliveries_deleted": (delivered or 0) + (dead or 0)}

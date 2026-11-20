@@ -1,7 +1,8 @@
-import pytest
-from types import SimpleNamespace
-from google.genai import types
 import json
+from types import SimpleNamespace
+
+import pytest
+from google.genai import types
 
 import rag.llm as llm
 
@@ -47,8 +48,12 @@ def test_ollama_generate_sends_json_mode_and_options(monkeypatch):
 
 
 def test_ollama_stream_yields_non_empty_pieces(monkeypatch):
-    lines = [json.dumps({"response": "Hà"}), "", json.dumps({"response": " Nội"}),
-             json.dumps({"response": "", "done": True})]
+    lines = [
+        json.dumps({"response": "Hà"}),
+        "",
+        json.dumps({"response": " Nội"}),
+        json.dumps({"response": "", "done": True}),
+    ]
 
     monkeypatch.setattr(llm, "LLM_PROVIDER", "ollama")
     monkeypatch.setattr(llm.httpx, "stream", lambda *a, **k: _FakeResponse(lines=lines))
@@ -56,11 +61,14 @@ def test_ollama_stream_yields_non_empty_pieces(monkeypatch):
     assert list(llm.stream_text("thủ đô?")) == ["Hà", " Nội"]
 
 
-@pytest.mark.parametrize("lines", [
-    [{"response": "partial"}, {"error": "synthetic-private-error"}],
-    [{"response": "partial"}],
-    [{"response": "partial"}, {"response": 42, "done": True}],
-])
+@pytest.mark.parametrize(
+    "lines",
+    [
+        [{"response": "partial"}, {"error": "synthetic-private-error"}],
+        [{"response": "partial"}],
+        [{"response": "partial"}, {"response": 42, "done": True}],
+    ],
+)
 def test_ollama_stream_failure_or_missing_completion_is_not_success(monkeypatch, lines):
     monkeypatch.setattr(llm, "LLM_PROVIDER", "ollama")
     monkeypatch.setattr(llm.httpx, "stream", lambda *a, **k: _FakeResponse(lines=[json.dumps(v) for v in lines]))
@@ -71,19 +79,27 @@ def test_ollama_stream_failure_or_missing_completion_is_not_success(monkeypatch,
 
 def test_ollama_terminal_frame_can_contain_last_text(monkeypatch):
     monkeypatch.setattr(llm, "LLM_PROVIDER", "ollama")
-    monkeypatch.setattr(llm.httpx, "stream", lambda *a, **k: _FakeResponse(lines=[json.dumps({"response": "final", "done": True})]))
+    monkeypatch.setattr(
+        llm.httpx, "stream", lambda *a, **k: _FakeResponse(lines=[json.dumps({"response": "final", "done": True})])
+    )
     assert list(llm.stream_text("question")) == ["final"]
 
 
 def _gemini_chunk(text, reason=None):
-    return types.GenerateContentResponse(candidates=[types.Candidate(
-        content=types.Content(parts=[types.Part(text=text)]), finish_reason=reason,
-    )])
+    return types.GenerateContentResponse(
+        candidates=[
+            types.Candidate(
+                content=types.Content(parts=[types.Part(text=text)]),
+                finish_reason=reason,
+            )
+        ]
+    )
 
 
 @pytest.mark.parametrize("reason", ["STOP", "MAX_TOKENS", "SAFETY", None])
 def test_gemini_requires_normal_completion_and_closes_stream(monkeypatch, reason):
     closed = []
+
     def provider():
         try:
             yield _gemini_chunk("partial")
@@ -91,8 +107,13 @@ def test_gemini_requires_normal_completion_and_closes_stream(monkeypatch, reason
                 yield _gemini_chunk("final", reason)
         finally:
             closed.append(True)
+
     monkeypatch.setattr(llm, "LLM_PROVIDER", "gemini")
-    monkeypatch.setattr(llm, "client", lambda: SimpleNamespace(models=SimpleNamespace(generate_content_stream=lambda **kwargs: provider())))
+    monkeypatch.setattr(
+        llm,
+        "client",
+        lambda: SimpleNamespace(models=SimpleNamespace(generate_content_stream=lambda **kwargs: provider())),
+    )
     if reason == "STOP":
         assert list(llm.stream_text("question")) == ["partial", "final"]
     else:
@@ -103,25 +124,37 @@ def test_gemini_requires_normal_completion_and_closes_stream(monkeypatch, reason
 
 def test_closing_gemini_consumer_closes_request_stream(monkeypatch):
     closed = []
+
     def provider():
         try:
             yield _gemini_chunk("first")
             yield _gemini_chunk("second", "STOP")
         finally:
             closed.append(True)
+
     monkeypatch.setattr(llm, "LLM_PROVIDER", "gemini")
-    monkeypatch.setattr(llm, "client", lambda: SimpleNamespace(models=SimpleNamespace(generate_content_stream=lambda **kwargs: provider())))
+    monkeypatch.setattr(
+        llm,
+        "client",
+        lambda: SimpleNamespace(models=SimpleNamespace(generate_content_stream=lambda **kwargs: provider())),
+    )
     stream = llm.stream_text("question")
     assert next(stream) == "first"
     stream.close()
     assert closed == [True]
 
 
-
 def test_gemini_usage_frame_after_stop_preserves_completion(monkeypatch):
     def provider():
         yield _gemini_chunk("answer", "STOP")
-        yield types.GenerateContentResponse(usage_metadata=types.GenerateContentResponseUsageMetadata(total_token_count=5))
+        yield types.GenerateContentResponse(
+            usage_metadata=types.GenerateContentResponseUsageMetadata(total_token_count=5)
+        )
+
     monkeypatch.setattr(llm, "LLM_PROVIDER", "gemini")
-    monkeypatch.setattr(llm, "client", lambda: SimpleNamespace(models=SimpleNamespace(generate_content_stream=lambda **kwargs: provider())))
+    monkeypatch.setattr(
+        llm,
+        "client",
+        lambda: SimpleNamespace(models=SimpleNamespace(generate_content_stream=lambda **kwargs: provider())),
+    )
     assert list(llm.stream_text("question")) == ["answer"]

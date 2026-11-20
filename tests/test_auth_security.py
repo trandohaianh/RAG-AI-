@@ -1,16 +1,17 @@
 """Authentication regressions against real JWT verification and database state."""
+
 import base64
 import hashlib
 import hmac
 import json
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from threading import Barrier
 
+import jwt
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-import jwt
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -43,10 +44,12 @@ def security_db():
     factory = sessionmaker(bind=engine, autoflush=False)
     with factory() as db:
         hashed = hash_password("Password-123")
-        db.add_all([
-            User(id=1, email="owner@example.com", hashed_password=hashed, role="admin"),
-            User(id=2, email="tech@example.com", hashed_password=hashed, role="user"),
-        ])
+        db.add_all(
+            [
+                User(id=1, email="owner@example.com", hashed_password=hashed, role="admin"),
+                User(id=2, email="tech@example.com", hashed_password=hashed, role="user"),
+            ]
+        )
         db.commit()
     yield factory
     engine.dispose()
@@ -75,22 +78,33 @@ def test_reset_token_cannot_authenticate_and_access_token_cannot_reset(security_
         assert token_row.token_hash != decode_token(reset)["jti"]
     assert auth_client.get("/auth/me", headers={"Authorization": f"Bearer {access}"}).status_code == 200
     assert auth_client.get("/auth/me", headers={"Authorization": f"Bearer {reset}"}).status_code == 401
-    assert auth_client.post("/auth/reset-password", json={
-        "token": access, "password": "New-password-123",
-    }).status_code == 400
+    assert (
+        auth_client.post(
+            "/auth/reset-password",
+            json={
+                "token": access,
+                "password": "New-password-123",
+            },
+        ).status_code
+        == 400
+    )
 
 
-@pytest.mark.parametrize("claims", [
-    {"sub": "tech@example.com"},
-    {"sub": "2", "purpose": "reset", "version": 0},
-    {"sub": "2", "purpose": "access"},
-    {"sub": "2", "purpose": "access", "version": True},
-    {"sub": "999999999999999999999", "purpose": "access", "version": 0},
-])
+@pytest.mark.parametrize(
+    "claims",
+    [
+        {"sub": "tech@example.com"},
+        {"sub": "2", "purpose": "reset", "version": 0},
+        {"sub": "2", "purpose": "access"},
+        {"sub": "2", "purpose": "access", "version": True},
+        {"sub": "999999999999999999999", "purpose": "access", "version": 0},
+    ],
+)
 def test_legacy_or_malformed_claims_are_rejected(auth_client, claims):
     token = jwt.encode(
-        {**claims, "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
-        SECRET_KEY, algorithm=ALGORITHM,
+        {**claims, "exp": datetime.now(UTC) + timedelta(minutes=5)},
+        SECRET_KEY,
+        algorithm=ALGORITHM,
     )
     assert auth_client.get("/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
 
@@ -101,32 +115,65 @@ def test_successful_reset_is_single_use_and_revokes_all_old_credentials(security
         access = create_access_token(user)
         first = create_reset_token(db, user)
         second = create_reset_token(db, user)
-    assert auth_client.post("/auth/reset-password", json={
-        "token": first, "password": "New-password-123",
-    }).status_code == 200
+    assert (
+        auth_client.post(
+            "/auth/reset-password",
+            json={
+                "token": first,
+                "password": "New-password-123",
+            },
+        ).status_code
+        == 200
+    )
     for token in (first, second):
-        assert auth_client.post("/auth/reset-password", json={
-            "token": token, "password": "Another-password-123",
-        }).status_code == 400
+        assert (
+            auth_client.post(
+                "/auth/reset-password",
+                json={
+                    "token": token,
+                    "password": "Another-password-123",
+                },
+            ).status_code
+            == 400
+        )
     assert auth_client.get("/auth/me", headers={"Authorization": f"Bearer {access}"}).status_code == 401
-    assert auth_client.post("/auth/login", json={
-        "email": "tech@example.com", "password": "Password-123",
-    }).status_code == 401
-    login = auth_client.post("/auth/login", json={
-        "email": "tech@example.com", "password": "New-password-123",
-    })
+    assert (
+        auth_client.post(
+            "/auth/login",
+            json={
+                "email": "tech@example.com",
+                "password": "Password-123",
+            },
+        ).status_code
+        == 401
+    )
+    login = auth_client.post(
+        "/auth/login",
+        json={
+            "email": "tech@example.com",
+            "password": "New-password-123",
+        },
+    )
     assert login.status_code == 200
-    assert auth_client.get("/auth/me", headers={
-        "Authorization": f"Bearer {login.json()['access_token']}",
-    }).status_code == 200
+    assert (
+        auth_client.get(
+            "/auth/me",
+            headers={
+                "Authorization": f"Bearer {login.json()['access_token']}",
+            },
+        ).status_code
+        == 200
+    )
 
 
 def test_database_expiry_and_unknown_reset_id_are_enforced(security_db):
     with security_db() as db:
         token = create_reset_token(db, db.get(User, 2))
-        db.query(PasswordResetToken).update({
-            "expires_at": datetime.now(timezone.utc) - timedelta(seconds=1),
-        })
+        db.query(PasswordResetToken).update(
+            {
+                "expires_at": datetime.now(UTC) - timedelta(seconds=1),
+            }
+        )
         db.commit()
         assert not reset_password_with_token(db, token, "New-password-123")
         payload = decode_token(token)
@@ -168,9 +215,13 @@ def test_concurrent_reset_has_exactly_one_winner(tmp_path, same_token):
 
 
 def test_password_byte_limit_is_validated_before_bcrypt(auth_client):
-    response = auth_client.post("/auth/register", json={
-        "email": "long@example.com", "password": "á" * 40,
-    })
+    response = auth_client.post(
+        "/auth/register",
+        json={
+            "email": "long@example.com",
+            "password": "á" * 40,
+        },
+    )
     assert response.status_code == 422
 
 
@@ -182,17 +233,18 @@ def test_forgot_password_does_not_disclose_missing_email_configuration(monkeypat
     assert known.json() == unknown.json()
 
 
-@pytest.mark.parametrize("variant", ["missing_exp", "missing_sub", "expired", "numeric_sub", "unsigned", "wrong_algorithm", "bad_signature"])
+@pytest.mark.parametrize(
+    "variant", ["missing_exp", "missing_sub", "expired", "numeric_sub", "unsigned", "wrong_algorithm", "bad_signature"]
+)
 def test_invalid_jwt_is_rejected_at_authenticated_endpoint(auth_client, variant):
-    claims = {"sub": "2", "purpose": "access", "version": 0,
-              "exp": datetime.now(timezone.utc) + timedelta(minutes=5)}
+    claims = {"sub": "2", "purpose": "access", "version": 0, "exp": datetime.now(UTC) + timedelta(minutes=5)}
     key, algorithm = SECRET_KEY, ALGORITHM
     if variant == "missing_exp":
         claims.pop("exp")
     elif variant == "missing_sub":
         claims.pop("sub")
     elif variant == "expired":
-        claims["exp"] = datetime.now(timezone.utc) - timedelta(minutes=1)
+        claims["exp"] = datetime.now(UTC) - timedelta(minutes=1)
     elif variant == "numeric_sub":
         claims["sub"] = 2
     elif variant == "unsigned":
@@ -209,15 +261,26 @@ def test_existing_typed_hs256_token_remains_compatible(auth_client, monkeypatch)
     # Sign the wire format independently of either JWT library. Existing typed
     # HS256 tokens must survive the library migration until their normal expiry.
     import auth.service as service
+
     monkeypatch.setattr(service, "ALGORITHM", "HS256")
+
     def segment(value):
         raw = json.dumps(value, separators=(",", ":")).encode("utf-8")
         return base64.urlsafe_b64encode(raw).rstrip(b"=")
+
     header = segment({"alg": "HS256", "typ": "JWT"})
-    payload = segment({"sub": "2", "purpose": "access", "version": 0,
-                       "exp": int((datetime.now(timezone.utc) + timedelta(minutes=5)).timestamp())})
+    payload = segment(
+        {
+            "sub": "2",
+            "purpose": "access",
+            "version": 0,
+            "exp": int((datetime.now(UTC) + timedelta(minutes=5)).timestamp()),
+        }
+    )
     message = header + b"." + payload
-    signature = base64.urlsafe_b64encode(hmac.new(SECRET_KEY.encode("utf-8"), message, hashlib.sha256).digest()).rstrip(b"=")
+    signature = base64.urlsafe_b64encode(hmac.new(SECRET_KEY.encode("utf-8"), message, hashlib.sha256).digest()).rstrip(
+        b"="
+    )
     token = (message + b"." + signature).decode("ascii")
     response = auth_client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200

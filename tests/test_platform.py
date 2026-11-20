@@ -1,4 +1,5 @@
 """Tests platform security helpers."""
+
 from saas.security import generate_api_key, generate_embed_token, hash_secret
 
 

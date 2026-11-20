@@ -1,7 +1,8 @@
 """Admin routes — chỉ role=admin."""
+
 import logging
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -45,21 +46,11 @@ async def list_users(
     _admin: CurrentUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    users = (
-        db.query(User)
-        .filter(User.deleted_at.is_(None))
-        .order_by(User.created_at.desc())
-        .all()
-    )
+    users = db.query(User).filter(User.deleted_at.is_(None)).order_by(User.created_at.desc()).all()
     result: list[UserAdminOut] = []
     for u in users:
         docs = await list_user_docs(u.id)
-        msg_count = (
-            db.query(Message)
-            .join(Conversation)
-            .filter(Conversation.user_id == u.id)
-            .count()
-        )
+        msg_count = db.query(Message).join(Conversation).filter(Conversation.user_id == u.id).count()
         result.append(
             UserAdminOut(
                 id=u.id,
@@ -79,9 +70,7 @@ async def get_stats(
     db: Session = Depends(get_db),
 ):
     total_users = db.query(User).filter(User.deleted_at.is_(None)).count()
-    active_messages = db.query(Message).join(Conversation).join(User).filter(
-        User.deleted_at.is_(None)
-    )
+    active_messages = db.query(Message).join(Conversation).join(User).filter(User.deleted_at.is_(None))
     total_messages = active_messages.count()
 
     total_docs = 0
@@ -89,15 +78,16 @@ async def get_stats(
         docs = await list_user_docs(u.id)
         total_docs += len(docs)
 
-    today_start = datetime.now(timezone.utc).replace(
-        hour=0, minute=0, second=0, microsecond=0
+    today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    queries_today = (
+        db.query(func.coalesce(func.sum(DailyQueryUsage.used_queries), 0))
+        .join(User, User.id == DailyQueryUsage.user_id)
+        .filter(
+            User.deleted_at.is_(None),
+            DailyQueryUsage.usage_date == today_start.date(),
+        )
+        .scalar()
     )
-    queries_today = db.query(
-        func.coalesce(func.sum(DailyQueryUsage.used_queries), 0)
-    ).join(User, User.id == DailyQueryUsage.user_id).filter(
-        User.deleted_at.is_(None),
-        DailyQueryUsage.usage_date == today_start.date(),
-    ).scalar()
 
     return StatsOut(
         total_users=total_users,

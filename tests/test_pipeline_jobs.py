@@ -1,7 +1,8 @@
 """Pipeline vận hành: KPI ngày, kiểm tra chất lượng dữ liệu, retention, backup, metric."""
+
 import json
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -25,28 +26,75 @@ def factory():
     event.listen(engine, "connect", _enable_sqlite_foreign_keys)
     Base.metadata.create_all(engine)
     make = sessionmaker(bind=engine, autoflush=False)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with make() as db:
-        db.add_all([User(id=1, email="a@example.com", hashed_password="x"),
-                    User(id=2, email="b@example.com", hashed_password="x")])
+        db.add_all(
+            [
+                User(id=1, email="a@example.com", hashed_password="x"),
+                User(id=2, email="b@example.com", hashed_password="x"),
+            ]
+        )
         db.add_all([Conversation(id=1, user_id=1), Conversation(id=2, user_id=2)])
-        db.add_all([
-            Message(conversation_id=1, role="user", content="q1", created_at=now),
-            Message(conversation_id=1, role="assistant", content="a1", rating=1, eval_faithfulness=0.9,
-                    eval_relevancy=0.8, created_at=now),
-            Message(conversation_id=2, role="user", content="q2", created_at=now),
-            Message(conversation_id=2, role="assistant", content="a2", rating=-1, eval_faithfulness=0.5,
-                    eval_relevancy=0.6, created_at=now),
-        ])
-        db.add_all([
-            LlmUsageEvent(user_id=1, feature="chat", provider="gemini", model="gemini-2.5-flash",
-                          input_tokens=1000, output_tokens=200, cost_usd=0.0008, latency_ms=900, created_at=now),
-            LlmUsageEvent(user_id=2, feature="chat", provider="gemini", model="gemini-2.5-flash",
-                          input_tokens=500, output_tokens=100, cost_usd=0.0004, latency_ms=1500,
-                          status="error", created_at=now),
-            LlmUsageEvent(user_id=1, feature="chat", provider="gemini", model="gemini-2.5-flash",
-                          input_tokens=1, cost_usd=0.1, created_at=now - timedelta(days=500)),
-        ])
+        db.add_all(
+            [
+                Message(conversation_id=1, role="user", content="q1", created_at=now),
+                Message(
+                    conversation_id=1,
+                    role="assistant",
+                    content="a1",
+                    rating=1,
+                    eval_faithfulness=0.9,
+                    eval_relevancy=0.8,
+                    created_at=now,
+                ),
+                Message(conversation_id=2, role="user", content="q2", created_at=now),
+                Message(
+                    conversation_id=2,
+                    role="assistant",
+                    content="a2",
+                    rating=-1,
+                    eval_faithfulness=0.5,
+                    eval_relevancy=0.6,
+                    created_at=now,
+                ),
+            ]
+        )
+        db.add_all(
+            [
+                LlmUsageEvent(
+                    user_id=1,
+                    feature="chat",
+                    provider="gemini",
+                    model="gemini-2.5-flash",
+                    input_tokens=1000,
+                    output_tokens=200,
+                    cost_usd=0.0008,
+                    latency_ms=900,
+                    created_at=now,
+                ),
+                LlmUsageEvent(
+                    user_id=2,
+                    feature="chat",
+                    provider="gemini",
+                    model="gemini-2.5-flash",
+                    input_tokens=500,
+                    output_tokens=100,
+                    cost_usd=0.0004,
+                    latency_ms=1500,
+                    status="error",
+                    created_at=now,
+                ),
+                LlmUsageEvent(
+                    user_id=1,
+                    feature="chat",
+                    provider="gemini",
+                    model="gemini-2.5-flash",
+                    input_tokens=1,
+                    cost_usd=0.1,
+                    created_at=now - timedelta(days=500),
+                ),
+            ]
+        )
         db.commit()
     yield make
     engine.dispose()
@@ -57,7 +105,7 @@ def test_daily_kpis_aggregate_raw_data_idempotently(factory):
         result = run_job("daily_kpis", session_factory=factory, backfill_days=1)
     assert result["status"] == "ok"
     with factory() as db:
-        row = db.get(AnalyticsDaily, datetime.now(timezone.utc).date())
+        row = db.get(AnalyticsDaily, datetime.now(UTC).date())
         assert db.query(AnalyticsDaily).count() == 1
     assert (row.active_users, row.questions, row.answers) == (2, 2, 2)
     assert (row.thumbs_up, row.thumbs_down) == (1, 1)

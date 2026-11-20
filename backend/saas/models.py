@@ -1,4 +1,5 @@
 """API credentials and isolated public-widget guest sessions."""
+
 from datetime import date, datetime
 
 from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, String, Text, func
@@ -15,12 +16,8 @@ class ApiKey(Base):
     name: Mapped[str] = mapped_column(String(120), default="Default")
     key_prefix: Mapped[str] = mapped_column(String(16), index=True)
     key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    last_used_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class EmbedToken(Base):
@@ -32,9 +29,7 @@ class EmbedToken(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     allowed_origins: Mapped[str | None] = mapped_column(Text, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class EmbedGuestSession(Base):
@@ -42,16 +37,12 @@ class EmbedGuestSession(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    embed_token_id: Mapped[int] = mapped_column(
-        ForeignKey("embed_tokens.id", ondelete="CASCADE"), index=True
-    )
+    embed_token_id: Mapped[int] = mapped_column(ForeignKey("embed_tokens.id", ondelete="CASCADE"), index=True)
     conversation_id: Mapped[int] = mapped_column(
         ForeignKey("conversations.id", ondelete="CASCADE"), unique=True, index=True
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class DailyQueryUsage(Base):
@@ -71,6 +62,4 @@ class QueryUsageMigration(Base):
     __tablename__ = "query_usage_migrations"
 
     name: Mapped[str] = mapped_column(String(80), primary_key=True)
-    completed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

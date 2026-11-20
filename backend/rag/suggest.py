@@ -1,4 +1,5 @@
 """Gợi ý câu hỏi từ tài liệu (tuần 3–4) — Gemini + sample chunks."""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,9 +7,9 @@ import json
 import re
 
 from config import CHROMA_DIR, GEMINI_API_KEY
-from rag.llm import generate_text
-from rag.ingest import _collection_name, get_vectorstore
 from rag.document_lifecycle import DocumentRecoveryError, collection_read_lock
+from rag.ingest import _collection_name, get_vectorstore
+from rag.llm import generate_text
 
 
 def _sample_context_sync(user_id: int, max_chars: int = 6000) -> str:
@@ -42,7 +43,7 @@ async def suggest_questions_for_user(user_id: int, limit: int = 5) -> list[str]:
     prompt = (
         f"Dưới đây là trích đoạn từ tài liệu của người dùng:\n\n{context}\n\n"
         f"Hãy đề xuất đúng {limit} câu hỏi ngắn (tiếng Việt) mà họ có thể hỏi chatbot RAG về nội dung này. "
-        "Chỉ trả về một mảng JSON các chuỗi, ví dụ: [\"Câu 1?\", \"Câu 2?\"]. Không markdown."
+        'Chỉ trả về một mảng JSON các chuỗi, ví dụ: ["Câu 1?", "Câu 2?"]. Không markdown.'
     )
     text = (await asyncio.to_thread(generate_text, prompt, feature="suggest")).strip()
     # Thử parse JSON

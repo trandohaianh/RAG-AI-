@@ -1,0 +1,41 @@
+# Cấu hình công cụ cho cả repo (không phải gói cài đặt). Xem docs/CONVENTIONS.md.
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["backend", "tests"]
+extend-exclude = [
+    "backend/.venv",
+    "backend/.pytest*_tmp",
+    "backend/.pytest*_run",
+    "airflow",
+    "gx",
+    "portfolio",
+]
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I isort, B bugbear, UP pyupgrade.
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E501",  # độ dài dòng do ruff format lo; chuỗi/thông báo dài được phép
+    "B008",  # FastAPI dùng Depends()/Query() làm giá trị mặc định — đó là cách dùng chuẩn
+]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest: import fixture từ file test khác (F401/F811) và sys.path.insert trước import (E402).
+"tests/**" = ["F401", "F811", "E402", "B017"]
+# Script chạy trực tiếp tự thêm backend/ vào sys.path trước khi import.
+"backend/scripts/**" = ["E402"]
+"backend/evals/**" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "admin", "analytics", "api", "auth", "billing", "chat", "config", "cors", "costs", "database",
+    "dependencies", "docs", "embed", "evals", "evaluation", "field", "main", "metrics",
+    "middleware_metrics", "pipeline", "platform", "public_api", "rag", "saas", "schema_migrations",
+    "security_headers", "validation",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+line-ending = "auto"

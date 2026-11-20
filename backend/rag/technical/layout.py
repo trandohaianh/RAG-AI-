@@ -3,11 +3,12 @@
 OCR, numbering, figures, page spans and section boundaries must be compared with
 original pages before approve(). A parser success is never an approval.
 """
+
 from __future__ import annotations
 
 import html
 import importlib.metadata
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -79,8 +80,7 @@ def table_layout(raw_html: str) -> tuple[str, list[list[int]], int]:
     parser = _Table()
     parser.feed(raw_html)
     parser.close()
-    if (parser.stack or not parser.rows or len(set(parser.widths)) != 1
-            or not parser.widths[0]):
+    if parser.stack or not parser.rows or len(set(parser.widths)) != 1 or not parser.widths[0]:
         raise TechnicalRAGError("Incomplete table markup")
     headers = 0
     for flag in parser.headers:
@@ -96,10 +96,17 @@ def extract_layout(path: Path, scope: Scope, source_id: str) -> LayoutBundle:
     raw_hash = digest(path.read_bytes())
     if suffix == ".pdf":
         from unstructured.partition.pdf import partition_pdf
-        elements = partition_pdf(filename=str(path), strategy="hi_res", infer_table_structure=True,
-                                 extract_image_block_types=["Image"], extract_image_block_to_payload=True)
+
+        elements = partition_pdf(
+            filename=str(path),
+            strategy="hi_res",
+            infer_table_structure=True,
+            extract_image_block_types=["Image"],
+            extract_image_block_to_payload=True,
+        )
     elif suffix == ".docx":
         from unstructured.partition.docx import partition_docx
+
         elements = partition_docx(filename=str(path), infer_table_structure=True)
     else:
         raise ValueError("Only PDF/DOCX; use reviewed LayoutBundle for other sources")
@@ -117,17 +124,25 @@ def extract_layout(path: Path, scope: Scope, source_id: str) -> LayoutBundle:
             if not table:
                 raise TechnicalRAGError("Table lost its structure; manual transcription required")
             text, spans, header_count = table_layout(table)
-            blocks.append(Block(kind="table", text=text, section=section, pages=pages,
-                                row_spans=spans, header_rows=header_count))
+            blocks.append(
+                Block(kind="table", text=text, section=section, pages=pages, row_spans=spans, header_rows=header_count)
+            )
         elif category in {"Image", "Formula"}:
-            blocks.append(Block(kind="diagram", text=text or "[UNREVIEWED FIGURE/FORMULA]",
-                                section=section, pages=pages))
+            blocks.append(
+                Block(kind="diagram", text=text or "[UNREVIEWED FIGURE/FORMULA]", section=section, pages=pages)
+            )
         elif text:
-            blocks.append(Block(kind="title" if category == "Title" else "text",
-                                text=text, section=section, pages=pages))
-    return LayoutBundle(source_id=source_id, source_name=path.name, raw_sha256=raw_hash,
-                        parser="unstructured:" + importlib.metadata.version("unstructured"),
-                        scope=scope, blocks=blocks)
+            blocks.append(
+                Block(kind="title" if category == "Title" else "text", text=text, section=section, pages=pages)
+            )
+    return LayoutBundle(
+        source_id=source_id,
+        source_name=path.name,
+        raw_sha256=raw_hash,
+        parser="unstructured:" + importlib.metadata.version("unstructured"),
+        scope=scope,
+        blocks=blocks,
+    )
 
 
 def approve(bundle: LayoutBundle, raw_path: Path, reviewer: str) -> LayoutBundle:
@@ -139,8 +154,12 @@ def approve(bundle: LayoutBundle, raw_path: Path, reviewer: str) -> LayoutBundle
         raise TechnicalRAGError("Raw source changed since extraction")
     if not reviewer.strip():
         raise ValueError("Reviewer identity required")
-    approval = Approval(reviewer=reviewer, reviewed_at=datetime.now(timezone.utc).isoformat(),
-                        extraction_sha256=bundle.extraction_hash(), raw_sha256=bundle.raw_sha256)
+    approval = Approval(
+        reviewer=reviewer,
+        reviewed_at=datetime.now(UTC).isoformat(),
+        extraction_sha256=bundle.extraction_hash(),
+        raw_sha256=bundle.raw_sha256,
+    )
     approved = bundle.model_copy(update={"approval": approval})
     approved.require_review()
     return approved

@@ -1,4 +1,5 @@
 """Do not serve requests until interrupted document publications are reconciled."""
+
 import asyncio
 
 import pytest

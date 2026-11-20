@@ -1,8 +1,10 @@
 """Pydantic schemas cho chat."""
+
 from datetime import datetime
 
 from pydantic import BaseModel, Field
-from rag.evidence import EvidenceOut, CitationAudit
+
+from rag.evidence import CitationAudit, EvidenceOut
 
 
 class ConversationCreate(BaseModel):

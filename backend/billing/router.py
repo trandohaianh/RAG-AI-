@@ -1,4 +1,5 @@
 """Stripe subscription — tuần 7–8."""
+
 import asyncio
 import json
 
@@ -10,7 +11,6 @@ from sqlalchemy.orm import Session
 from auth.models import User
 from auth.schemas import CurrentUser
 from config import (
-    API_PUBLIC_URL,
     APP_PUBLIC_URL,
     STRIPE_PRICE_PRO,
     STRIPE_SECRET_KEY,
@@ -147,16 +147,16 @@ def _current_customer_plan(stripe, customer_id: str) -> str:
     """Resolve entitlement from current subscriptions instead of an event snapshot."""
     for status in ("active", "trialing"):
         page = stripe.Subscription.list(
-            customer=customer_id, status=status, price=STRIPE_PRICE_PRO, limit=1,
+            customer=customer_id,
+            status=status,
+            price=STRIPE_PRICE_PRO,
+            limit=1,
         )
         for subscription in page["data"]:
             if (
                 subscription["customer"] == customer_id
                 and subscription["status"] == status
-                and any(
-                    item["price"]["id"] == STRIPE_PRICE_PRO
-                    for item in subscription["items"]["data"]
-                )
+                and any(item["price"]["id"] == STRIPE_PRICE_PRO for item in subscription["items"]["data"])
             ):
                 return "pro"
     return "free"
@@ -196,10 +196,14 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 
     # The customer is bound during authenticated checkout; never bind accounts using
     # user_id from an incoming event's metadata.
-    row = db.query(User).filter(
-        User.stripe_customer_id == customer_id,
-        User.deleted_at.is_(None),
-    ).first()
+    row = (
+        db.query(User)
+        .filter(
+            User.stripe_customer_id == customer_id,
+            User.deleted_at.is_(None),
+        )
+        .first()
+    )
     if row is None:
         return {"received": True}
     # Reserve a monotonic revision before the provider call. An older in-flight
@@ -208,7 +212,8 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     revision = db.execute(
         update(User)
         .where(
-            User.id == user_id, User.deleted_at.is_(None),
+            User.id == user_id,
+            User.deleted_at.is_(None),
             User.stripe_customer_id == customer_id,
         )
         .values(billing_sync_version=User.billing_sync_version + 1)
@@ -226,7 +231,8 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     db.execute(
         update(User)
         .where(
-            User.id == user_id, User.deleted_at.is_(None),
+            User.id == user_id,
+            User.deleted_at.is_(None),
             User.stripe_customer_id == customer_id,
             User.billing_sync_version == revision,
         )

@@ -1,4 +1,5 @@
 """Great Expectations–style validation trước khi ghi Silver layer."""
+
 from __future__ import annotations
 
 import hashlib
@@ -58,11 +59,21 @@ def drop_noise_chunks(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
     dupes = df["content_hash"].duplicated() & ~tiny
     notes = []
     if tiny.any():
-        notes.append({"expectation": "drop_tiny_chunks", "success": True,
-                      "detail": f"Đã bỏ {int(tiny.sum())} chunk dưới {MIN_CHUNK_CHARS} ký tự (chân/đầu trang)"})
+        notes.append(
+            {
+                "expectation": "drop_tiny_chunks",
+                "success": True,
+                "detail": f"Đã bỏ {int(tiny.sum())} chunk dưới {MIN_CHUNK_CHARS} ký tự (chân/đầu trang)",
+            }
+        )
     if dupes.any():
-        notes.append({"expectation": "drop_duplicate_chunks", "success": True,
-                      "detail": f"Đã bỏ {int(dupes.sum())} chunk trùng nội dung"})
+        notes.append(
+            {
+                "expectation": "drop_duplicate_chunks",
+                "success": True,
+                "detail": f"Đã bỏ {int(dupes.sum())} chunk trùng nội dung",
+            }
+        )
     cleaned = df[~(tiny | dupes)].reset_index(drop=True)
     return cleaned, notes
 

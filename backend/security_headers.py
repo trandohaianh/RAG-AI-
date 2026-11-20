@@ -5,6 +5,7 @@ Render/Railway và chạy uvicorn trực tiếp thì KHÔNG có reverse proxy: A
 hiện trường mà không có nosniff/frame policy. Middleware chỉ đặt header khi phản hồi chưa có, nên
 không đè lên giá trị riêng của một route (vd. Content-Security-Policy của widget nếu có).
 """
+
 from __future__ import annotations
 
 SECURITY_HEADERS: tuple[tuple[bytes, bytes], ...] = (

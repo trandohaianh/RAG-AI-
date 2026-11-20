@@ -1,4 +1,5 @@
 """Redis cache cho kết quả retrieve RAG (tuần 1–2)."""
+
 from __future__ import annotations
 
 import hashlib
@@ -50,13 +51,20 @@ def _redis():
         import redis
         from redis.backoff import NoBackoff
         from redis.retry import Retry
+
         pool = client = None
         try:
             pool = redis.ConnectionPool.from_url(
-                REDIS_URL, decode_responses=True, max_connections=32,
-                socket_connect_timeout=0.3, socket_timeout=0.3,
-                retry=Retry(NoBackoff(), 0), retry_on_timeout=False,
-                health_check_interval=0, socket_keepalive=True)
+                REDIS_URL,
+                decode_responses=True,
+                max_connections=32,
+                socket_connect_timeout=0.3,
+                socket_timeout=0.3,
+                retry=Retry(NoBackoff(), 0),
+                retry_on_timeout=False,
+                health_check_interval=0,
+                socket_keepalive=True,
+            )
             client = redis.Redis(connection_pool=pool)
             client.ping()
         except Exception:
@@ -102,7 +110,15 @@ def get_cached_chunks(
         out: list[tuple[str, str, int | None]] = []
         for row in data:
             page = row.get("page")
-            out.append(EvidenceChunk(row["text"], row["source"], int(page) if page is not None else None, chunk_id=row.get("chunk_id"), document_version=row.get("document_version")))
+            out.append(
+                EvidenceChunk(
+                    row["text"],
+                    row["source"],
+                    int(page) if page is not None else None,
+                    chunk_id=row.get("chunk_id"),
+                    document_version=row.get("document_version"),
+                )
+            )
         return out
     except Exception:
         return None
@@ -121,7 +137,14 @@ def set_cached_chunks(
         return
     try:
         payload = [
-            {"text": row[0], "source": row[1], "page": row[2], "chunk_id": getattr(row, "chunk_id", None), "document_version": getattr(row, "document_version", None)} for row in chunks
+            {
+                "text": row[0],
+                "source": row[1],
+                "page": row[2],
+                "chunk_id": getattr(row, "chunk_id", None),
+                "document_version": getattr(row, "document_version", None),
+            }
+            for row in chunks
         ]
         r.setex(
             cache_key_retrieve(user_id, query, k, source, workspace_id),
@@ -150,9 +173,7 @@ def invalidate_workspace_cache(workspace_id: int) -> None:
     if not r:
         return
     try:
-        for key in r.scan_iter(
-            match=f"rag:retrieve:workspace:{workspace_id}:*", count=100
-        ):
+        for key in r.scan_iter(match=f"rag:retrieve:workspace:{workspace_id}:*", count=100):
             r.delete(key)
     except Exception:
         pass

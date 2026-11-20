@@ -1,5 +1,6 @@
 """Gold layer — aggregates cho analytics / dashboard."""
-from datetime import date, datetime, timezone
+
+from datetime import UTC, date, datetime
 
 from sqlalchemy import text
 
@@ -55,7 +56,7 @@ def upsert_daily_stats(metric_date: date | None = None) -> dict:
     """
     # Ngày UTC (cả tham số lẫn CAST ... AT TIME ZONE 'UTC' bên dưới): date.today() theo giờ máy
     # và CAST theo múi giờ session DB làm số liệu lệch sang ngày bên cạnh quanh nửa đêm.
-    day = metric_date or datetime.now(timezone.utc).date()
+    day = metric_date or datetime.now(UTC).date()
     with session_scope() as db:
         row = db.execute(
             text(
@@ -85,7 +86,12 @@ def upsert_daily_stats(metric_date: date | None = None) -> dict:
                 RETURNING files_processed, chunks_created, validation_failures, users_active
                 """
             ),
-            {"metric_date": day, "updated_at": datetime.now(timezone.utc)},
+            {"metric_date": day, "updated_at": datetime.now(UTC)},
         ).one()
-        return {"metric_date": day.isoformat(), "files_processed": row[0], "chunks_created": row[1],
-                "validation_failures": row[2], "users_active": row[3]}
+        return {
+            "metric_date": day.isoformat(),
+            "files_processed": row[0],
+            "chunks_created": row[1],
+            "validation_failures": row[2],
+            "users_active": row[3],
+        }

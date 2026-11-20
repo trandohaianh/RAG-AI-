@@ -4,6 +4,7 @@ Word overlap alone cannot verify an answer. We retain negation terms and flag a
 simple polarity reversal against the closest source sentence. Paraphrases, scope,
 double negation, quantities and more complex contradictions remain unverified.
 """
+
 import re
 import unicodedata
 
@@ -12,9 +13,37 @@ _WORD_RE = re.compile(r"[0-9a-zA-ZÀ-ỹà-ỹ]+", re.UNICODE)
 _NEGATION = {"không", "chưa", "cấm", "not", "never", "no"}
 
 _STOPWORDS = {
-    "và", "là", "của", "có", "the", "a", "an", "trong", "cho", "được", "này",
-    "đã", "với", "để", "một", "các", "những", "khi", "như", "về",
-    "hay", "hoặc", "nếu", "thì", "đó", "vì", "nên", "ra", "lên", "tại", "từ",
+    "và",
+    "là",
+    "của",
+    "có",
+    "the",
+    "a",
+    "an",
+    "trong",
+    "cho",
+    "được",
+    "này",
+    "đã",
+    "với",
+    "để",
+    "một",
+    "các",
+    "những",
+    "khi",
+    "như",
+    "về",
+    "hay",
+    "hoặc",
+    "nếu",
+    "thì",
+    "đó",
+    "vì",
+    "nên",
+    "ra",
+    "lên",
+    "tại",
+    "từ",
 }
 
 
@@ -33,10 +62,7 @@ def _polarity_mismatch(words: set[str], source_sentences: list[set[str]], thresh
     content = words - _NEGATION
     if len(content) < 2:
         return False
-    matches = [
-        (len(content & (source - _NEGATION)) / len(content), source)
-        for source in source_sentences
-    ]
+    matches = [(len(content & (source - _NEGATION)) / len(content), source) for source in source_sentences]
     best = max((score for score, _ in matches), default=0.0)
     if best < threshold:
         return False
@@ -64,17 +90,22 @@ def sentence_grounding_score(answer: str, context: str, threshold: float = 0.35)
         reversal = _polarity_mismatch(words, source_sentences, threshold)
         supported = overlap >= threshold and not reversal
         grounded += int(supported)
-        details.append({
-            "sentence": sentence, "overlap": round(overlap, 3),
-            "polarity_mismatch": reversal, "grounded": supported,
-        })
+        details.append(
+            {
+                "sentence": sentence,
+                "overlap": round(overlap, 3),
+                "polarity_mismatch": reversal,
+                "grounded": supported,
+            }
+        )
 
     total = len(details)
     return {
         "metric": "lexical_support_diagnostic",
         "semantic_accuracy": None,
         "limitations": "Word overlap and simple negation checks cannot verify factual or semantic correctness.",
-        "grounded": grounded, "total": total,
+        "grounded": grounded,
+        "total": total,
         "ratio": (grounded / total) if total else None,
         "per_sentence": details,
     }

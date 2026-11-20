@@ -1,4 +1,5 @@
 """Xây dựng prompt Gemini với context + lịch sử."""
+
 import re
 from typing import Any
 
@@ -75,9 +76,6 @@ def build_gemini_prompt(
     history_text = format_history(history)
     history_block = f"\n\nLịch sử hội thoại:\n{history_text}" if history_text else ""
     return RagPrompt(
-        f"Context tài liệu:\n{context}"
-        f"{history_block}\n\n"
-        f"Câu hỏi: {question}\n\n"
-        f"Trả lời (tiếng Việt):",
+        f"Context tài liệu:\n{context}{history_block}\n\nCâu hỏi: {question}\n\nTrả lời (tiếng Việt):",
         SYSTEM_PROMPT,
     )

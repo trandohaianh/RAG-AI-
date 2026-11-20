@@ -1,7 +1,8 @@
 """Field-service workspace, case, and technician workflow API."""
+
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -9,12 +10,10 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from rag.evidence import EvidenceOut, CitationAudit, public_bundle
 from auth.models import User
 from auth.schemas import CurrentUser
 from database import get_db
 from dependencies import get_current_user
-from saas.limits import enforce_query_quota
 from field.models import (
     FieldClientAction,
     FieldWorkspace,
@@ -23,14 +22,21 @@ from field.models import (
     ServiceCaseEvent,
     ServiceCaseStep,
 )
+from rag.evidence import CitationAudit, EvidenceOut, public_bundle
+from saas.limits import enforce_query_quota
 
 router = APIRouter(prefix="/field", tags=["field operations"])
 
 CASE_STATUSES = {"open", "in_progress", "waiting", "escalated", "resolved"}
 STEP_STATUSES = {"todo", "done", "blocked"}
 # Nhãn tiếng Việt cho nhật ký ca (mã trạng thái vẫn lưu ở event_type / trường status).
-CASE_STATUS_VI = {"open": "Mới tiếp nhận", "in_progress": "Đang xử lý", "waiting": "Chờ khách hàng",
-                  "escalated": "Chuyển cấp", "resolved": "Đã hoàn tất"}
+CASE_STATUS_VI = {
+    "open": "Mới tiếp nhận",
+    "in_progress": "Đang xử lý",
+    "waiting": "Chờ khách hàng",
+    "escalated": "Chuyển cấp",
+    "resolved": "Đã hoàn tất",
+}
 STEP_STATUS_VI = {"todo": "chưa làm", "done": "đã xong", "blocked": "bị vướng"}
 
 
@@ -218,9 +224,7 @@ def _claim_client_action(
     body = request_body.model_dump(exclude={"client_action_id"}, exclude_unset=True, mode="json")
 
     def _digest(payload: dict) -> str:
-        return hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
     # Đối tượng trong path (vd. step_id) là một phần của thao tác: cùng mã + cùng body nhưng
     # khác bước không được coi là "đã áp dụng" rồi lặng lẽ bỏ qua.
@@ -277,10 +281,12 @@ def list_workspaces(
         # Lần đầu mở app thường bắn nhiều request cùng lúc (hai tab, web + mobile, provider
         # remount): mỗi request đều thấy "chưa có đội" và tạo một đội mặc định. Khoá dòng user
         # (PostgreSQL) / khoá ghi DB (SQLite) rồi kiểm tra lại: request đến sau thấy đội đã có.
-        db.execute(update(User).where(User.id == user.id).values(id=User.id)
-                   .execution_options(synchronize_session=False))
-        if db.scalar(select(func.count()).select_from(FieldWorkspaceMember)
-                     .where(FieldWorkspaceMember.user_id == user.id)):
+        db.execute(
+            update(User).where(User.id == user.id).values(id=User.id).execution_options(synchronize_session=False)
+        )
+        if db.scalar(
+            select(func.count()).select_from(FieldWorkspaceMember).where(FieldWorkspaceMember.user_id == user.id)
+        ):
             db.commit()
             return list_workspaces(user, db)
     if not memberships:
@@ -290,9 +296,7 @@ def list_workspaces(
         )
         db.add(workspace)
         db.flush()
-        membership = FieldWorkspaceMember(
-            workspace_id=workspace.id, user_id=user.id, role="owner"
-        )
+        membership = FieldWorkspaceMember(workspace_id=workspace.id, user_id=user.id, role="owner")
         db.add(membership)
         db.commit()
         db.refresh(workspace)
@@ -324,16 +328,10 @@ def create_workspace(
     workspace = FieldWorkspace(name=body.name.strip(), created_by=user.id)
     db.add(workspace)
     db.flush()
-    db.add(
-        FieldWorkspaceMember(
-            workspace_id=workspace.id, user_id=user.id, role="owner"
-        )
-    )
+    db.add(FieldWorkspaceMember(workspace_id=workspace.id, user_id=user.id, role="owner"))
     db.commit()
     db.refresh(workspace)
-    return WorkspaceOut(
-        id=workspace.id, name=workspace.name, role="owner", member_count=1
-    )
+    return WorkspaceOut(id=workspace.id, name=workspace.name, role="owner", member_count=1)
 
 
 @router.get("/workspaces/{workspace_id}/members", response_model=list[MemberOut])
@@ -350,16 +348,20 @@ def list_members(
         .order_by(FieldWorkspaceMember.created_at)
     ).all()
     return [
-        MemberOut(user_id=member.user_id, email=account.email, role=member.role,
-                  base_latitude=member.base_latitude, base_longitude=member.base_longitude,
-                  shift_start=member.shift_start or "08:00", shift_end=member.shift_end or "17:00")
+        MemberOut(
+            user_id=member.user_id,
+            email=account.email,
+            role=member.role,
+            base_latitude=member.base_latitude,
+            base_longitude=member.base_longitude,
+            shift_start=member.shift_start or "08:00",
+            shift_end=member.shift_end or "17:00",
+        )
         for member, account in rows
     ]
 
 
-@router.post(
-    "/workspaces/{workspace_id}/members", response_model=MemberOut, status_code=201
-)
+@router.post("/workspaces/{workspace_id}/members", response_model=MemberOut, status_code=201)
 def add_member(
     workspace_id: int,
     body: MemberCreate,
@@ -392,9 +394,7 @@ def add_member(
     )
     if existing:
         raise HTTPException(status_code=409, detail="Người dùng đã ở trong đội")
-    membership = FieldWorkspaceMember(
-        workspace_id=workspace.id, user_id=account.id, role="technician"
-    )
+    membership = FieldWorkspaceMember(workspace_id=workspace.id, user_id=account.id, role="technician")
     db.add(membership)
     db.commit()
     return MemberOut(user_id=account.id, email=account.email, role="technician")
@@ -524,7 +524,9 @@ def update_case(
             raise HTTPException(status_code=422, detail="Trạng thái ca sửa không hợp lệ")
         if case.status != body.status:
             case.status = body.status
-            _add_event(db, case.id, user.id, "status", f"Chuyển trạng thái: {CASE_STATUS_VI.get(body.status, body.status)}")
+            _add_event(
+                db, case.id, user.id, "status", f"Chuyển trạng thái: {CASE_STATUS_VI.get(body.status, body.status)}"
+            )
             notify.append("case.status_changed")
     if "assigned_to" in body.model_fields_set:
         if body.assigned_to is not None:
@@ -535,9 +537,7 @@ def update_case(
                 )
             )
             if not assignee:
-                raise HTTPException(
-                    status_code=422, detail="Người được giao không thuộc đội"
-                )
+                raise HTTPException(status_code=422, detail="Người được giao không thuộc đội")
         case.assigned_to = body.assigned_to
         _add_event(db, case.id, user.id, "assigned", "Cập nhật người phụ trách")
         notify.append("case.assigned")
@@ -580,8 +580,10 @@ def create_step(
     # vị trí. UPDATE không đổi gì giữ khoá ghi (SQLite) / khoá dòng ca (PostgreSQL) tới khi
     # commit, nên MAX(position) đọc sau đó đã gồm bước của giao dịch kia.
     db.execute(
-        update(ServiceCase).where(ServiceCase.id == case.id)
-        .values(updated_at=ServiceCase.updated_at).execution_options(synchronize_session=False)
+        update(ServiceCase)
+        .where(ServiceCase.id == case.id)
+        .values(updated_at=ServiceCase.updated_at)
+        .execution_options(synchronize_session=False)
     )
     last = db.scalar(select(func.max(ServiceCaseStep.position)).where(ServiceCaseStep.case_id == case.id))
     step = ServiceCaseStep(
@@ -613,11 +615,7 @@ def update_step(
     case = _case_for_user(db, case_id, user.id)
     if body.status not in STEP_STATUSES:
         raise HTTPException(status_code=422, detail="Trạng thái checklist không hợp lệ")
-    step = db.scalar(
-        select(ServiceCaseStep).where(
-            ServiceCaseStep.id == step_id, ServiceCaseStep.case_id == case.id
-        )
-    )
+    step = db.scalar(select(ServiceCaseStep).where(ServiceCaseStep.id == step_id, ServiceCaseStep.case_id == case.id))
     if not step:
         raise HTTPException(status_code=404, detail="Không tìm thấy bước checklist")
     action, already_applied = _claim_client_action(
@@ -634,7 +632,7 @@ def update_step(
     step.status = body.status
     step.result_note = body.result_note
     step.completed_by = user.id if body.status == "done" else None
-    step.completed_at = datetime.now(timezone.utc) if body.status == "done" else None
+    step.completed_at = datetime.now(UTC) if body.status == "done" else None
     _add_event(db, case.id, user.id, "step_updated", f"{step.title}: {STEP_STATUS_VI.get(body.status, body.status)}")
     db.commit()
     db.refresh(step)
@@ -667,9 +665,7 @@ def add_case_event(
         if not event:
             raise HTTPException(status_code=409, detail="Không thể khôi phục ghi nhận đã đồng bộ")
         return event
-    event = ServiceCaseEvent(
-        case_id=case.id, actor_id=user.id, event_type="field_note", detail=body.detail.strip()
-    )
+    event = ServiceCaseEvent(case_id=case.id, actor_id=user.id, event_type="field_note", detail=body.detail.strip())
     db.add(event)
     db.flush()
     if action:
@@ -729,16 +725,26 @@ async def assist_case(
 
 
 @router.get("/cases/{case_id}/events/{event_id}/evidence/{reference_id}")
-def get_case_evidence(case_id: int, event_id: int, reference_id: str,
-                      user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    from rag.evidence import read_bundle, evidence_status
+def get_case_evidence(
+    case_id: int,
+    event_id: int,
+    reference_id: str,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from rag.evidence import evidence_status, read_bundle
+
     case = _case_for_user(db, case_id, user.id)
     event = next((event for event in case.events if event.id == event_id), None)
     if event is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy bằng chứng")
     bundle = read_bundle(event.evidence_json)
-    item = next((item for item in bundle['evidence'] if item['reference_id'] == reference_id), None)
+    item = next((item for item in bundle["evidence"] if item["reference_id"] == reference_id), None)
     if item is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy bằng chứng")
     from fastapi.responses import JSONResponse
-    return JSONResponse({"evidence": item, "document_status": evidence_status(bundle, f"workspace_{case.workspace_id}")}, headers={"Cache-Control": "no-store"})
+
+    return JSONResponse(
+        {"evidence": item, "document_status": evidence_status(bundle, f"workspace_{case.workspace_id}")},
+        headers={"Cache-Control": "no-store"},
+    )

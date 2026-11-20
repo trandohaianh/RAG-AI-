@@ -1,4 +1,5 @@
 """Orchestrate Bronze → GE validate → Silver → Gold."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -54,7 +55,7 @@ def run_medallion_for_file(
     # Luôn đồng bộ gold: khi kiểm tra thất bại, dòng tóm tắt cũ phải bị gỡ.
     refresh_document_summary(user_id, file_path.name)
 
-    upsert_daily_stats()   # tính lại cả ngày từ bronze/silver: chạy lại không đếm trùng
+    upsert_daily_stats()  # tính lại cả ngày từ bronze/silver: chạy lại không đếm trùng
 
     return {
         "bronze_id": bronze_id,

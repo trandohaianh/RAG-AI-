@@ -1,4 +1,5 @@
 """Truthful evaluation accounting and explicit live/provider/content opt-ins."""
+
 import copy
 import json
 import sys
@@ -13,11 +14,18 @@ from scripts import run_rag_evaluation as evaluation
 @pytest.fixture
 def dataset():
     return {
-        "schema_version": 1, "dataset_id": "reviewed-fixture", "kind": "user_curated",
+        "schema_version": 1,
+        "dataset_id": "reviewed-fixture",
+        "kind": "user_curated",
         "target": {"user_id": 17, "workspace_id": 8, "collection": "workspace_8"},
         "cases": [
-            {"id": "supported", "query": "private incident question", "source": "confidential.pdf",
-             "expected_evidence": [{"source": "confidential.pdf", "page": 2}], "expect_no_evidence": False},
+            {
+                "id": "supported",
+                "query": "private incident question",
+                "source": "confidential.pdf",
+                "expected_evidence": [{"source": "confidential.pdf", "page": 2}],
+                "expect_no_evidence": False,
+            },
             {"id": "absent", "query": "private absent question", "expected_evidence": [], "expect_no_evidence": True},
         ],
     }
@@ -65,10 +73,22 @@ def test_template_validates_offline_and_is_never_a_real_measurement(monkeypatch)
         evaluation.evaluate(data, mode="retrieval", pipeline=FakePipeline())
 
 
-@pytest.mark.parametrize("mutation", [
-    "mismatch_collection", "bool_user", "negative_workspace", "duplicate_id", "no_expectation",
-    "two_expectations", "invalid_page", "bool_page", "missing_page", "source_mismatch", "empty_skip",
-])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "mismatch_collection",
+        "bool_user",
+        "negative_workspace",
+        "duplicate_id",
+        "no_expectation",
+        "two_expectations",
+        "invalid_page",
+        "bool_page",
+        "missing_page",
+        "source_mismatch",
+        "empty_skip",
+    ],
+)
 def test_invalid_annotations_rejected_before_live_calls(tmp_path, dataset, mutation):
     if mutation == "mismatch_collection":
         dataset["target"]["collection"] = "user_17"
@@ -109,7 +129,12 @@ def test_real_evidence_metrics_and_scope_forwarding_without_sensitive_report(dat
     assert pipeline.calls[0][1]["source"] == "confidential.pdf"
     assert pipeline.calls[0][2] == 3
     serialized = json.dumps(report)
-    for secret_content in ("private incident question", "private absent question", "confidential.pdf", "private source evidence"):
+    for secret_content in (
+        "private incident question",
+        "private absent question",
+        "confidential.pdf",
+        "private source evidence",
+    ):
         assert secret_content not in serialized
     assert report["results"][0]["retrieved_evidence"][0]["page"] == 2
 
@@ -117,6 +142,7 @@ def test_real_evidence_metrics_and_scope_forwarding_without_sensitive_report(dat
 def test_outage_is_failed_and_cannot_be_successful_no_evidence(dataset):
     def retrieve(*args):
         raise ConnectionError("private question and provider key should not be recorded")
+
     report = evaluation.evaluate(dataset, mode="retrieval", pipeline=FakePipeline(retrieve=retrieve))
     assert (report["completed"], report["failed"]) == (0, 2)
     assert report["retrieval"]["no_evidence_detection_accuracy"] == 0
@@ -129,6 +155,7 @@ def test_outage_is_failed_and_cannot_be_successful_no_evidence(dataset):
 def test_malformed_hit_cannot_contribute_to_successful_evidence_metric(dataset):
     def retrieve(*args):
         return evaluation.Snapshot([("valid evidence", "confidential.pdf", 2), ("bad-row",)])
+
     report = evaluation.evaluate(dataset, mode="retrieval", pipeline=FakePipeline(retrieve=retrieve))
     assert report["failed"] == 2
     assert report["retrieval"]["evidence_recall_at_k"] == 0
@@ -146,7 +173,9 @@ def test_source_page_matches_are_exact_and_null_is_not_any_page(dataset):
 
 def test_generation_requires_human_review_and_content_opt_in(dataset):
     private = evaluation.evaluate(dataset, mode="retrieval", pipeline=FakePipeline(), generate=True)
-    public = evaluation.evaluate(dataset, mode="retrieval", pipeline=FakePipeline(), generate=True, include_content=True)
+    public = evaluation.evaluate(
+        dataset, mode="retrieval", pipeline=FakePipeline(), generate=True, include_content=True
+    )
     assert private["generation"]["refusal_rate"] is None
     assert private["generation"]["correctness"] is None
     assert private["generation"]["safety"] is None
@@ -155,13 +184,17 @@ def test_generation_requires_human_review_and_content_opt_in(dataset):
     assert public["results"][0]["retrieved_evidence"][0]["text"] == "private source evidence"
     assert public["results"][1]["generation"]["model_called"] is False
     assert public["results"][1]["generation"]["review"] == {
-        "status": "required", "correctness": None, "safety": None, "refusal": None,
+        "status": "required",
+        "correctness": None,
+        "safety": None,
+        "refusal": None,
     }
 
 
 def test_generation_failure_preserves_retrieval_metrics_but_fails_overall(dataset):
     def generate(*args):
         raise TimeoutError("secret content")
+
     report = evaluation.evaluate(dataset, mode="retrieval", pipeline=FakePipeline(generate=generate), generate=True)
     assert report["completed"] == 0
     assert report["failed"] == 2
@@ -193,11 +226,14 @@ def test_runs_have_fingerprints_and_never_resume_old_reports(dataset):
     assert third["dataset_sha256"] != first["dataset_sha256"]
 
 
-@pytest.mark.parametrize("args", [
-    ["--mode", "retrieval"],
-    ["--generate"],
-    ["--mode", "retrieval", "--allow-external-calls"],
-])
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--mode", "retrieval"],
+        ["--generate"],
+        ["--mode", "retrieval", "--allow-external-calls"],
+    ],
+)
 def test_cli_requires_explicit_provider_generation_and_report_choices(monkeypatch, args):
     monkeypatch.setattr(evaluation, "LivePipeline", lambda *args: pytest.fail("providers initialized before opt-in"))
     with pytest.raises(SystemExit) as exc:
@@ -226,10 +262,12 @@ def test_report_cannot_overwrite_dataset_or_application_data(tmp_path, dataset):
 
 
 def test_live_snapshot_refuses_pending_recovery_without_search_or_repair(tmp_path, monkeypatch):
-    import config
     import chromadb
+
+    import config
     from rag import document_lifecycle as lifecycle
     from rag import retriever
+
     index_dir = tmp_path / "chroma"
     index_dir.mkdir()
     monkeypatch.setattr(config, "CHROMA_DIR", index_dir)
@@ -238,22 +276,28 @@ def test_live_snapshot_refuses_pending_recovery_without_search_or_repair(tmp_pat
     lifecycle._journal_path(index_dir, collection).write_text("corrupt journal", encoding="utf-8")
     monkeypatch.setattr(retriever, "_search_sync", lambda *args: pytest.fail("searched unrecovered index"))
     monkeypatch.setattr(chromadb, "PersistentClient", lambda *args, **kwargs: pytest.fail("opened unrecovered index"))
-    monkeypatch.setattr(lifecycle, "recover_pending", lambda *args, **kwargs: pytest.fail("evaluation repaired real user data"))
+    monkeypatch.setattr(
+        lifecycle, "recover_pending", lambda *args, **kwargs: pytest.fail("evaluation repaired real user data")
+    )
     with pytest.raises(lifecycle.DocumentRecoveryError):
         pipeline.retrieve({"user_id": 17, "collection": collection}, {"query": "query"}, 3)
 
 
 def test_live_snapshot_requires_existing_collection_before_provider_search(tmp_path, monkeypatch):
-    import config
     import chromadb
+
+    import config
     from rag import retriever
+
     index_dir = tmp_path / "chroma"
     index_dir.mkdir()
     monkeypatch.setattr(config, "CHROMA_DIR", index_dir)
     pipeline = evaluation.LivePipeline(3)
+
     class MissingClient:
         def get_collection(self, name):
             raise LookupError("absent collection")
+
     monkeypatch.setattr(chromadb, "PersistentClient", lambda **kwargs: MissingClient())
     monkeypatch.setattr(retriever, "_search_sync", lambda *args: pytest.fail("provider called for missing index"))
     with pytest.raises(LookupError):
@@ -261,20 +305,26 @@ def test_live_snapshot_requires_existing_collection_before_provider_search(tmp_p
 
 
 def test_live_snapshot_strict_branch_failure_is_not_hidden_by_other_evidence(tmp_path, monkeypatch):
-    import config
     import chromadb
+
+    import config
     from rag import retriever
+
     index_dir = tmp_path / "chroma"
     index_dir.mkdir()
     monkeypatch.setattr(config, "CHROMA_DIR", index_dir)
     pipeline = evaluation.LivePipeline(3)
+
     class ExistingClient:
         def get_collection(self, name):
             return object()
+
     monkeypatch.setattr(chromadb, "PersistentClient", lambda **kwargs: ExistingClient())
     monkeypatch.setattr(retriever, "_search_sync", lambda *args: [("evidence", "manual.pdf", 1)])
+
     def fail(*args):
         raise ConnectionError("BM25 broken")
+
     monkeypatch.setattr(retriever, "_bm25_search_sync", fail)
     with pytest.raises(ConnectionError):
         pipeline.retrieve({"user_id": 17, "collection": "user_17"}, {"query": "query"}, 3)
@@ -285,10 +335,23 @@ def test_cli_preflights_output_before_initializing_provider(tmp_path, dataset, m
     path = _save(tmp_path, dataset)
     outputs = {"dataset": path, "data": tmp_path / "data" / "report.json", "extension": tmp_path / "app.db"}
     monkeypatch.setattr(evaluation, "_application_data_roots", lambda: (tmp_path / "data",))
-    monkeypatch.setattr(evaluation, "LivePipeline", lambda *args: pytest.fail("provider initialized before output preflight"))
-    assert evaluation.main([
-        "--dataset", str(path), "--mode", "retrieval", "--allow-external-calls", "--output", str(outputs[destination]),
-    ]) == 2
+    monkeypatch.setattr(
+        evaluation, "LivePipeline", lambda *args: pytest.fail("provider initialized before output preflight")
+    )
+    assert (
+        evaluation.main(
+            [
+                "--dataset",
+                str(path),
+                "--mode",
+                "retrieval",
+                "--allow-external-calls",
+                "--output",
+                str(outputs[destination]),
+            ]
+        )
+        == 2
+    )
 
 
 def test_cli_regression_gate_rejects_zero_evaluated_cases(tmp_path, dataset, monkeypatch):
@@ -298,52 +361,73 @@ def test_cli_regression_gate_rejects_zero_evaluated_cases(tmp_path, dataset, mon
     output = tmp_path / "report.json"
     monkeypatch.setattr(evaluation, "_application_data_roots", lambda: ())
     monkeypatch.setattr(evaluation, "LivePipeline", lambda *args: FakePipeline())
-    assert evaluation.main([
-        "--dataset", str(path), "--mode", "retrieval", "--allow-external-calls", "--output", str(output),
-        "--fail-on-regression",
-    ]) == 1
+    assert (
+        evaluation.main(
+            [
+                "--dataset",
+                str(path),
+                "--mode",
+                "retrieval",
+                "--allow-external-calls",
+                "--output",
+                str(output),
+                "--fail-on-regression",
+            ]
+        )
+        == 1
+    )
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["completed"] == report["failed"] == 0
     assert report["skipped"] == 2
     assert report["retrieval"]["all_expectations_passed"] is None
 
 
-
 def test_live_pipeline_uses_both_production_branches_and_reranks_their_fusion(tmp_path, monkeypatch):
-    import config
     import chromadb
-    from rag import retriever, rerank
+
+    import config
+    from rag import rerank, retriever
+
     index_dir = tmp_path / "chroma"
     index_dir.mkdir()
     monkeypatch.setattr(config, "CHROMA_DIR", index_dir)
     monkeypatch.setattr(config, "RETRIEVE_CANDIDATES", 7)
+
     class Collection:
         def count(self):
             return 2
+
     class ExistingClient:
         def get_collection(self, name):
             assert name == "workspace_8"
             return Collection()
+
     monkeypatch.setattr(chromadb, "PersistentClient", lambda **kwargs: ExistingClient())
     calls = []
     vector_row = ("vector evidence", "manual.pdf", 1)
     lexical_row = ("technical E-204 evidence", "manual.pdf", 2)
+
     def search(branch, row):
         def invoke(*args):
             calls.append((branch, args))
             return [row]
+
         return invoke
+
     monkeypatch.setattr(retriever, "_search_sync", search("vector", vector_row))
     monkeypatch.setattr(retriever, "_bm25_search_sync", search("bm25", lexical_row))
+
     def rank(query, rows, top_n):
         assert query == "E-204"
         assert rows == [vector_row, lexical_row]
         assert top_n == 1
         return [lexical_row]
+
     monkeypatch.setattr(rerank, "rerank_chunks", rank)
     snapshot = evaluation.LivePipeline(1).retrieve(
         {"user_id": 17, "workspace_id": 8, "collection": "workspace_8"},
-        {"query": "E-204", "source": "manual.pdf"}, 1,
+        {"query": "E-204", "source": "manual.pdf"},
+        1,
     )
     assert calls == [
         ("vector", (17, "E-204", 7, "manual.pdf", 8)),
@@ -351,18 +435,33 @@ def test_live_pipeline_uses_both_production_branches_and_reranks_their_fusion(tm
     ]
     assert snapshot.rows == [lexical_row]
     assert snapshot.details == {
-        "collection_revision": "legacy", "collection_chunks": 2,
-        "vector_candidates": 1, "bm25_candidates": 1,
+        "collection_revision": "legacy",
+        "collection_chunks": 2,
+        "vector_candidates": 1,
+        "bm25_candidates": 1,
     }
 
 
 def test_cli_retrieval_does_not_generate_without_opt_in(tmp_path, dataset, monkeypatch):
     path = _save(tmp_path, dataset)
     monkeypatch.setattr(evaluation, "_application_data_roots", lambda: ())
+
     def no_generation(*args):
         pytest.fail("retrieval-only evaluation generated an answer")
+
     monkeypatch.setattr(evaluation, "LivePipeline", lambda *args: FakePipeline(generate=no_generation))
-    assert evaluation.main([
-        "--dataset", str(path), "--mode", "retrieval", "--allow-external-calls",
-        "--output", str(tmp_path / "report.json"), "--fail-on-regression",
-    ]) == 0
+    assert (
+        evaluation.main(
+            [
+                "--dataset",
+                str(path),
+                "--mode",
+                "retrieval",
+                "--allow-external-calls",
+                "--output",
+                str(tmp_path / "report.json"),
+                "--fail-on-regression",
+            ]
+        )
+        == 0
+    )

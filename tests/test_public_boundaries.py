@@ -1,18 +1,20 @@
 """Public API schemas and warehouse access must enforce their contracts."""
+
 from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import public_api.router as public_api
 from auth.schemas import CurrentUser
 from dependencies import get_current_user
-import public_api.router as public_api
 
 
 def test_api_documents_handles_nonempty_dict_results(monkeypatch):
     async def documents(user_id):
         assert user_id == 7
         return [{"name": "manual.pdf", "chunks": 3}]
+
     monkeypatch.setattr(public_api, "list_user_docs", documents)
     app = FastAPI()
     app.include_router(public_api.router)
@@ -23,9 +25,9 @@ def test_api_documents_handles_nonempty_dict_results(monkeypatch):
 
 
 def test_warehouse_snapshot_requires_admin(monkeypatch):
-    from main import de_gold_stats
-    from dependencies import require_admin
     import pipeline.db as pipeline_db
+    from dependencies import require_admin
+    from main import de_gold_stats
 
     monkeypatch.setattr(pipeline_db, "is_medallion_enabled", lambda: False)
     app = FastAPI()
