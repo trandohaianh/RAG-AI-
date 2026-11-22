@@ -1,9 +1,13 @@
-import { ActivityIndicator, View } from "react-native";
-import { NavigationContainer } from "@react-navigation/native";
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, Platform, View } from "react-native";
+import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../lib/auth";
+import * as api from "../lib/api";
+import { parsePushTarget } from "../lib/pushTarget";
+import type { NotificationResponse } from "expo-notifications";
 import { colors } from "../lib/theme";
 
 import LoginScreen from "../screens/LoginScreen";
@@ -18,6 +22,33 @@ import FieldCaseDetailScreen from "../screens/FieldCaseDetailScreen";
 import LocationPickerScreen from "../screens/LocationPickerScreen";
 import FieldTeamScreen from "../screens/FieldTeamScreen";
 import TodayScreen from "../screens/TodayScreen";
+
+const navigationRef = createNavigationContainerRef<any>();
+let handledNotification: string | null = null;
+
+/** M15: bấm thông báo đẩy -> mở tab Hôm nay đúng ngày (cả khi app đang tắt hẳn). */
+function usePushNavigation(signedIn: boolean, ready: boolean) {
+  useEffect(() => {
+    if (!signedIn || !ready || Platform.OS !== "android") return;
+    let remove: (() => void) | undefined;
+    let alive = true;
+    void import("expo-notifications").then((Notifications) => {
+      if (!alive) return;
+      const open = (response: NotificationResponse | null) => {
+        if (!response || response.notification.request.identifier === handledNotification) return;
+        handledNotification = response.notification.request.identifier;
+        const target = parsePushTarget(response.notification.request.content.data, api.localDate(0), api.localDate(1));
+        if (target && navigationRef.isReady()) {
+          navigationRef.navigate("Main", { screen: "Today", params: { day: target.day } });
+        }
+      };
+      Notifications.getLastNotificationResponseAsync().then(open).catch(() => undefined);
+      const sub = Notifications.addNotificationResponseReceivedListener(open);
+      remove = () => sub.remove();
+    });
+    return () => { alive = false; remove?.(); };
+  }, [signedIn, ready]);
+}
 
 const AuthStack = createNativeStackNavigator();
 const AppStack = createNativeStackNavigator();
@@ -118,6 +149,8 @@ function MainTabs() {
 
 export default function RootNavigator() {
   const { user, loading } = useAuth();
+  const [ready, setReady] = useState(false);
+  usePushNavigation(!!user, ready);
 
   if (loading) {
     return (
@@ -128,7 +161,7 @@ export default function RootNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef} onReady={() => setReady(true)}>
       {user ? (
         <AppStack.Navigator screenOptions={headerOptions}>
           <AppStack.Screen

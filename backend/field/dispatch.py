@@ -432,6 +432,9 @@ def apply_schedule(
     tech_by_id = {t.id: t for t in techs}
     seen: set[int] = set()
     applied, applied_notify = [], []
+    from field import push
+
+    pushed = 0
     for route in body.routes:
         tech = tech_by_id.get(route.technician_id)
         if tech is None:
@@ -460,9 +463,19 @@ def apply_schedule(
             )
         day0 = datetime.combine(body.date, time(0), tz)
         for order, (case, stop) in enumerate(zip(cases, stops, strict=False), start=1):
+            previous = (
+                case.assigned_to,
+                _aware(case.scheduled_start) if case.scheduled_start else None,
+                case.route_order,
+            )
             case.assigned_to = tech.id
             case.scheduled_start = (day0 + timedelta(minutes=stop.start)).astimezone(UTC)
             case.route_order = order
+            # M15 (Q1): báo thợ khi có ca mới, ca bị chuyển đi, hoặc giờ / thứ tự đổi.
+            if previous[0] != tech.id:
+                pushed += push.enqueue_reassignment(db, case.id, previous[0], tech.id, actor_id=user.id)
+            elif previous[1] != case.scheduled_start or previous[2] != order:
+                pushed += push.enqueue(db, tech.id, case.id, "schedule_changed", actor_id=user.id)
             db.add(
                 ServiceCaseEvent(
                     case_id=case.id,
@@ -483,6 +496,8 @@ def apply_schedule(
         from field.integrations import kick
 
         kick()
+    if pushed:
+        push.kick()
     return {"scheduled": applied}
 
 

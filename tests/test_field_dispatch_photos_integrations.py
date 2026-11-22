@@ -19,7 +19,7 @@ from auth.schemas import CurrentUser
 from chat import models as chat_models  # noqa: F401
 from database import Base, get_db
 from dependencies import get_current_user
-from field import closures, dispatch, geocode, integrations, photos
+from field import closures, dispatch, geocode, integrations, photos, push
 from field import models as field_models
 from field.router import router as field_router
 
@@ -29,6 +29,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr("config.FIELD_PHOTO_DIR", tmp_path / "photos")
     monkeypatch.setattr("config.API_PUBLIC_URL", "http://testserver")
     monkeypatch.setenv("FIELD_WEBHOOK_INLINE", "0")
+    monkeypatch.setenv("FIELD_PUSH_INLINE", "0")
     monkeypatch.setenv("FIELD_WEBHOOK_ALLOW_PRIVATE", "1")
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
@@ -45,6 +46,7 @@ def env(tmp_path, monkeypatch):
         integrations.public_router,
         closures.router,
         geocode.router,
+        push.router,
     ):
         app.include_router(r)
     actor = {"user": CurrentUser(id=1, email="u1@example.com", role="user")}

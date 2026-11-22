@@ -118,6 +118,13 @@ FIELD_PHOTO_RETENTION_DAYS: int = int(os.getenv("FIELD_PHOTO_RETENTION_DAYS", "3
 NOMINATIM_URL: str = os.getenv("NOMINATIM_URL", "https://nominatim.openstreetmap.org/search")
 NOMINATIM_CONTACT: str = os.getenv("NOMINATIM_CONTACT", "").strip()
 GEOCODE_CACHE_DAYS: int = int(os.getenv("GEOCODE_CACHE_DAYS", "90"))
+
+# M15 — thông báo đẩy qua Expo Push (miễn phí). Tắt: PUSH_ENABLED=0. EXPO_ACCESS_TOKEN không bắt buộc
+# (bật "Enhanced security for push" trên expo.dev thì phải có). Giờ trong thông báo theo FIELD_TZ_OFFSET_MINUTES.
+PUSH_ENABLED: bool = os.getenv("PUSH_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
+EXPO_PUSH_URL: str = os.getenv("EXPO_PUSH_URL", "https://exp.host/--/api/v2/push/send")
+EXPO_ACCESS_TOKEN: str = os.getenv("EXPO_ACCESS_TOKEN", "").strip()
+FIELD_TZ_OFFSET_MINUTES: int = int(os.getenv("FIELD_TZ_OFFSET_MINUTES", "420"))
 DATABASE_PATH: Path = DATA_ROOT / "app.db"
 DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{DATABASE_PATH}")
 # Heroku/Render/Railway có thể đưa "postgres://…" — SQLAlchemy 2 không còn nhận tên đó và sập

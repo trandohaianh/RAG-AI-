@@ -347,7 +347,12 @@ def create_case(
     db.add(case)
     db.flush()
     _add_event(db, case.id, user.id, "created", "Tạo ca sửa mới")
+    from field import push
+
+    pushed = push.enqueue(db, case.assigned_to, case.id, "assigned", actor_id=user.id)
     db.commit()
+    if pushed:
+        push.kick()
     return _case_for_user(db, case.id, user.id)
 
 
@@ -434,15 +439,25 @@ def update_case(
             )
             if not assignee:
                 raise HTTPException(status_code=422, detail="Người được giao không thuộc đội")
+        previous = case.assigned_to
         case.assigned_to = body.assigned_to
         _add_event(db, case.id, user.id, "assigned", "Cập nhật người phụ trách")
         notify.append("case.assigned")
+        from field import push
+
+        pushed = push.enqueue_reassignment(db, case.id, previous, body.assigned_to, actor_id=user.id)
+    else:
+        pushed = 0
     from field.integrations import enqueue_case_event, kick
 
     queued = sum(enqueue_case_event(db, case, event_type) for event_type in notify)
     db.commit()
     if queued:
         kick()
+    if pushed:
+        from field import push
+
+        push.kick()
     return _case_for_user(db, case.id, user.id)
 
 

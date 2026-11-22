@@ -455,6 +455,7 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
     actor = integration.created_by
     outcome = "ignored"
     address_changed = False
+    pushed = 0
     if case is None and event_type in ("ticket.created", "alarm.raised", "ticket.updated"):
         title = str(data.get("title") or "").strip()
         symptom = str(data.get("description") or "").strip()
@@ -481,6 +482,11 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
             raise HTTPException(
                 status_code=503, detail="Concurrent event for this external_ref; retry", headers={"Retry-After": "1"}
             ) from None
+        if case.assigned_to is not None:
+            # M15: ca CRM tự giao cho người mặc định -> báo người đó (không có người giao nên actor=None).
+            from field import push
+
+            pushed += push.enqueue(db, case.assigned_to, case.id, "assigned", actor_id=None)
         label = "ticket CRM" if integration.kind == "crm" else "cảnh báo NMS"
         db.add(
             ServiceCaseEvent(
@@ -541,6 +547,10 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
         FIELD_WEBHOOKS.labels("inbound", "duplicate").inc()
         return {"duplicate": True}
     FIELD_WEBHOOKS.labels("inbound", "accepted").inc()
+    if pushed:
+        from field import push
+
+        push.kick()
     if case is not None and address_changed and case.latitude is None and case.address:
         # M13 Q2: CRM không gửi toạ độ → tra nền thành gợi ý chờ trưởng đội xác nhận.
         from field.geocode import schedule_case

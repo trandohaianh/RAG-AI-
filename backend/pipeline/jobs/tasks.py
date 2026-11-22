@@ -210,10 +210,12 @@ def retention(db: Session, *, keep_days: int | None = None, **_) -> tuple[int, d
     from field.geocode import purge_expired as purge_geocode_cache
     from field.integrations import purge_old_records
     from field.photos import purge_expired_photos
+    from field.push import purge_old as purge_push_outbox
 
     photos = purge_expired_photos(db)
     integration = purge_old_records(db)
     geocode_cache = purge_geocode_cache(db)
+    push_outbox = purge_push_outbox(db)
     return (
         int(deleted) + photos,
         {
@@ -222,6 +224,7 @@ def retention(db: Session, *, keep_days: int | None = None, **_) -> tuple[int, d
             "usage_events_deleted": int(deleted),
             "field_photos_deleted": photos,
             "geocode_cache_deleted": geocode_cache,
+            "push_outbox_deleted": push_outbox,
             **integration,
         },
         "ok",

@@ -32,6 +32,7 @@ from field.geocode import router as field_geocode_router
 from field.integrations import public_router as field_integrations_public_router
 from field.integrations import router as field_integrations_router
 from field.photos import router as field_photos_router
+from field.push import router as field_push_router
 from field.router import router as field_router
 from metrics import metrics_response
 from middleware_metrics import PrometheusMiddleware
@@ -119,6 +120,7 @@ app.include_router(field_router)
 app.include_router(field_photos_router)
 app.include_router(field_closures_router)
 app.include_router(field_geocode_router)
+app.include_router(field_push_router)
 app.include_router(field_dispatch_router)
 app.include_router(field_integrations_router)
 app.include_router(field_integrations_public_router)

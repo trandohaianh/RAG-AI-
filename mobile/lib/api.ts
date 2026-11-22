@@ -666,6 +666,19 @@ export async function updateFieldCase(
 }
 
 // ---- M13: địa chỉ → toạ độ ----
+// ----- M15: thông báo đẩy (chỉ token của máy, không dữ liệu khách)
+export async function getPushStatus() {
+  return request<{ enabled: boolean }>("/field/push/status");
+}
+
+export async function registerPushDevice(token: string) {
+  return request<void>("/field/push/devices", { method: "POST", body: { token, platform: "android" } });
+}
+
+export async function unregisterPushDevice(token: string) {
+  return request<void>("/field/push/devices/unregister", { method: "POST", body: { token } });
+}
+
 export async function geocodeAddress(workspaceId: number, address: string) {
   return request<{ results: FieldGeocodeResult[]; message: string | null; attribution: string }>(
     `/field/workspaces/${workspaceId}/geocode`,

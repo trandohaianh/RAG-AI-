@@ -797,3 +797,73 @@ test("M13: map page messages are validated and the page escapes nothing from the
   assert.match(html, /"lat":21\.0285/);
   assert.doesNotMatch(html, /customer|address/i, "only coordinates go into the map page");
 });
+
+function pushModule({ os = "android", granted = false, canAskAgain = true, serverEnabled = true, stored = null, failUnregister = false } = {}) {
+  const calls = [];
+  const storage = new Map(stored ? [["fieldops.push_token", stored]] : []);
+  const mod = load("mobile/lib/push.ts", {
+    "react-native": { Platform: { OS: os } },
+    "@react-native-async-storage/async-storage": { default: {
+      getItem: async (k) => storage.get(k) ?? null,
+      setItem: async (k, v) => { storage.set(k, v); },
+      removeItem: async (k) => { storage.delete(k); },
+    } },
+    "expo-constants": { default: { expoConfig: { extra: { eas: { projectId: "proj-1" } } } } },
+    "expo-device": { isDevice: true },
+    "expo-notifications": {
+      AndroidImportance: { HIGH: 4 },
+      setNotificationHandler: () => calls.push(["handler"]),
+      setNotificationChannelAsync: async (id) => calls.push(["channel", id]),
+      getPermissionsAsync: async () => ({ granted, canAskAgain }),
+      requestPermissionsAsync: async () => ({ granted: true, canAskAgain: true }),
+      getExpoPushTokenAsync: async ({ projectId }) => ({ data: `ExponentPushToken[${projectId}-abc]` }),
+    },
+    "./api": {
+      getPushStatus: async () => ({ enabled: serverEnabled }),
+      registerPushDevice: async (token) => calls.push(["register", token]),
+      unregisterPushDevice: async (token) => {
+        calls.push(["unregister", token]);
+        if (failUnregister) throw new Error("network");
+      },
+    },
+  });
+  return { mod, calls, storage };
+}
+
+test("M15: push card state follows platform, server switch and permission", async () => {
+  assert.equal(await pushModule({ os: "web" }).mod.getPushState(), "unsupported");
+  assert.equal(await pushModule({ serverEnabled: false }).mod.getPushState(), "unsupported");
+  assert.equal(await pushModule().mod.getPushState(), "off");
+  assert.equal(await pushModule({ canAskAgain: false }).mod.getPushState(), "denied");
+  const on = pushModule({ granted: true });
+  assert.equal(await on.mod.getPushState(), "on");
+  assert.deepEqual(on.calls.filter((c) => c[0] === "register"), [["register", "ExponentPushToken[proj-1-abc]"]]);
+  assert.deepEqual(on.calls.find((c) => c[0] === "channel"), ["channel", "schedule"]);
+
+  const enabling = pushModule();
+  assert.equal(await enabling.mod.enablePush(), "on");
+  assert.equal(enabling.storage.get("fieldops.push_token"), "ExponentPushToken[proj-1-abc]");
+});
+
+test("M15: logout unregisters the device token, and a network error never blocks logout", async () => {
+  const ok = pushModule({ stored: "ExponentPushToken[old-device-1]" });
+  await ok.mod.unregisterPush();
+  assert.deepEqual(ok.calls, [["unregister", "ExponentPushToken[old-device-1]"]]);
+  assert.equal(ok.storage.size, 0);
+  const offline = pushModule({ stored: "ExponentPushToken[old-device-1]", failUnregister: true });
+  await offline.mod.unregisterPush();
+  assert.equal(offline.storage.size, 0);
+  const none = pushModule();
+  await none.mod.unregisterPush();
+  assert.deepEqual(none.calls, []);
+});
+
+test("M15: notification data only opens the Today tab on today or tomorrow", () => {
+  const { parsePushTarget } = load("mobile/lib/pushTarget.ts", {});
+  assert.deepEqual(plain(parsePushTarget({ screen: "today", date: "2026-11-23" }, "2026-11-22", "2026-11-23")), { day: 1 });
+  assert.deepEqual(plain(parsePushTarget({ screen: "today", date: null }, "2026-11-22", "2026-11-23")), { day: 0 });
+  assert.deepEqual(plain(parsePushTarget({ screen: "today", date: "2026-12-01" }, "2026-11-22", "2026-11-23")), { day: 0 });
+  assert.equal(parsePushTarget({ screen: "settings" }, "2026-11-22", "2026-11-23"), null);
+  assert.equal(parsePushTarget("ExponentPushToken", "2026-11-22", "2026-11-23"), null);
+  assert.equal(parsePushTarget(null, "2026-11-22", "2026-11-23"), null);
+});

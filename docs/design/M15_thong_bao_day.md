@@ -1,6 +1,6 @@
 # M15 — Thông báo đẩy cho lịch hôm nay: bản thiết kế
 
-- **Trạng thái:** **ĐÃ CHỌN PHƯƠNG ÁN (2026-11-22)**: cả 4 câu ở mục 7 đều theo khuyến nghị. Chưa viết code, chờ lệnh "Bắt đầu code".
+- **Trạng thái:** **ĐÃ LÀM (2026-11-22)** theo 4 lựa chọn ở mục 7, kết quả ở mục 8. Chưa thử trên điện thoại Android thật.
 - **PRD:** `docs/PRD.md` §5.2, mục "Thông báo đẩy cho lịch hôm nay", ghi là làm sau M11 cơ bản.
 - **Ước lượng:** khoảng 2,5 ngày gồm kiểm thử: máy chủ 1 ngày, mobile 1 ngày, bản build thử trên Android 0,5 ngày.
 
@@ -54,7 +54,7 @@ Trưởng đội lưu lịch
   - Lỗi mạng hoặc lỗi 5xx thì thử lại tối đa 5 lần, giãn dần. Quá 24 giờ thì bỏ (lịch đã cũ).
   - Expo báo `DeviceNotRegistered` (gỡ app, tắt quyền) thì **xoá token đó**.
   - Lịch dọn dữ liệu hằng ngày xoá các dòng đã gửi quá 7 ngày.
-- **Cấu hình:** `PUSH_ENABLED` (mặc định bật nếu có `EXPO_PROJECT_ID`), `EXPO_ACCESS_TOKEN` (không bắt buộc; Expo khuyên dùng để chống gửi giả).
+- **Cấu hình máy chủ:** `PUSH_ENABLED` (mặc định bật), `EXPO_ACCESS_TOKEN` (không bắt buộc; Expo khuyên dùng để chống gửi giả). `projectId` của Expo nằm trong `mobile/app.json` (`extra.eas.projectId`, do `eas init` ghi), không phải biến của máy chủ.
 
 ### 3.3 Nội dung thông báo (theo Q2, đề xuất)
 
@@ -126,3 +126,38 @@ App: đăng xuất gọi xoá token trước; dữ liệu kèm thông báo mở 
 - Q2: không ghi thông tin khách, chỉ số ca và giờ.
 - Q3: chỉ Android.
 - Q4: gộp 1 thông báo mỗi 20 giây cho mỗi thợ.
+
+## 8. Kết quả (2026-11-22)
+
+**Đã viết, đã kiểm thử tự động và đã chạy thử** với máy chủ thật và một dịch vụ Expo **giả** chạy trong máy.
+
+**Backend:**
+- `backend/field/push.py`:
+  - API `GET /field/push/status`, `POST /field/push/devices` (token chuyển chủ khi máy đổi người dùng), `POST /field/push/devices/unregister` (chỉ xoá token của chính mình).
+  - Hàng đợi `field_push_outbox` ghi cùng giao dịch ở 4 chỗ: tạo ca đã giao sẵn, giao hoặc chuyển ca, lưu lịch (ca mới, đổi giờ, đổi thứ tự), ca CRM có người nhận mặc định.
+  - Không ghi khi tự giao cho mình hoặc khi người nhận chưa bật thông báo.
+  - Luồng nền chờ 20 giây, gom theo từng người và soạn nội dung theo trạng thái ca **lúc gửi**: giao rồi chuyển đi trong 20 giây thì không báo; ca đã đóng thì bỏ qua.
+  - Lỗi mạng hoặc 5xx thì thử lại 5 lần, giãn dần. 4xx thì bỏ. Quá 24 giờ thì bỏ. `DeviceNotRegistered` thì xoá token.
+  - Vòng lặp pipeline quét lại 30 giây/lần để gửi bù. Dọn hàng đợi đã gửi sau 7 ngày.
+- Bảng `field_push_devices`, `field_push_outbox` (tạo bằng `create_all`, không đổi cột cũ).
+- Biến `PUSH_ENABLED`, `EXPO_ACCESS_TOKEN` đã thêm vào `.env.example`, `deploy/cloud/.env.example`, `docker-compose.yml`, README (kèm các bước tạo tài khoản Expo, Firebase và build APK).
+
+**Mobile:**
+- `mobile/lib/push.ts`: chỉ Android, máy thật, bản build có `projectId`. Tạo kênh "Lịch làm việc". Xin quyền chỉ khi bấm "Bật". Đã có quyền thì đăng ký lại token mỗi lần mở tab Hôm nay. Đăng xuất thì xoá token trên máy chủ trước; mất mạng vẫn đăng xuất được.
+- Tab Hôm nay: thẻ "Bật thông báo"; bị từ chối thì có dòng mở Cài đặt điện thoại. Đang mở app mà có thông báo thì tự làm mới lịch.
+- Bấm thông báo (kể cả khi app tắt hẳn) thì mở tab Hôm nay đúng hôm nay hoặc ngày mai (`mobile/lib/pushTarget.ts`).
+- Gói mới: `expo-notifications`, `expo-device`, `expo-constants`; plugin `expo-notifications` trong `app.json`.
+
+**Kiểm thử tự động:**
+- `tests/test_field_push.py`: 18 test, không gọi Expo thật. Phủ: đăng ký, chuyển chủ, xoá token; chỉ người được giao nhận; không gửi khi tự giao hoặc chưa có máy; nội dung không có tên, địa chỉ, tiêu đề hay mã ca; lưu lịch 3 ca thành 1 thông báo; lưu lại y hệt thì không báo; đổi thứ tự thì "Lịch… cập nhật"; chuyển ca báo cả hai người; giao rồi chuyển trong 20 giây; gom dòng trong cửa sổ; lỗi 503, timeout, 400, quá 5 lần, quá 24 giờ; `DeviceNotRegistered`; tắt bằng `PUSH_ENABLED`; access token; ca đã đóng; ca CRM; tiêu đề "hôm nay" và dọn hàng đợi.
+- Client test thêm 3: trạng thái thẻ (web, máy chủ tắt, chưa có quyền, bị từ chối, đã bật); đăng xuất xoá token và không bị chặn khi mất mạng; dữ liệu thông báo chỉ mở tab Hôm nay.
+- Toàn bộ backend: 675 đạt, 12 bỏ qua. Client test: 32/32. Mobile: tsc OK; `expo export` bản web build được; `expo config` nhận plugin.
+
+**Chạy thử thật** (app FastAPI thật, SQLite tạm, Expo giả):
+- Thợ đăng ký máy, trưởng đội giao 3 ca liên tiếp. Sau **20,2 giây** Expo giả nhận đúng **1** thông báo "Bạn có 3 ca mới.". Không có tên khách dù tiêu đề và nhãn khách đều chứa tên. Chờ thêm 25 giây không có thông báo thừa. 3 dòng hàng đợi đều "sent".
+- Xoá token khi đăng xuất trả 204.
+
+**Chưa kiểm chứng:**
+- **Chưa gửi thật qua Expo/Google và chưa thử trên điện thoại Android thật.** Cần chủ dự án tạo tài khoản Expo và dự án Firebase, build APK, rồi thử: bật thông báo, giao ca trên web, thông báo hiện khi app tắt, bấm vào mở đúng tab.
+- Thẻ "Bật thông báo" chưa được nhìn thấy chạy thật, vì bản web của Expo cố ý ẩn thẻ này.
+- Âm thanh, kênh thông báo, chế độ tiết kiệm pin của từng hãng điện thoại.

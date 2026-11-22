@@ -165,6 +165,14 @@ def schedule_forever() -> None:
                 dispatch_due(db)
         except Exception:
             logger.exception("webhook dispatch failed")
+        try:  # M15: thông báo đẩy đến hạn / gửi lại sau lỗi (API cũng tự gửi ngay qua push.kick)
+            from database import SessionLocal
+            from field.push import dispatch_due as dispatch_push
+
+            with SessionLocal() as db:
+                dispatch_push(db)
+        except Exception:
+            logger.exception("push dispatch failed")
         if time.monotonic() >= next_quality:
             # KPI hôm nay + kiểm tra chất lượng mỗi giờ để dashboard gần thời gian thực.
             _safe_chain(["daily_kpis", "data_quality"], trigger="hourly", backfill=1)

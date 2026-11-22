@@ -146,6 +146,19 @@ bash smoke.sh https://$APP_DOMAIN
   ≤ 1 yêu cầu/giây và cache 90 ngày. Để trống thì nút "Tìm toạ độ" tắt, vẫn nhập tay/GPS được.
   Lưu ý pháp lý: địa chỉ khách (chỉ địa chỉ, không tên/số điện thoại) được gửi tới máy chủ
   OpenStreetMap ở châu Âu.
+- **Thông báo đẩy cho thợ (M15, chỉ Android)**: máy chủ bật sẵn (`PUSH_ENABLED=1`). Phần cần làm
+  một lần trên app, đều miễn phí:
+  1. Tạo tài khoản ở expo.dev, rồi trong thư mục `mobile/` chạy `npx eas-cli init`. Lệnh này ghi
+     `extra.eas.projectId` vào `app.json`; thiếu nó thì app không hiện thẻ "Bật thông báo".
+  2. Tạo dự án Firebase, thêm ứng dụng Android, tải `google-services.json` về `mobile/`, thêm
+     `"googleServicesFile": "./google-services.json"` vào `expo.android` trong `app.json`, rồi tải
+     khoá FCM V1 lên expo.dev (Credentials). Đừng commit file khoá dịch vụ của Firebase.
+  3. Build APK: `npx eas-cli build -p android --profile preview` rồi cài lên điện thoại.
+     Expo Go và bản web không nhận được thông báo đẩy.
+  4. (Khuyến nghị) bật "Enhanced security for push" trên expo.dev, tạo access token rồi điền
+     `EXPO_ACCESS_TOKEN`.
+  Lưu ý pháp lý: token của máy và nội dung thông báo (chỉ số ca và giờ, không thông tin khách)
+  đi qua máy chủ Expo (Mỹ) và Google.
 
 ## HTTPS riêng cho mỗi dự án (mặc định) và edge dùng chung (tuỳ chọn)
 

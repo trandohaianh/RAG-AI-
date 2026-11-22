@@ -1,7 +1,8 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -13,6 +14,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as api from "../lib/api";
 import { directionsUrl, loadMySchedule, timeOf, type ScheduleResult } from "../lib/mySchedule";
+import { enablePush, getPushState, type PushState } from "../lib/push";
 import { colors, radius } from "../lib/theme";
 
 const PRIORITY: Record<api.MyScheduleStop["priority"], { label: string; color: string } | null> = {
@@ -56,6 +58,37 @@ export default function TodayScreen({ navigation, route }: any) {
 
   useFocusEffect(useCallback(() => { load(dayOffset); }, [load, dayOffset]));
 
+  // M15: thẻ "Bật thông báo" (chỉ Android, máy thật, máy chủ đã bật thông báo).
+  const [push, setPush] = useState<PushState>("unsupported");
+  const [enabling, setEnabling] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      getPushState().then((state) => { if (alive) setPush(state); }).catch(() => undefined);
+      return () => { alive = false; };
+    }, [])
+  );
+  // Đang mở app mà có thông báo mới -> tự làm mới lịch.
+  useEffect(() => {
+    if (Platform.OS !== "android" || push !== "on") return;
+    let remove: (() => void) | undefined;
+    void import("expo-notifications").then((Notifications) => {
+      const sub = Notifications.addNotificationReceivedListener(() => { load(dayOffset); });
+      remove = () => sub.remove();
+    });
+    return () => remove?.();
+  }, [push, load, dayOffset]);
+  const turnOn = async () => {
+    setEnabling(true);
+    try {
+      setPush(await enablePush());
+    } catch {
+      setPush("off");
+    } finally {
+      setEnabling(false);
+    }
+  };
+
   const openCase = (caseId: number) =>
     navigation.navigate("Cases", { screen: "CaseDetail", params: { caseId } });
 
@@ -91,6 +124,25 @@ export default function TodayScreen({ navigation, route }: any) {
         </Text>
       ) : null}
       {result?.error ? <Text style={styles.error}>{result.error}</Text> : null}
+
+      {push === "off" ? (
+        <View style={styles.pushCard}>
+          <Ionicons name="notifications-outline" size={22} color={colors.primary} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.pushTitle}>Bật thông báo</Text>
+            <Text style={styles.pushHint}>Biết ngay khi trưởng đội giao ca mới hoặc đổi lịch của bạn.</Text>
+          </View>
+          <TouchableOpacity style={styles.pushButton} onPress={turnOn} disabled={enabling} accessibilityRole="button">
+            {enabling ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.pushButtonText}>Bật</Text>}
+          </TouchableOpacity>
+        </View>
+      ) : push === "denied" ? (
+        <TouchableOpacity style={styles.pushDenied} onPress={() => Linking.openSettings()} accessibilityRole="button">
+          <Text style={styles.pushHint}>
+            Thông báo đang tắt cho FieldOps. Bấm để mở Cài đặt của điện thoại nếu muốn bật lại.
+          </Text>
+        </TouchableOpacity>
+      ) : null}
 
       {loading ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />
@@ -211,4 +263,10 @@ const styles = StyleSheet.create({
   emptyCard: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 20, alignItems: "center" },
   emptyTitle: { color: colors.text, fontSize: 14, fontWeight: "700", marginTop: 8 },
   emptyHint: { color: colors.textMuted, textAlign: "center", fontSize: 12, marginTop: 5 },
+  pushCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.primarySoft, borderRadius: radius.md, padding: 14, marginBottom: 12 },
+  pushTitle: { color: colors.text, fontWeight: "800", fontSize: 14 },
+  pushHint: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  pushButton: { backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, minWidth: 56, alignItems: "center" },
+  pushButtonText: { color: "#fff", fontWeight: "800" },
+  pushDenied: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 12, marginBottom: 12 },
 });

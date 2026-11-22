@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import * as api from "./api";
+import { unregisterPush } from "./push";
 
 type AuthContextValue = {
   user: api.User | null;
@@ -56,6 +57,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    // M15: máy này thôi nhận thông báo của người vừa đăng xuất (cần token còn hiệu lực).
+    await unregisterPush().catch(() => undefined);
     await api.clearAuth();
     setUser(null);
   }, []);

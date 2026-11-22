@@ -108,7 +108,7 @@ FieldOps gom các việc này vào một chỗ: nhận ca (tay hoặc từ CRM/N
 
 | Tính năng | Lý do để sau |
 |---|---|
-| Thông báo đẩy cho lịch hôm nay *(M15, ĐÃ THIẾT KẾ 2026-11-22: `docs/design/M15_thong_bao_day.md`; chưa code)* | Làm sau M11 cơ bản (Expo Push, miễn phí; chỉ Android ở giai đoạn 1) |
+| Thông báo đẩy cho lịch hôm nay *(M15, ĐÃ LÀM 2026-11-22: `docs/design/M15_thong_bao_day.md` §8; chưa thử trên điện thoại Android thật)* | Làm sau M11 cơ bản (Expo Push, miễn phí; chỉ Android ở giai đoạn 1) |
 | Cam kết thời gian xử lý (SLA), cảnh báo ca sắp trễ | Chưa có yêu cầu SLA cụ thể |
 | Tính giá theo đội, thanh toán, điều khoản SaaS | Giai đoạn 2 (SaaS), xem §0.1 |
 | Trợ lý tài liệu cá nhân, widget nhúng, API công khai, pipeline dữ liệu (Medallion/Airflow) | Đã làm nhưng không phải lõi của bài toán hiện trường |
