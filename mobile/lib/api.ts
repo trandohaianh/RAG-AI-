@@ -480,6 +480,41 @@ export type FieldCase = {
   external_ref?: string | null;
   steps: FieldStep[];
   events: FieldEvent[];
+  /** M12 — biên bản đóng ca hiệu lực (chỉ khi ca đã hoàn tất). */
+  closure?: FieldClosure | null;
+};
+
+export type FieldClosure = {
+  id: number;
+  outcome_code: string;
+  outcome_label: string;
+  note: string;
+  customer_name: string | null;
+  signed: boolean;
+  signature_url: string | null;
+  closed_by: number;
+  closed_at: string;
+};
+
+/** Một nét ký: các điểm [x, y] chuẩn hoá 0..1 theo khung 3:1 (máy chủ tự vẽ thành ảnh). */
+export type SignatureStroke = [number, number][];
+
+/** M12 — 6 mã kết quả cố định (khớp backend/field/schemas.py). */
+export const CLOSURE_OUTCOMES: { code: string; label: string; noSignature?: boolean }[] = [
+  { code: "fixed", label: "Đã sửa xong" },
+  { code: "replaced", label: "Thay thiết bị" },
+  { code: "not_reproduced", label: "Không tái hiện lỗi" },
+  { code: "escalated", label: "Chuyển cấp kỹ thuật" },
+  { code: "customer_absent", label: "Khách vắng nhà", noSignature: true },
+  { code: "customer_refused", label: "Khách từ chối sửa", noSignature: true },
+];
+
+export type CloseCaseInput = {
+  outcome_code: string;
+  note: string;
+  customer_name?: string | null;
+  signature: SignatureStroke[] | null;
+  client_action_id?: string;
 };
 
 // ---- M11: lịch trong ngày của chính kỹ thuật viên ----
@@ -602,6 +637,10 @@ export async function updateFieldCase(
     body: input,
     session,
   });
+}
+
+export async function closeFieldCase(caseId: number, input: CloseCaseInput, session?: ApiSession) {
+  return request<FieldCase>(`/field/cases/${caseId}/close`, { method: "POST", body: input, session });
 }
 
 export async function addFieldCaseStep(

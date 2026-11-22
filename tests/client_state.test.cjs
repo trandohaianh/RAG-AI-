@@ -375,6 +375,7 @@ test("case detail purges cache on HTTP 403/404 instead of using the offline fall
       "../components/GradientButton": { __esModule: true, default: () => null },
       "../components/EvidencePanel": { __esModule: true, default: () => null },
       "../components/CasePhotosSection": { __esModule: true, default: () => null },
+      "../components/CloseCaseSheet": { __esModule: true, default: () => null },
     });
     screen.default({ route: { params: { caseId: 8 } }, navigation: {} });
     focus();
@@ -714,4 +715,46 @@ test("directions prefer coordinates and fall back to the address", () => {
   assert.match(mine.directionsUrl({ latitude: 10.77, longitude: 106.7, address: "x" }), /destination=10.77,106.7$/);
   assert.match(mine.directionsUrl({ latitude: null, longitude: null, address: "12 Lê Lợi" }), /destination=12%20L/);
   assert.equal(mine.directionsUrl({ latitude: null, longitude: null, address: null }), null);
+});
+
+test("M12: an offline case closure replays once with its signature and shows as resolved meanwhile", async () => {
+  const sent = [];
+  const h = mobileHarness({ fetch: async (url, options) => {
+    sent.push([url, JSON.parse(options.body)]);
+    return { ok: true, status: 200, json: async () => ({}) };
+  } });
+  await h.api.saveAuth("owner", user);
+  const offline = offlineHarness(h);
+  const signature = [[[0.1, 0.5], [0.4, 0.4]]];
+  const action = offline.prepareFieldAction({
+    kind: "close", case_id: 8, outcome_code: "fixed", note: "Thay dây nhảy", customer_name: "Khách A", signature,
+  });
+  await offline.enqueueFieldAction(1, action);
+  const shown = offline.applyPendingFieldAction({ id: 8, status: "in_progress", steps: [], events: [] }, action, 1);
+  assert.equal(shown.status, "resolved");
+  assert.match(shown.events.at(-1).detail, /chờ đồng bộ: đóng ca — Đã sửa xong/);
+
+  const result = await offline.syncPendingFieldActions(1);
+  assert.equal(result.pending, 0);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0][0], /\/field\/cases\/8\/close$/);
+  assert.deepEqual(sent[0][1], {
+    outcome_code: "fixed", note: "Thay dây nhảy", customer_name: "Khách A", signature, client_action_id: action.id,
+  });
+});
+
+test("M12: signature points are normalised, de-duplicated and capped before sending", () => {
+  const sig = load("mobile/lib/signature.ts", {});
+  let stroke = sig.addSignaturePoint([], 450, 150, 900, 300);
+  assert.deepEqual(plain(stroke), [[0.5, 0.5]]);
+  assert.equal(sig.addSignaturePoint(stroke, 450, 150, 900, 300), stroke, "same point is not added twice");
+  stroke = sig.addSignaturePoint(stroke, 2000, -5, 900, 300);
+  assert.deepEqual(plain(stroke).at(-1), [1, 0], "points outside the pad are clamped");
+  assert.equal(sig.strokeToPath([[0, 0], [1, 1]], 900, 300), "M0.0 0.0 L900.0 300.0");
+
+  const long = Array.from({ length: 5000 }, (_, i) => [i / 5000, 0.5]);
+  const compact = sig.compactSignature([long, [], ...Array.from({ length: 80 }, () => [[0.1, 0.1]])]);
+  const points = compact.reduce((sum, s) => sum + s.length, 0);
+  assert.ok(points <= sig.MAX_SIGNATURE_POINTS && compact.length <= sig.MAX_SIGNATURE_STROKES);
+  assert.deepEqual(plain(compact[0]).at(-1), long.at(-1), "the end of a long stroke is kept");
 });

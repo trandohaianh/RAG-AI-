@@ -1,6 +1,6 @@
 # M12 — Biên bản đóng ca: bản thiết kế
 
-- **Trạng thái:** **ĐÃ DUYỆT (2026-11-22).** Chủ dự án chọn phương án khuyến nghị ở cả 4 câu (mục 7). Chưa viết code.
+- **Trạng thái:** **ĐÃ DUYỆT (2026-11-22).** Chủ dự án chọn phương án khuyến nghị ở cả 4 câu (mục 7). **ĐÃ LÀM (2026-11-22)** — kết quả ở mục 8.
 - **PRD:** `docs/PRD.md` §5.1 M12.
 - **Ước lượng:** khoảng 3 ngày, gồm kiểm thử. Đây là tính năng lớn nhất của giai đoạn 1.
 
@@ -134,3 +134,26 @@ Hộp thoại "Đóng ca" có các trường như trên và một khung ký (dù
 | Q2 | Lúc nào bắt buộc chữ ký? | **Bắt buộc, trừ** "Khách vắng nhà" và "Khách từ chối sửa". Hai mã này thay chữ ký bằng **ghi chú + ít nhất 1 ảnh hiện trường** |
 | Q3 | Ai được đóng ca, nút "Hoàn tất" cũ thì sao? | **Luôn qua biên bản:** kỹ thuật viên được giao và trưởng đội; `PATCH status=resolved` từ giao diện → 409; chỉ CRM được đóng từ xa |
 | Q4 | Gửi gì về CRM? | **Kết quả, không gửi ảnh ký:** mã kết quả, ghi chú, `signed: true/false`, tên người ký |
+
+## 8. Kết quả (2026-11-22)
+
+**Đã viết và đã kiểm thử tự động / chạy thử** theo đúng 4 lựa chọn ở mục 7.
+
+**Backend:** bảng mới `field_case_closures` (bảng mới nên không cần migration); `POST /field/cases/{id}/close` (`backend/field/closures.py`). Đổi thẳng sang "Hoàn tất" bằng PATCH bị từ chối 409. Chữ ký được máy chủ vẽ từ nét ký (JPEG 900×300) và lưu như ảnh hiện trường. Ảnh chữ ký không xoá được như ảnh thường, nhưng hết hạn cùng ảnh. Webhook CRM gửi kèm kết quả nhưng không kèm ảnh.
+
+**Web:** chọn "Đã hoàn tất" sẽ mở hộp thoại biên bản (`frontend/components/field/CaseClosure.tsx`, khung ký `SignatureCanvas.tsx`). Mất mạng thì biên bản được giữ trong hàng đợi offline.
+
+**Mobile:** nút "Hoàn tất" mở biên bản (`mobile/components/CloseCaseSheet.tsx`, khung ký `SignaturePad.tsx` dùng `react-native-svg`). Mất mạng thì biên bản và nét ký được xếp hàng an toàn, kiểu thao tác `close` trong `mobile/lib/fieldOffline.ts`; ca hiện "Hoàn tất – chờ đồng bộ". Ca đã đóng hiện khung "Biên bản đóng ca" kèm ảnh chữ ký.
+
+**Kiểm thử tự động:** `tests/test_field_case_closure.py` có 9 test, phủ đủ tiêu chí và Q1–Q4: thiếu mã/ghi chú/chữ ký, khách vắng cần ảnh, quyền đóng ca, 409, gửi lại offline chỉ tạo 1 biên bản, mở lại rồi đóng lại, xoá/hết hạn chữ ký, payload CRM. Client test có 2 test M12: đóng ca offline gửi lại đúng 1 lần kèm nét ký; chuẩn hoá và giới hạn điểm ký. Toàn bộ backend: 640 đạt, 12 bỏ qua. Client test: 27/27.
+
+**Chạy thử thật** (API thật, dữ liệu tạm):
+- **Web:** thiếu chữ ký thì bị chặn; ký bằng chuột rồi đóng ca thì nhật ký ghi đúng; ảnh chữ ký máy chủ vẽ khớp nét đã ký.
+- **Mobile, bản web của Expo, khung 420 px:** thiếu chữ ký thì báo "Cần chữ ký của khách hàng."; ký 2 nét rồi đóng ca thì ca chuyển "Hoàn tất" và hiện biên bản kèm ảnh chữ ký khớp nét ký.
+
+**Lỗi tìm ra khi chạy thử, đã sửa:** khi điểm chạm đến nhanh hơn tốc độ vẽ lại màn hình, khung ký mobile làm mất nét. Nay nét ký được giữ trong `ref` và cập nhật ngay từng điểm.
+
+**Chưa kiểm chứng:**
+- Chưa ký bằng **ngón tay trên điện thoại thật hay trình giả lập**; bản web chỉ thử bằng chuột.
+- Đóng ca **offline trên mobile** chỉ được kiểm bằng test tự động, vì bản web không có SecureStore.
+- Ở môi trường dev, web (Next) bị CSP chặn ảnh chữ ký vì API chạy http. Lỗi này có từ trước và ảnh hiện trường cũng bị; bản chạy thật dùng https nên không gặp.

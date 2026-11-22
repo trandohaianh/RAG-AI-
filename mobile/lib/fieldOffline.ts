@@ -41,6 +41,17 @@ export type PendingFieldAction = { server_failures?: number } & (
       created_at: string;
       kind: "note";
       detail: string;
+    }
+  | {
+      // M12: biên bản đóng ca (cả nét ký) chờ gửi khi có mạng.
+      id: string;
+      case_id: number;
+      created_at: string;
+      kind: "close";
+      outcome_code: string;
+      note: string;
+      customer_name?: string | null;
+      signature: api.SignatureStroke[] | null;
     });
 
 type NewPendingFieldAction = PendingFieldAction extends infer Action
@@ -461,6 +472,14 @@ async function sendFieldAction(action: PendingFieldAction, session: api.ApiSessi
       result_note: action.result_note,
       client_action_id: action.id,
     }, session);
+  } else if (action.kind === "close") {
+    await api.closeFieldCase(action.case_id, {
+      outcome_code: action.outcome_code,
+      note: action.note,
+      customer_name: action.customer_name ?? null,
+      signature: action.signature,
+      client_action_id: action.id,
+    }, session);
   } else {
     await api.addFieldCaseNote(action.case_id, action.detail, action.id, session);
   }
@@ -667,6 +686,16 @@ export function applyPendingFieldAction(
       actor_id: actorId,
       event_type: "step_updated",
       detail: `Đang chờ đồng bộ: cập nhật checklist #${action.step_id}`,
+      created_at: createdAt,
+    });
+  } else if (action.kind === "close") {
+    const label = api.CLOSURE_OUTCOMES.find((o) => o.code === action.outcome_code)?.label ?? action.outcome_code;
+    updated.status = "resolved";
+    updated.events.push({
+      id: eventId,
+      actor_id: actorId,
+      event_type: "closed",
+      detail: `Đang chờ đồng bộ: đóng ca — ${label}`,
       created_at: createdAt,
     });
   } else {

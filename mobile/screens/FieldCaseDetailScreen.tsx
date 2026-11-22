@@ -2,6 +2,7 @@ import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Modal,
   ScrollView,
   StyleSheet,
@@ -35,6 +36,7 @@ import { markdownToPlain } from "../lib/text";
 import { colors, radius } from "../lib/theme";
 import GradientButton from "../components/GradientButton";
 import CasePhotosSection from "../components/CasePhotosSection";
+import CloseCaseSheet, { type CloseCaseForm } from "../components/CloseCaseSheet";
 import { Linking } from "react-native";
 
 const statusOptions: { value: api.CaseStatus; label: string }[] = [
@@ -62,6 +64,8 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
   const [rejectedActions, setRejectedActions] = useState<RejectedFieldAction[]>([]);
   const [syncMessage, setSyncMessage] = useState("");
   const [loadError, setLoadError] = useState("");
+  // M12: "Hoàn tất" luôn đi qua biên bản đóng ca (mã kết quả, ghi chú, chữ ký khách).
+  const [closing, setClosing] = useState(false);
 
   const load = useCallback(async () => {
     let user: api.User | null = null;
@@ -204,7 +208,35 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
     }
   }
 
+  async function closeCase(form: CloseCaseForm) {
+    setBusy(true);
+    const action = prepareFieldAction({ kind: "close", case_id: caseId, ...form });
+    try {
+      await api.closeFieldCase(caseId, { ...form, client_action_id: action.id });
+      setClosing(false);
+      await load();
+    } catch (e) {
+      if (api.isNetworkError(e)) {
+        try {
+          // Mất mạng: biên bản (kể cả nét ký) được giữ an toàn trong máy, gửi lại khi có mạng.
+          await saveOfflineAction(action);
+          setClosing(false);
+        } catch (queueError) {
+          Alert.alert("Không đóng được ca", api.getErrorMessage(queueError));
+        }
+      } else {
+        Alert.alert("Không đóng được ca", api.getErrorMessage(e));
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function changeStatus(status: api.CaseStatus) {
+    if (status === "resolved") {
+      setClosing(true);
+      return;
+    }
     setBusy(true);
     const action = prepareFieldAction({ kind: "status", case_id: caseId, status });
     try {
@@ -389,6 +421,29 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
           {item.serial_number ? <Text style={styles.meta}>Serial: {item.serial_number}</Text> : null}
         </View>
 
+        {item.closure ? (
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Biên bản đóng ca</Text>
+            <Text style={styles.bodyText}>
+              {item.closure.outcome_label} · {new Date(item.closure.closed_at).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" })}
+            </Text>
+            <Text style={styles.bodyText}>{item.closure.note}</Text>
+            <Text style={styles.meta}>
+              {item.closure.signed
+                ? `Có chữ ký khách${item.closure.customer_name ? ` (${item.closure.customer_name})` : ""}`
+                : "Không có chữ ký (khách vắng / từ chối)"}
+            </Text>
+            {item.closure.signature_url ? (
+              <Image
+                source={{ uri: item.closure.signature_url }}
+                style={styles.signatureImage}
+                resizeMode="contain"
+                accessibilityLabel="Chữ ký khách hàng"
+              />
+            ) : null}
+          </View>
+        ) : null}
+
         <CasePhotosSection caseId={item.id} userId={userId} disabled={isResolved} />
 
         <View style={styles.actionRow}>
@@ -469,6 +524,14 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
         )}
       </ScrollView>
 
+      <CloseCaseSheet
+        visible={closing}
+        item={item}
+        busy={busy}
+        onCancel={() => setClosing(false)}
+        onSubmit={(form) => void closeCase(form)}
+      />
+
       <Modal visible={modal !== null} transparent animationType="slide" onRequestClose={() => setModal(null)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modal}>
@@ -519,6 +582,10 @@ function describeAction(action: PendingFieldAction): string {
   if (action.kind === "step_update") {
     return `Checklist #${action.step_id}: ${action.status === "done" ? "hoàn tất" : "bỏ đánh dấu"}`;
   }
+  if (action.kind === "close") {
+    const label = api.CLOSURE_OUTCOMES.find((o) => o.code === action.outcome_code)?.label ?? action.outcome_code;
+    return `Đóng ca: ${label}`;
+  }
   return `Ghi nhận: ${action.detail}`;
 }
 
@@ -564,6 +631,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: colors.text, fontWeight: "800", fontSize: 15 },
   bodyText: { color: colors.text, fontSize: 13, lineHeight: 20, marginTop: 8 },
   meta: { color: colors.textMuted, fontSize: 11, marginTop: 6 },
+  signatureImage: { width: "100%", aspectRatio: 3, marginTop: 10, backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: colors.border },
   actionRow: { flexDirection: "row", gap: 8, marginBottom: 19 },
   action: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 68, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },
   actionText: { color: colors.text, fontWeight: "700", fontSize: 10, marginTop: 6 },
