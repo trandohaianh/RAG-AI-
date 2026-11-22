@@ -1,6 +1,6 @@
 # M14 — Sửa thông tin ca: bản thiết kế
 
-- **Trạng thái:** **ĐÃ DUYỆT (2026-11-22).** Chủ dự án chọn phương án khuyến nghị ở cả 4 câu (mục 7). Chưa viết code.
+- **Trạng thái:** **ĐÃ LÀM XONG (2026-11-22).** Thiết kế được duyệt với phương án khuyến nghị ở cả 4 câu (mục 7); kết quả kiểm thử ở mục 8.
 - **PRD:** `docs/PRD.md` §5.1 M14.
 - **Ước lượng công sức:** khoảng 1 ngày làm việc, gồm cả kiểm thử.
 
@@ -112,3 +112,41 @@ Mỗi tiêu chí nghiệm thu ứng với ít nhất một test:
 | Q2 | Đổi địa chỉ thì toạ độ cũ xử lý thế nào? | **Xoá toạ độ cũ**: ca hiện "cần toạ độ", lập lịch bỏ qua ca đó cho tới khi nhập lại (M13 sẽ tự gợi ý). Nhật ký ghi "đã xoá toạ độ cũ do đổi địa chỉ". |
 | Q3 | Hai người sửa cùng lúc thì sao? | **Báo xung đột**: `expected_updated_at` không khớp → **409**, không ghi đè |
 | Q4 | Ca đã hoàn tất có sửa được không? | **Không**: ca `resolved` → **409** "Mở lại ca trước khi sửa thông tin" |
+
+## 8. Kết quả triển khai
+
+**Một điều chỉnh so với thiết kế (Q3, cùng hành vi):**
+- Thiết kế định so `updated_at` để phát hiện xung đột. Khi đọc code thì thấy SQLite chỉ lưu `updated_at` chính xác tới **giây**, và cột này đổi cả khi chỉ trạng thái ca đổi.
+- Vì vậy máy chủ tính **`details_version`**: một mã băm ngắn từ chính 6 trường thông tin, trả về trong mọi phản hồi ca.
+- Khi sửa, màn hình gửi `expected_version`; nếu khác bản hiện tại thì trả **409**.
+- Kết quả: bắt được mọi lần sửa xen ngang vào thông tin ca (của người khác hoặc của CRM), không chặn oan khi chỉ trạng thái ca đổi, và không cần migration.
+
+**File đã sửa / tạo:**
+- `backend/field/schemas.py`: `CASE_DETAIL_FIELDS`, `details_version()`, `CaseDetailsUpdate`, `CaseOut.details_version`.
+- `backend/field/router.py`: `PATCH /field/cases/{id}/details` (`update_case_details`).
+- `frontend/components/field/CaseDetailsEditor.tsx` (mới).
+- `frontend/app/(app)/field/page.tsx`: gắn component (chỉ hiện với trưởng đội).
+- `frontend/lib/api.ts`: kiểu `details_version`.
+- `tests/test_field_case_details.py` (mới, 11 test).
+
+**Kiểm thử:**
+
+| Tiêu chí / quyết định | Test | Kết quả |
+|---|---|---|
+| Sửa 6 trường, 1 dòng nhật ký cũ → mới, ghi người sửa | `test_owner_edits_all_details_and_one_log_line_records_old_and_new` | đạt |
+| Không đổi gì thì không ghi nhật ký | `test_unchanged_values_write_no_log_line` | đạt |
+| Kiểm tra dữ liệu (422), xoá được trường tuỳ chọn | `test_optional_fields_can_be_cleared_but_title_and_symptom_cannot` | đạt |
+| Kỹ thuật viên 403, người ngoài đội 404 | `test_technician_cannot_edit_details_and_outsider_cannot_see_the_case` | đạt |
+| Q3 xung đột 409, không ghi đè; đổi trạng thái không chặn | `test_second_editor_from_the_same_version_gets_a_conflict`, `test_status_change_does_not_block_editing_details` | đạt |
+| Gửi lại offline chỉ áp dụng 1 lần | `test_replayed_offline_edit_is_applied_once` | đạt |
+| Q2 đổi địa chỉ xoá toạ độ; đổi trường khác giữ toạ độ | `test_new_address_clears_the_old_coordinates_so_routing_never_uses_them` | đạt |
+| Q4 ca đã hoàn tất phải mở lại | `test_resolved_case_must_be_reopened_before_editing` | đạt |
+| Q1 báo CRM chỉ với ca từ CRM; CRM cập nhật sau vẫn áp dụng | `test_editing_a_crm_case_notifies_the_crm`, `test_manual_case_edit_sends_no_webhook_and_later_crm_updates_still_apply` | đạt |
+
+**Chạy thử trên trình duyệt** (bản build production, API thật, dữ liệu tạm), với tài khoản trưởng đội:
+1. Mở form: các trường được điền sẵn giá trị hiện tại.
+2. Sửa địa chỉ và model rồi lưu: thông tin mới hiện ngay; nhật ký có dòng "Địa chỉ: cũ → mới; Model: cũ → mới; đã xoá toạ độ cũ"; ô toạ độ ở mục Điều phối trống.
+3. Cho "người khác" sửa tiêu đề qua API, rồi lưu từ form cũ: hiện thông báo xung đột cùng nút "Tải lại bản mới", dữ liệu không bị ghi đè. Bấm tải lại thì form nhận tiêu đề mới.
+4. Console chỉ có phản hồi 409 có chủ đích.
+
+**Chưa kiểm trên giao diện:** chế độ kỹ thuật viên (nút "Sửa thông tin ca" không hiện). Việc chặn đã được kiểm ở API (403) và component chỉ được gắn khi `role === "owner"`.

@@ -4,9 +4,11 @@ Tách khỏi field/router.py để router chỉ còn luồng xử lý request (q
 gánh mọi thứ, docs/CONVENTIONS.md).
 """
 
+import hashlib
+import json
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from rag.evidence import CitationAudit, EvidenceOut
 
@@ -21,6 +23,26 @@ CASE_STATUS_VI = {
     "resolved": "Đã hoàn tất",
 }
 STEP_STATUS_VI = {"todo": "chưa làm", "done": "đã xong", "blocked": "bị vướng"}
+
+# M14: thông tin ca trưởng đội được sửa sau khi tạo, kèm nhãn tiếng Việt cho nhật ký.
+CASE_DETAIL_FIELDS = {
+    "title": "Tiêu đề",
+    "symptom": "Triệu chứng/bàn giao",
+    "customer_label": "Khách hàng",
+    "address": "Địa chỉ",
+    "device_model": "Model",
+    "serial_number": "Serial",
+}
+
+
+def details_version(values: dict) -> str:
+    """Dấu phiên bản của thông tin ca (6 trường ở CASE_DETAIL_FIELDS).
+
+    Dùng phát hiện hai người sửa cùng lúc (M14, Q3) mà không cần thêm cột: `updated_at` trên
+    SQLite chỉ chính xác tới giây và đổi cả khi chỉ trạng thái ca đổi.
+    """
+    payload = json.dumps({key: values.get(key) for key in CASE_DETAIL_FIELDS}, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 class WorkspaceOut(BaseModel):
@@ -61,6 +83,20 @@ class CaseCreate(BaseModel):
 class CaseUpdate(BaseModel):
     status: str | None = None
     assigned_to: int | None = None
+    client_action_id: str | None = Field(default=None, min_length=8, max_length=100)
+
+
+class CaseDetailsUpdate(BaseModel):
+    """M14 — trưởng đội sửa thông tin ca. Chỉ trường được gửi mới bị đổi."""
+
+    title: str | None = Field(default=None, min_length=3, max_length=255)
+    symptom: str | None = Field(default=None, min_length=3, max_length=5000)
+    customer_label: str | None = Field(default=None, max_length=160)
+    address: str | None = Field(default=None, max_length=500)
+    device_model: str | None = Field(default=None, max_length=160)
+    serial_number: str | None = Field(default=None, max_length=160)
+    # details_version mà màn hình đang thấy (CaseOut.details_version); khác bản hiện tại → 409.
+    expected_version: str = Field(min_length=8, max_length=64)
     client_action_id: str | None = Field(default=None, min_length=8, max_length=100)
 
 
@@ -140,3 +176,8 @@ class CaseOut(BaseModel):
     events: list[EventOut] = []
 
     model_config = {"from_attributes": True}
+
+    @computed_field
+    @property
+    def details_version(self) -> str:
+        return details_version({key: getattr(self, key) for key in CASE_DETAIL_FIELDS})

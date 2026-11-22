@@ -190,6 +190,8 @@ export type FieldCase = {
   route_order: number | null;
   external_source: string | null;
   external_ref: string | null;
+  /** Dấu phiên bản thông tin ca — gửi lại khi sửa (M14) để phát hiện người khác vừa sửa. */
+  details_version: string;
   steps: FieldStep[];
   events: FieldEvent[];
 };

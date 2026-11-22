@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import MarkdownContent from "@/components/MarkdownContent";
 import CasePhotos from "@/components/field/CasePhotos";
+import CaseDetailsEditor from "@/components/field/CaseDetailsEditor";
 import CaseDispatchEditor from "@/components/field/CaseDispatchEditor";
 import {
   createQueueScope,
@@ -821,7 +822,14 @@ export default function FieldOperationsPage() {
                       isOwner={workspaces.find((w) => w.id === workspaceId)?.role === "owner"}
                     />
                     {workspaces.find((w) => w.id === workspaceId)?.role === "owner" && (
-                      <CaseDispatchEditor item={selectedCase} onSaved={() => void load(workspaceId)} />
+                      <>
+                        <CaseDetailsEditor
+                          item={selectedCase}
+                          onSaved={() => void load(workspaceId)}
+                          queue={queueCase}
+                        />
+                        <CaseDispatchEditor item={selectedCase} onSaved={() => void load(workspaceId)} />
+                      </>
                     )}
                   </div>
                   <div className="space-y-5">

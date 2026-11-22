@@ -23,12 +23,14 @@ from field.models import (
     ServiceCaseStep,
 )
 from field.schemas import (
+    CASE_DETAIL_FIELDS,
     CASE_STATUS_VI,
     CASE_STATUSES,
     STEP_STATUS_VI,
     STEP_STATUSES,
     AssistRequest,
     CaseCreate,
+    CaseDetailsUpdate,
     CaseOut,
     CaseUpdate,
     EventCreate,
@@ -40,6 +42,7 @@ from field.schemas import (
     StepUpdate,
     WorkspaceCreate,
     WorkspaceOut,
+    details_version,
 )
 from rag.evidence import public_bundle
 from saas.limits import enforce_query_quota
@@ -432,6 +435,87 @@ def update_case(
     from field.integrations import enqueue_case_event, kick
 
     queued = sum(enqueue_case_event(db, case, event_type) for event_type in notify)
+    db.commit()
+    if queued:
+        kick()
+    return _case_for_user(db, case.id, user.id)
+
+
+def _log_value(value: str | None) -> str:
+    if value in (None, ""):
+        return "(trống)"
+    return f'"{value[:120]}…"' if len(value) > 120 else f'"{value}"'
+
+
+@router.patch("/cases/{case_id}/details", response_model=CaseOut)
+def update_case_details(
+    case_id: int,
+    body: CaseDetailsUpdate,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """M14 — trưởng đội sửa thông tin ca (docs/design/M14_sua_thong_tin_ca.md).
+
+    - Chỉ trưởng đội (403); người ngoài đội 404 như mọi API ca.
+    - Ca đã hoàn tất: phải mở lại trước (409) để biên bản đóng ca khớp thông tin lúc đóng.
+    - Xung đột: `expected_version` khác details_version hiện tại → 409, không ghi đè.
+    - Một dòng nhật ký "cũ → mới"; đổi địa chỉ thì xoá toạ độ cũ; ca từ CRM thì báo ngược.
+    """
+    case = _case_for_user(db, case_id, user.id)
+    if _member_role(db, case.workspace_id, user.id) != "owner":
+        raise HTTPException(status_code=403, detail="Chỉ trưởng đội được sửa thông tin ca")
+    action, already_applied = _claim_client_action(
+        db,
+        client_action_id=body.client_action_id,
+        case_id=case.id,
+        actor_id=user.id,
+        action_type="case_details",
+        request_body=body,
+    )
+    if already_applied:
+        return _case_for_user(db, case.id, user.id)
+    if case.status == "resolved":
+        raise HTTPException(status_code=409, detail="Ca đã hoàn tất. Mở lại ca trước khi sửa thông tin.")
+    current = {key: getattr(case, key) for key in CASE_DETAIL_FIELDS}
+    if body.expected_version != details_version(current):
+        raise HTTPException(
+            status_code=409,
+            detail="Ca vừa được cập nhật ở nơi khác. Tải lại để xem bản mới rồi sửa tiếp.",
+        )
+    changes: list[str] = []
+    changed_fields: list[str] = []
+    for key, label in CASE_DETAIL_FIELDS.items():
+        if key not in body.model_fields_set:
+            continue
+        new = getattr(body, key)
+        new = new.strip() if isinstance(new, str) else new
+        if key in ("title", "symptom") and not new:
+            raise HTTPException(status_code=422, detail=f"{label} không được để trống")
+        new = new or None
+        if new == current[key]:
+            continue
+        setattr(case, key, new)
+        changed_fields.append(key)
+        if key == "symptom":
+            changes.append(f"{label}: đã sửa ({len(new or '')} ký tự)")
+        else:
+            changes.append(f"{label}: {_log_value(current[key])} → {_log_value(new)}")
+    if not changes:
+        db.commit()  # giữ bản ghi client_action (nếu có) để gửi lại vẫn là "đã áp dụng"
+        return _case_for_user(db, case.id, user.id)
+    if "address" in changed_fields and (case.latitude is not None or case.longitude is not None):
+        # Toạ độ cũ thuộc địa chỉ cũ: để lại sẽ xếp tuyến theo vị trí sai (Q2).
+        case.latitude = case.longitude = None
+        changes.append("đã xoá toạ độ cũ do đổi địa chỉ — cần nhập lại toạ độ")
+    _add_event(db, case.id, user.id, "details_updated", "Sửa thông tin: " + "; ".join(changes))
+    from field.integrations import enqueue_case_event, kick
+
+    queued = enqueue_case_event(
+        db,
+        case,
+        "case.details_changed",
+        {"changed_fields": changed_fields, "details": {key: getattr(case, key) for key in CASE_DETAIL_FIELDS}},
+    )
     db.commit()
     if queued:
         kick()
