@@ -758,3 +758,42 @@ test("M12: signature points are normalised, de-duplicated and capped before send
   assert.ok(points <= sig.MAX_SIGNATURE_POINTS && compact.length <= sig.MAX_SIGNATURE_STROKES);
   assert.deepEqual(plain(compact[0]).at(-1), long.at(-1), "the end of a long stroke is kept");
 });
+
+test("M13: an offline GPS location suggestion replays once and never changes the route coordinates", async () => {
+  const sent = [];
+  const h = mobileHarness({ fetch: async (url, options) => {
+    sent.push([url, JSON.parse(options.body)]);
+    return { ok: true, status: 200, json: async () => ({}) };
+  } });
+  await h.api.saveAuth("tech", user);
+  const offline = offlineHarness(h);
+  const action = offline.prepareFieldAction({
+    kind: "location_suggest", case_id: 8, latitude: 10.7769, longitude: 106.7009, source: "gps",
+  });
+  await offline.enqueueFieldAction(1, action);
+  const shown = offline.applyPendingFieldAction(
+    { id: 8, status: "in_progress", latitude: null, longitude: null, steps: [], events: [] }, action, 1);
+  assert.equal(shown.latitude, null, "a suggestion is not a route location");
+  assert.equal(shown.location_suggestion.latitude, 10.7769);
+  assert.match(shown.events.at(-1).detail, /chờ đồng bộ: gửi vị trí đề xuất/);
+
+  const result = await offline.syncPendingFieldActions(1);
+  assert.equal(result.pending, 0);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0][0], /\/field\/cases\/8\/location-suggestion$/);
+  assert.deepEqual(sent[0][1], { latitude: 10.7769, longitude: 106.7009, source: "gps", client_action_id: action.id });
+});
+
+test("M13: map page messages are validated and the page escapes nothing from the case", () => {
+  const map = load("mobile/lib/mapHtml.ts", {});
+  assert.deepEqual(plain(map.parseMapMessage('{"type":"pin","lat":10.12345678,"lng":106.1}')), {
+    type: "pin", lat: 10.123457, lng: 106.1,
+  });
+  assert.equal(map.parseMapMessage('{"type":"pin","lat":200,"lng":1}'), null);
+  assert.equal(map.parseMapMessage("not json"), null);
+  assert.equal(map.parseMapMessage('{"type":"navigate","url":"https://evil"}'), null);
+  const html = map.buildMapHtml({ lat: 21.0285, lng: 105.8542 }, 12, false);
+  assert.match(html, /leaflet@1\.9\.4/);
+  assert.match(html, /"lat":21\.0285/);
+  assert.doesNotMatch(html, /customer|address/i, "only coordinates go into the map page");
+});

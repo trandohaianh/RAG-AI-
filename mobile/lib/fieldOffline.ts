@@ -52,6 +52,16 @@ export type PendingFieldAction = { server_failures?: number } & (
       note: string;
       customer_name?: string | null;
       signature: api.SignatureStroke[] | null;
+    }
+  | {
+      // M13: vị trí đề xuất (thường là GPS tại nhà khách, nơi hay mất sóng).
+      id: string;
+      case_id: number;
+      created_at: string;
+      kind: "location_suggest";
+      latitude: number;
+      longitude: number;
+      source: "gps" | "geocoded" | "manual";
     });
 
 type NewPendingFieldAction = PendingFieldAction extends infer Action
@@ -472,6 +482,13 @@ async function sendFieldAction(action: PendingFieldAction, session: api.ApiSessi
       result_note: action.result_note,
       client_action_id: action.id,
     }, session);
+  } else if (action.kind === "location_suggest") {
+    await api.suggestCaseLocation(action.case_id, {
+      latitude: action.latitude,
+      longitude: action.longitude,
+      source: action.source,
+      client_action_id: action.id,
+    }, session);
   } else if (action.kind === "close") {
     await api.closeFieldCase(action.case_id, {
       outcome_code: action.outcome_code,
@@ -686,6 +703,24 @@ export function applyPendingFieldAction(
       actor_id: actorId,
       event_type: "step_updated",
       detail: `Đang chờ đồng bộ: cập nhật checklist #${action.step_id}`,
+      created_at: createdAt,
+    });
+  } else if (action.kind === "location_suggest") {
+    updated.location_suggestion = {
+      latitude: action.latitude,
+      longitude: action.longitude,
+      source: action.source,
+      label: null,
+      precision: null,
+      precision_label: null,
+      suggested_by: actorId,
+      suggested_at: createdAt,
+    };
+    updated.events.push({
+      id: eventId,
+      actor_id: actorId,
+      event_type: "location",
+      detail: "Đang chờ đồng bộ: gửi vị trí đề xuất",
       created_at: createdAt,
     });
   } else if (action.kind === "close") {

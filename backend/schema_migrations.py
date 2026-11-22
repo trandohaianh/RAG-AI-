@@ -242,6 +242,16 @@ def _add_case_resolved_at(conn: Connection) -> None:
     )
 
 
+def _add_case_location_suggestion(conn: Connection) -> None:
+    """M13: vị trí đề xuất chờ trưởng đội xác nhận (docs/design/M13_dia_chi_toa_do.md)."""
+    inspector = inspect(conn)
+    if "field_service_cases" not in set(inspector.get_table_names()):
+        return
+    columns = {column["name"] for column in inspector.get_columns("field_service_cases")}
+    if "location_suggestion_json" not in columns:
+        conn.execute(text("ALTER TABLE field_service_cases ADD COLUMN location_suggestion_json TEXT"))
+
+
 # create_all KHÔNG thêm index vào bảng đã tồn tại: DB cũ cần migration. Tên trùng với tên
 # SQLAlchemy sinh từ index=True / Index(...) trong models để DB mới và DB nâng cấp giống nhau.
 _HOT_INDEXES = (
@@ -267,6 +277,7 @@ _MIGRATIONS = (
     Migration(5, "field_dispatch_and_integrations", _add_dispatch_and_integration_columns),
     Migration(6, "field_case_resolved_at", _add_case_resolved_at),
     Migration(7, "hot_query_indexes", _add_hot_query_indexes),
+    Migration(8, "field_case_location_suggestion", _add_case_location_suggestion),
 )
 
 

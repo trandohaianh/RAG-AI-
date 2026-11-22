@@ -194,11 +194,32 @@ export type FieldCase = {
   details_version: string;
   /** M12 — biên bản đóng ca hiệu lực (chỉ khi ca đã hoàn tất). */
   closure: FieldClosure | null;
+  /** M13 — vị trí đề xuất chờ trưởng đội xác nhận (không dùng xếp tuyến). */
+  location_suggestion?: FieldLocationSuggestion | null;
   steps: FieldStep[];
   events: FieldEvent[];
 };
 
 export type FieldPriority = "urgent" | "high" | "normal" | "low";
+
+export type FieldGeocodeResult = {
+  latitude: number;
+  longitude: number;
+  label: string;
+  precision: "house" | "street" | "ward" | "area";
+  precision_label: string;
+};
+
+export type FieldLocationSuggestion = {
+  latitude: number;
+  longitude: number;
+  source: "gps" | "geocoded" | "manual";
+  label: string | null;
+  precision: FieldGeocodeResult["precision"] | null;
+  precision_label: string | null;
+  suggested_by: number | null;
+  suggested_at: string;
+};
 
 export type FieldClosure = {
   id: number;

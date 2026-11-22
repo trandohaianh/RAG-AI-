@@ -512,6 +512,8 @@ def update_case_details(
         # Toạ độ cũ thuộc địa chỉ cũ: để lại sẽ xếp tuyến theo vị trí sai (Q2).
         case.latitude = case.longitude = None
         changes.append("đã xoá toạ độ cũ do đổi địa chỉ — cần nhập lại toạ độ")
+    if "address" in changed_fields:
+        case.location_suggestion_json = None  # vị trí đề xuất (M13) thuộc địa chỉ cũ
     _add_event(db, case.id, user.id, "details_updated", "Sửa thông tin: " + "; ".join(changes))
     from field.integrations import enqueue_case_event, kick
 

@@ -141,6 +141,11 @@ bash smoke.sh https://$APP_DOMAIN
   cần package name và SHA-1. Đặt `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` / `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID`
   (và `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` cho bản web) khi build app. Phía server, thêm các client ID
   này vào `GOOGLE_CLIENT_ID`, phân tách bằng dấu phẩy.
+- **Tìm toạ độ từ địa chỉ (M13)**: điền `NOMINATIM_CONTACT` (email hoặc trang liên hệ của bạn) rồi
+  `docker compose up -d`. Chính sách OpenStreetMap bắt buộc có liên hệ này; máy chủ tự giữ nhịp
+  ≤ 1 yêu cầu/giây và cache 90 ngày. Để trống thì nút "Tìm toạ độ" tắt, vẫn nhập tay/GPS được.
+  Lưu ý pháp lý: địa chỉ khách (chỉ địa chỉ, không tên/số điện thoại) được gửi tới máy chủ
+  OpenStreetMap ở châu Âu.
 
 ## HTTPS riêng cho mỗi dự án (mặc định) và edge dùng chung (tuỳ chọn)
 

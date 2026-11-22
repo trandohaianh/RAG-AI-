@@ -15,6 +15,7 @@ import SettingsScreen from "../screens/SettingsScreen";
 import FieldHomeScreen from "../screens/FieldHomeScreen";
 import FieldCasesScreen from "../screens/FieldCasesScreen";
 import FieldCaseDetailScreen from "../screens/FieldCaseDetailScreen";
+import LocationPickerScreen from "../screens/LocationPickerScreen";
 import FieldTeamScreen from "../screens/FieldTeamScreen";
 import TodayScreen from "../screens/TodayScreen";
 
@@ -50,6 +51,11 @@ function CasesNavigator() {
         name="CaseDetail"
         component={FieldCaseDetailScreen}
         options={{ title: "Chi tiết ca sửa" }}
+      />
+      <CasesStack.Screen
+        name="LocationPicker"
+        component={LocationPickerScreen}
+        options={{ title: "Vị trí khách" }}
       />
     </CasesStack.Navigator>
   );

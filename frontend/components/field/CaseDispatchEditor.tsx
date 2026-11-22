@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Crosshair, MapPin, Save } from "lucide-react";
+import { Crosshair, MapPin, MapPinned, Save } from "lucide-react";
 import api, { getApiErrorMessage, type FieldCase, type FieldPriority } from "@/lib/api";
+import LocationPicker from "@/components/field/LocationPicker";
 
 export const PRIORITY_LABEL: Record<FieldPriority, string> = {
   urgent: "Khẩn cấp",
@@ -25,6 +26,7 @@ export default function CaseDispatchEditor({ item, onSaved }: { item: FieldCase;
   const [windowEnd, setWindowEnd] = useState("");
   const [minutes, setMinutes] = useState(60);
   const [message, setMessage] = useState("");
+  const [picking, setPicking] = useState(false);
 
   useEffect(() => {
     setCoords(item.latitude != null && item.longitude != null ? `${item.latitude}, ${item.longitude}` : "");
@@ -80,6 +82,33 @@ export default function CaseDispatchEditor({ item, onSaved }: { item: FieldCase;
         )}
       </div>
       {item.external_ref && <p className="mt-1 text-[11px] text-slate-500">Nguồn ngoài: {item.external_ref}</p>}
+      {item.location_suggestion ? (
+        <button
+          type="button"
+          onClick={() => setPicking(true)}
+          className="mt-2 flex w-full items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-left text-xs font-medium text-indigo-900 hover:bg-indigo-100"
+        >
+          <MapPinned className="h-4 w-4" /> Có gợi ý vị trí — xác nhận
+        </button>
+      ) : item.latitude == null && item.status !== "resolved" ? (
+        <button
+          type="button"
+          onClick={() => setPicking(true)}
+          className="mt-2 flex w-full items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-left text-xs font-medium text-amber-900 hover:bg-amber-100"
+        >
+          <MapPinned className="h-4 w-4" /> Ca chưa có toạ độ nên chưa xếp tuyến được — Tìm toạ độ
+        </button>
+      ) : null}
+      {picking && (
+        <LocationPicker
+          item={item}
+          onClose={() => setPicking(false)}
+          onSaved={() => {
+            setPicking(false);
+            onSaved();
+          }}
+        />
+      )}
       <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
         <label className="col-span-2 flex flex-col gap-1">
           Toạ độ khách hàng
@@ -90,6 +119,15 @@ export default function CaseDispatchEditor({ item, onSaved }: { item: FieldCase;
               placeholder="21.0285, 105.8542"
               className="flex-1 rounded-md border border-slate-200 px-2 py-1.5"
             />
+            <button
+              type="button"
+              onClick={() => setPicking(true)}
+              title="Tìm toạ độ từ địa chỉ / chọn trên bản đồ"
+              aria-label="Tìm toạ độ"
+              className="rounded-md border border-slate-200 px-2"
+            >
+              <MapPinned className="h-4 w-4" />
+            </button>
             <button
               type="button"
               onClick={here}

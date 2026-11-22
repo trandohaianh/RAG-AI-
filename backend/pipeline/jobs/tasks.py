@@ -207,11 +207,13 @@ def retention(db: Session, *, keep_days: int | None = None, **_) -> tuple[int, d
     cutoff = datetime.now(UTC) - timedelta(days=keep)
     deleted = db.query(LlmUsageEvent).filter(LlmUsageEvent.created_at < cutoff).delete(synchronize_session=False)
     db.commit()
+    from field.geocode import purge_expired as purge_geocode_cache
     from field.integrations import purge_old_records
     from field.photos import purge_expired_photos
 
     photos = purge_expired_photos(db)
     integration = purge_old_records(db)
+    geocode_cache = purge_geocode_cache(db)
     return (
         int(deleted) + photos,
         {
@@ -219,6 +221,7 @@ def retention(db: Session, *, keep_days: int | None = None, **_) -> tuple[int, d
             "keep_days": keep,
             "usage_events_deleted": int(deleted),
             "field_photos_deleted": photos,
+            "geocode_cache_deleted": geocode_cache,
             **integration,
         },
         "ok",

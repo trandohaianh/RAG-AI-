@@ -237,8 +237,21 @@ class CaseOut(BaseModel):
     steps: list[StepOut] = []
     events: list[EventOut] = []
     closure: ClosureOut | None = None
+    # M13: vị trí đề xuất chờ trưởng đội xác nhận (đọc từ cột JSON, trả ra dạng object).
+    location_suggestion_json: str | None = Field(default=None, exclude=True)
 
     model_config = {"from_attributes": True}
+
+    @computed_field
+    @property
+    def location_suggestion(self) -> dict | None:
+        if not self.location_suggestion_json:
+            return None
+        try:
+            value = json.loads(self.location_suggestion_json)
+        except ValueError:
+            return None
+        return value if isinstance(value, dict) else None
 
     @computed_field
     @property

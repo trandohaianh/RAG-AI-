@@ -482,7 +482,33 @@ export type FieldCase = {
   events: FieldEvent[];
   /** M12 — biên bản đóng ca hiệu lực (chỉ khi ca đã hoàn tất). */
   closure?: FieldClosure | null;
+  /** M13 — vị trí đề xuất chờ trưởng đội xác nhận (không dùng xếp tuyến). */
+  location_suggestion?: FieldLocationSuggestion | null;
 };
+
+export type GeocodePrecision = "house" | "street" | "ward" | "area";
+
+export type FieldGeocodeResult = {
+  latitude: number;
+  longitude: number;
+  label: string;
+  precision: GeocodePrecision;
+  precision_label: string;
+};
+
+export type FieldLocationSuggestion = {
+  latitude: number;
+  longitude: number;
+  source: "gps" | "geocoded" | "manual";
+  label: string | null;
+  precision: GeocodePrecision | null;
+  precision_label: string | null;
+  suggested_by: number | null;
+  suggested_at: string;
+};
+
+/** Nguồn của toạ độ khi lưu — chỉ để ghi nhật ký ca. */
+export type LocationSource = "geocoded" | "suggestion" | "gps" | "manual";
 
 export type FieldClosure = {
   id: number;
@@ -637,6 +663,31 @@ export async function updateFieldCase(
     body: input,
     session,
   });
+}
+
+// ---- M13: địa chỉ → toạ độ ----
+export async function geocodeAddress(workspaceId: number, address: string) {
+  return request<{ results: FieldGeocodeResult[]; message: string | null; attribution: string }>(
+    `/field/workspaces/${workspaceId}/geocode`,
+    { method: "POST", body: { address } }
+  );
+}
+
+/** Trưởng đội lưu toạ độ chính thức (dùng xếp tuyến). */
+export async function saveCaseLocation(caseId: number, latitude: number, longitude: number, source: LocationSource) {
+  return request<{ id: number; latitude: number; longitude: number }>(`/field/cases/${caseId}/dispatch`, {
+    method: "PATCH",
+    body: { latitude, longitude, location_source: source },
+  });
+}
+
+/** Kỹ thuật viên được giao gửi vị trí đề xuất; trưởng đội xác nhận rồi mới dùng. */
+export async function suggestCaseLocation(
+  caseId: number,
+  input: { latitude: number; longitude: number; source: "gps" | "geocoded" | "manual"; client_action_id?: string },
+  session?: ApiSession
+) {
+  return request<FieldCase>(`/field/cases/${caseId}/location-suggestion`, { method: "POST", body: input, session });
 }
 
 export async function closeFieldCase(caseId: number, input: CloseCaseInput, session?: ApiSession) {

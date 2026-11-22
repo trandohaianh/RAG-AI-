@@ -454,6 +454,7 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
     )
     actor = integration.created_by
     outcome = "ignored"
+    address_changed = False
     if case is None and event_type in ("ticket.created", "alarm.raised", "ticket.updated"):
         title = str(data.get("title") or "").strip()
         symptom = str(data.get("description") or "").strip()
@@ -468,7 +469,7 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
             external_source=source,
             external_ref=external_ref,
         )
-        _apply_fields(case, data)
+        address_changed = "address" in _apply_fields(case, data)
         db.add(case)
         try:
             db.flush()
@@ -492,6 +493,9 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
         outcome = "created"
     elif case is not None and event_type in ("ticket.created", "alarm.raised", "ticket.updated"):
         changed = _apply_fields(case, data)
+        if "address" in changed:
+            address_changed = True
+            case.location_suggestion_json = None  # gợi ý vị trí (M13) thuộc địa chỉ cũ
         if changed:
             db.add(
                 ServiceCaseEvent(
@@ -537,6 +541,11 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
         FIELD_WEBHOOKS.labels("inbound", "duplicate").inc()
         return {"duplicate": True}
     FIELD_WEBHOOKS.labels("inbound", "accepted").inc()
+    if case is not None and address_changed and case.latitude is None and case.address:
+        # M13 Q2: CRM không gửi toạ độ → tra nền thành gợi ý chờ trưởng đội xác nhận.
+        from field.geocode import schedule_case
+
+        schedule_case(case.id)
     return {"duplicate": False, "case_id": case.id if case else None, "outcome": outcome}
 
 

@@ -26,6 +26,12 @@
       "expo-font",
       "expo-web-browser",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "FieldOps dùng vị trí của máy khi bạn bấm \"Tôi đang ở nhà khách\" để ghi toạ độ nhà khách cho ca sửa."
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "FieldOps cần truy cập ảnh để đính kèm ảnh hiện trường vào ca sửa.",

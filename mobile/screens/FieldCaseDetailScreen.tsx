@@ -413,7 +413,34 @@ export default function FieldCaseDetailScreen({ route, navigation }: any) {
               <Ionicons name="navigate-outline" size={15} color={colors.heroAccent} /><Text style={[styles.infoText, { color: colors.heroAccent }]}>Chỉ đường tới khách hàng</Text>
             </TouchableOpacity>
           ) : null}
+          {item.latitude != null && !isResolved && !item.location_suggestion ? (
+            <TouchableOpacity style={styles.infoRow} onPress={() => navigation.navigate("LocationPicker", { item })}>
+              <Ionicons name="location-outline" size={15} color={colors.heroMuted} />
+              <Text style={styles.infoText}>Vị trí sai? Gửi vị trí đúng</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
+
+        {!isResolved && (item.latitude == null || item.location_suggestion) ? (
+          <TouchableOpacity
+            style={[styles.sectionCard, styles.locationCard]}
+            onPress={() => navigation.navigate("LocationPicker", { item })}
+            accessibilityRole="button"
+          >
+            <Ionicons name="location-outline" size={20} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.sectionTitle}>
+                {item.location_suggestion ? "Đã có vị trí đề xuất" : "Ca chưa có toạ độ"}
+              </Text>
+              <Text style={styles.meta}>
+                {item.location_suggestion
+                  ? "Chờ trưởng đội xác nhận. Chạm để xem hoặc gửi lại vị trí đúng."
+                  : "Đang ở nhà khách? Chạm để ghi vị trí bằng GPS hoặc tìm theo địa chỉ."}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
+        ) : null}
 
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Triệu chứng & bàn giao</Text>
@@ -582,6 +609,9 @@ function describeAction(action: PendingFieldAction): string {
   if (action.kind === "step_update") {
     return `Checklist #${action.step_id}: ${action.status === "done" ? "hoàn tất" : "bỏ đánh dấu"}`;
   }
+  if (action.kind === "location_suggest") {
+    return "Gửi vị trí đề xuất";
+  }
   if (action.kind === "close") {
     const label = api.CLOSURE_OUTCOMES.find((o) => o.code === action.outcome_code)?.label ?? action.outcome_code;
     return `Đóng ca: ${label}`;
@@ -631,6 +661,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: colors.text, fontWeight: "800", fontSize: 15 },
   bodyText: { color: colors.text, fontSize: 13, lineHeight: 20, marginTop: 8 },
   meta: { color: colors.textMuted, fontSize: 11, marginTop: 6 },
+  locationCard: { flexDirection: "row", alignItems: "center", gap: 10 },
   signatureImage: { width: "100%", aspectRatio: 3, marginTop: 10, backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: colors.border },
   actionRow: { flexDirection: "row", gap: 8, marginBottom: 19 },
   action: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 68, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },

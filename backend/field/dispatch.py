@@ -18,6 +18,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
@@ -182,6 +183,8 @@ class CaseDispatchUpdate(BaseModel):
     window_start: datetime | None = None
     window_end: datetime | None = None
     est_minutes: int | None = Field(default=None, ge=5, le=600)
+    # M13: toạ độ đến từ đâu — chỉ để ghi nhật ký, không lưu vào ca.
+    location_source: Literal["geocoded", "suggestion", "gps", "manual"] | None = None
 
     @model_validator(mode="after")
     def _window(self):
@@ -354,17 +357,24 @@ def update_case_dispatch(
         if _aware(end) <= _aware(start):
             # Chỉ gửi một đầu mút vẫn phải so với đầu mút đã lưu.
             raise HTTPException(status_code=422, detail="Khung giờ hẹn: giờ kết thúc phải sau giờ bắt đầu")
-    for name in body.model_fields_set:
+    for name in body.model_fields_set - {"location_source"}:
         value = getattr(body, name)
         if isinstance(value, datetime):
             # Luôn lưu UTC: SQLite bỏ múi giờ khi lưu, đọc ra sẽ được hiểu là UTC.
             value = (value if value.tzinfo else value.replace(tzinfo=UTC)).astimezone(UTC)
         setattr(case, name, value)
-    db.add(
-        ServiceCaseEvent(
-            case_id=case.id, actor_id=user.id, event_type="dispatch", detail="Cập nhật vị trí/khung giờ/ưu tiên của ca"
-        )
-    )
+    detail = "Cập nhật vị trí/khung giờ/ưu tiên của ca"
+    if body.latitude is not None:
+        # Đã có toạ độ chính thức: gợi ý (M13) không còn ý nghĩa.
+        case.location_suggestion_json = None
+        how = {
+            "geocoded": "tìm từ địa chỉ, đã xác nhận trên bản đồ",
+            "suggestion": "xác nhận vị trí đề xuất",
+            "gps": "GPS tại nhà khách",
+            "manual": "chọn trên bản đồ hoặc nhập tay",
+        }.get(body.location_source or "manual")
+        detail += f" — đặt toạ độ ({how})"
+    db.add(ServiceCaseEvent(case_id=case.id, actor_id=user.id, event_type="dispatch", detail=detail))
     db.commit()
     return {
         "id": case.id,

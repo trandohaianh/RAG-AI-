@@ -72,6 +72,9 @@ class ServiceCase(Base):
     # Thời điểm ca chuyển sang "resolved" (KPI ca hoàn tất theo ngày). Không dùng updated_at:
     # mọi lần sửa sau đó (điều phối, ghi chú) làm ca "hoàn tất" nhảy sang ngày sửa cuối.
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    # M13: vị trí ĐỀ XUẤT (tự tra từ địa chỉ CRM, hoặc kỹ thuật viên gửi), chờ trưởng đội xác nhận.
+    # Không dùng để xếp tuyến; xoá khi đã đặt toạ độ hoặc khi đổi địa chỉ.
+    location_suggestion_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     workspace = relationship("FieldWorkspace", back_populates="cases")
     steps = relationship("ServiceCaseStep", back_populates="case", cascade="all, delete-orphan")
@@ -107,6 +110,19 @@ class FieldCaseClosure(Base):
     client_action_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
 
     case = relationship("ServiceCase", back_populates="closures")
+
+
+class FieldGeocodeCache(Base):
+    """M13: kết quả tra địa chỉ → toạ độ, riêng từng đội (Q3). Chỉ lưu hash của địa chỉ."""
+
+    __tablename__ = "field_geocode_cache"
+    __table_args__ = (UniqueConstraint("workspace_id", "query_hash", name="uq_field_geocode_query"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("field_workspaces.id", ondelete="CASCADE"), index=True)
+    query_hash: Mapped[str] = mapped_column(String(64))
+    results_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 class ServiceCasePhoto(Base):

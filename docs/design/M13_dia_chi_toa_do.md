@@ -1,6 +1,6 @@
 # M13 — Địa chỉ → toạ độ tự động: bản thiết kế
 
-- **Trạng thái:** **ĐÃ CHỌN PHƯƠNG ÁN (2026-11-22)** — 6 câu ở mục 7 đã có lựa chọn. Chưa viết code, chờ lệnh "Bắt đầu code".
+- **Trạng thái:** **ĐÃ LÀM (2026-11-22)** theo 6 lựa chọn ở mục 7 — kết quả ở mục 8.
 - **PRD:** `docs/PRD.md` §5.1 M13.
 - **Ước lượng:** khoảng 3,5 ngày gồm kiểm thử (web 2 ngày + mobile 1,5 ngày, theo Q1).
 
@@ -186,3 +186,68 @@ Chạy thử thật trên trình duyệt (dữ liệu tạm): tìm 3–5 địa 
 | Q4 | Liên hệ trong User-Agent (Nominatim bắt buộc) | **(Khuyến nghị) Bạn tự điền** một email hoặc trang liên hệ vào biến `NOMINATIM_CONTACT` khi triển khai; để trống thì nút "Tìm toạ độ" **tắt** và chỉ nhập tay · *Hoặc* dùng địa chỉ trang web của dự án làm liên hệ |
 | Q5 | Kỹ thuật viên trên mobile được làm gì với toạ độ? | **Gửi gợi ý, trưởng đội duyệt** *(đã chọn)* · Được lưu thẳng · Chỉ trưởng đội |
 | Q6 | Bản đồ trên mobile | **OpenStreetMap qua WebView** *(đã chọn)* · react-native-maps (cần khoá Google) · Không có bản đồ |
+
+## 8. Kết quả (2026-11-22)
+
+**Đã viết, đã kiểm thử tự động và đã chạy thử** (máy chủ thật + Nominatim **giả** chạy trong máy).
+
+**Backend:**
+- `backend/field/geocode.py`:
+  - `POST /field/workspaces/{id}/geocode`: chuẩn hoá địa chỉ, cache riêng từng đội (bảng `field_geocode_cache`, chỉ lưu hash), nhịp ≥ 1,1 giây, timeout 8 giây, tối đa 3 gợi ý kèm mức chính xác;
+  - `POST /field/cases/{id}/location-suggestion` (Q5);
+  - tra nền cho ca CRM (Q2).
+- Cột mới `location_suggestion_json` (migration 8).
+- `PATCH /dispatch` nhận `location_source` để ghi nhật ký và xoá gợi ý khi đã có toạ độ.
+- Đổi địa chỉ (M14 hoặc CRM) thì xoá gợi ý cũ.
+- Cache quá hạn được dọn cùng lịch dọn ảnh.
+- Thiếu `NOMINATIM_CONTACT` thì trả 503 kèm hướng dẫn nhập tay (Q4).
+- Biến mới đã thêm vào `deploy/cloud/.env.example`, `docker-compose.yml`, README.
+
+**Web:**
+- `frontend/components/field/LocationPicker.tsx`:
+  - hộp "Xác nhận vị trí", Leaflet, ghim kéo được, bấm bản đồ để đặt ghim;
+  - danh sách gợi ý và nhãn mức chính xác (xanh nếu đến số nhà, vàng kèm "kéo ghim" nếu kém hơn);
+  - ghi công OpenStreetMap.
+- Trong `CaseDispatchEditor` có nút bản đồ, lời nhắc "Ca chưa có toạ độ — Tìm toạ độ" và nhãn "Có gợi ý vị trí — xác nhận".
+- Mở hộp cho ca chưa có toạ độ thì tự tra địa chỉ một lần.
+
+**Mobile:**
+- `mobile/screens/LocationPickerScreen.tsx`:
+  - nút "Tôi đang ở nhà khách (dùng GPS)" qua `expo-location`, chỉ xin quyền lúc bấm, có hiện sai số;
+  - tìm theo địa chỉ;
+  - bản đồ `MapPicker` (Leaflet trong `react-native-webview`; bản web dùng iframe), trang bản đồ ở `mobile/lib/mapHtml.ts`.
+- Trưởng đội thì lưu thẳng. Kỹ thuật viên thì gửi đề xuất, mất sóng thì xếp hàng `location_suggest` và gửi khi có mạng.
+- Chi tiết ca có khối "Ca chưa có toạ độ / Đã có vị trí đề xuất" và link "Vị trí sai? Gửi vị trí đúng".
+
+**Kiểm thử tự động:**
+- `tests/test_field_geocode.py`: 17 test, không gọi Nominatim thật (MockTransport + đồng hồ giả). Phủ các tiêu chí:
+  - tìm được kèm mức chính xác; không tìm thấy;
+  - cache, hết hạn 90 ngày, "không thấy" chỉ nhớ 1 ngày;
+  - nhịp ≥ 1,1 giây; cache riêng đội;
+  - chỉ gửi địa chỉ, có User-Agent; lỗi 429/503/timeout không cache;
+  - quyền; tắt khi thiếu liên hệ;
+  - xác nhận gợi ý ghi nhật ký;
+  - CRM: gợi ý không vào xếp tuyến, đổi địa chỉ xoá gợi ý, có toạ độ thì không tra; bỏ qua khi địa chỉ đổi giữa chừng;
+  - sửa địa chỉ xoá gợi ý; quyền gửi gợi ý của kỹ thuật viên và gửi lại offline; dọn cache.
+- Client test thêm 2:
+  - gợi ý GPS offline gửi lại đúng 1 lần và không đổi toạ độ xếp tuyến;
+  - tin nhắn từ trang bản đồ được kiểm tra, trang bản đồ không chứa dữ liệu khách.
+- Toàn bộ backend: 657 đạt, 12 bỏ qua. Client test: 29/29. Web: tsc OK, ESLint 0 lỗi (20 cảnh báo cũ). Mobile: tsc OK.
+
+**Chạy thử thật** (API thật, Nominatim giả trong máy, dữ liệu tạm):
+- **Mobile (bản web của Expo, kỹ thuật viên):**
+  - ca chưa có toạ độ hiện khối "Ca chưa có toạ độ"; bản đồ OpenStreetMap tải được;
+  - "Tìm toạ độ" đặt ghim kèm cảnh báo "chỉ chính xác đến tên đường"; chạm bản đồ dời được ghim;
+  - "Gửi vị trí cho trưởng đội" thì ca hiện "Đã có vị trí đề xuất — chờ trưởng đội xác nhận", nhật ký ghi đúng.
+- **Web (trưởng đội):**
+  - nhãn "Có gợi ý vị trí — xác nhận" mở bản đồ với ghim đúng chỗ kỹ thuật viên gửi; Lưu xong thì có toạ độ, gợi ý biến mất, nhật ký "xác nhận vị trí đề xuất";
+  - ca khác: mở hộp tự tra ra 2 gợi ý (số nhà = nhãn xanh; tên đường = cảnh báo vàng); bấm bản đồ đổi ghim; lưu xong có toạ độ.
+- **Cache:** tra lại cùng địa chỉ (khác hoa-thường, khoảng trắng) không gọi ra ngoài lần nữa (Nominatim giả chỉ nhận 2 lượt cho 2 địa chỉ).
+- **CRM:** gửi ticket có chữ ký số, không kèm toạ độ. Vài giây sau ca có gợi ý "chỉ chính xác đến tên đường", chưa có toạ độ xếp tuyến. Nominatim giả chỉ nhận chuỗi địa chỉ, không có tên khách.
+
+**Chưa kiểm chứng:**
+- **Chưa gọi Nominatim thật.** Cần điền `NOMINATIM_CONTACT` khi triển khai, rồi thử vài địa chỉ thật để xem độ phủ số nhà ở khu vực của đội.
+- **GPS** ("Tôi đang ở nhà khách") và **WebView** chưa chạy trên điện thoại thật hay máy giả lập; bản web chỉ thử được bản đồ dạng iframe.
+- Gửi gợi ý **offline trên mobile** chỉ kiểm bằng test tự động, vì bản web không có SecureStore.
+- **Kéo ghim** bằng chuột trên web: công cụ tự động không mô phỏng được thao tác kéo của Leaflet. Bấm bản đồ để đặt ghim thì đã kiểm.
+- Trang bản đồ mobile tải Leaflet từ unpkg (phiên bản cố định 1.9.4), nên cần mạng như ảnh nền bản đồ.

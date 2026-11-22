@@ -113,6 +113,11 @@ FIELD_PHOTO_MAX_MB: int = int(os.getenv("FIELD_PHOTO_MAX_MB", "12"))
 FIELD_PHOTO_MAX_PER_CASE: int = int(os.getenv("FIELD_PHOTO_MAX_PER_CASE", "40"))
 FIELD_PHOTO_WORKSPACE_QUOTA_MB: int = int(os.getenv("FIELD_PHOTO_WORKSPACE_QUOTA_MB", "2048"))
 FIELD_PHOTO_RETENTION_DAYS: int = int(os.getenv("FIELD_PHOTO_RETENTION_DAYS", "365"))
+# M13 — địa chỉ → toạ độ qua Nominatim (OpenStreetMap). Chính sách Nominatim bắt buộc User-Agent có
+# liên hệ: để trống NOMINATIM_CONTACT thì tắt tra cứu, chỉ nhập toạ độ tay (docs/design/M13…, Q4).
+NOMINATIM_URL: str = os.getenv("NOMINATIM_URL", "https://nominatim.openstreetmap.org/search")
+NOMINATIM_CONTACT: str = os.getenv("NOMINATIM_CONTACT", "").strip()
+GEOCODE_CACHE_DAYS: int = int(os.getenv("GEOCODE_CACHE_DAYS", "90"))
 DATABASE_PATH: Path = DATA_ROOT / "app.db"
 DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{DATABASE_PATH}")
 # Heroku/Render/Railway có thể đưa "postgres://…" — SQLAlchemy 2 không còn nhận tên đó và sập
