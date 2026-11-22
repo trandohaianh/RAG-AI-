@@ -6,11 +6,21 @@ gánh mọi thứ, docs/CONVENTIONS.md).
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Annotated
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, PlainSerializer, computed_field
 
 from rag.evidence import CitationAudit, EvidenceOut
+
+
+def _utc_iso(value: datetime) -> str:
+    # SQLite trả datetime KHÔNG có múi giờ (giá trị là giờ UTC). Gửi ra không kèm múi giờ thì app/web
+    # hiểu nhầm thành giờ địa phương: lịch 07:04 (VN) hiện thành 00:04. Luôn kèm +00:00.
+    return (value if value.tzinfo else value.replace(tzinfo=UTC)).isoformat()
+
+
+UtcDatetime = Annotated[datetime, PlainSerializer(_utc_iso, return_type=str)]
 
 CASE_STATUSES = {"open", "in_progress", "waiting", "escalated", "resolved"}
 STEP_STATUSES = {"todo", "done", "blocked"}
@@ -129,7 +139,7 @@ class EventOut(BaseModel):
     actor_id: int
     event_type: str
     detail: str
-    created_at: datetime
+    created_at: UtcDatetime
 
     model_config = {"from_attributes": True}
 
@@ -143,7 +153,7 @@ class StepOut(BaseModel):
     result_note: str | None
     position: int
     completed_by: int | None
-    completed_at: datetime | None
+    completed_at: UtcDatetime | None
 
     model_config = {"from_attributes": True}
 
@@ -160,15 +170,15 @@ class CaseOut(BaseModel):
     serial_number: str | None
     symptom: str
     status: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
     latitude: float | None = None
     longitude: float | None = None
     priority: str = "normal"
-    window_start: datetime | None = None
-    window_end: datetime | None = None
+    window_start: UtcDatetime | None = None
+    window_end: UtcDatetime | None = None
     est_minutes: int = 60
-    scheduled_start: datetime | None = None
+    scheduled_start: UtcDatetime | None = None
     route_order: int | None = None
     external_source: str | None = None
     external_ref: str | None = None

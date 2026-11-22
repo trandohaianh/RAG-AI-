@@ -17,6 +17,7 @@ import {
   isSecureOfflineStorageAvailable,
   syncPendingFieldActions,
 } from "../lib/fieldOffline";
+import { loadMySchedule, timeOf, type ScheduleResult } from "../lib/mySchedule";
 import { colors, radius } from "../lib/theme";
 
 export default function FieldHomeScreen({ navigation }: any) {
@@ -26,8 +27,11 @@ export default function FieldHomeScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [offline, setOffline] = useState(false);
+  const [today, setToday] = useState<ScheduleResult | null>(null);
 
   const load = useCallback(async () => {
+    // M11: khối "Lịch hôm nay" dùng chung dữ liệu (kể cả bản offline) với tab Hôm nay.
+    loadMySchedule(api.localDate(0)).then(setToday).catch(() => setToday(null));
     const user = await api.loadUser();
     try {
       setError("");
@@ -107,6 +111,28 @@ export default function FieldHomeScreen({ navigation }: any) {
       </View>
 
       {error ? <Text style={[styles.error, offline && styles.offlineNotice]}>{error}</Text> : null}
+
+      {today?.schedule ? (
+        <TouchableOpacity style={styles.todayCard} onPress={() => navigation.navigate("Today", { day: 0 })}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.todayTitle}>Lịch hôm nay</Text>
+            <Text style={styles.seeAll}>
+              {today.schedule.done}/{today.schedule.total} ca xong ›
+            </Text>
+          </View>
+          {today.schedule.stops.filter((stop) => stop.status !== "resolved").slice(0, 3).map((stop) => (
+            <Text key={stop.case_id} style={styles.todayRow} numberOfLines={1}>
+              {timeOf(stop.scheduled_start)}  {stop.title}{stop.address ? ` · ${stop.address}` : ""}
+            </Text>
+          ))}
+          {today.schedule.total === 0 ? (
+            <Text style={styles.todayRow}>Chưa có ca nào được xếp lịch hôm nay.</Text>
+          ) : null}
+          {today.offline && today.cachedAt ? (
+            <Text style={styles.todayOffline}>Offline · cập nhật lúc {timeOf(today.cachedAt)}</Text>
+          ) : null}
+        </TouchableOpacity>
+      ) : null}
 
       <View style={styles.workspaceRow}>
         <View style={styles.workspaceIcon}><Ionicons name="people" size={18} color={colors.primary} /></View>
@@ -200,6 +226,10 @@ const styles = StyleSheet.create({
   heroButtonText: { color: "#fff", fontWeight: "700", fontSize: 14 },
   error: { backgroundColor: colors.dangerSoft, color: colors.destructive, borderRadius: 10, padding: 12, marginBottom: 12 },
   offlineNotice: { backgroundColor: colors.warningSoft, color: colors.warningText },
+  todayCard: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, padding: 14, marginBottom: 12 },
+  todayTitle: { color: colors.text, fontSize: 15, fontWeight: "800" },
+  todayRow: { color: colors.text, fontSize: 13, marginTop: 4 },
+  todayOffline: { color: colors.warningText, fontSize: 11, marginTop: 8 },
   workspaceRow: { flexDirection: "row", alignItems: "center", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 14, borderRadius: radius.md, marginBottom: 12 },
   workspaceIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center", marginRight: 11 },
   mutedLabel: { color: colors.textMuted, fontWeight: "700", fontSize: 9, letterSpacing: 0.8 },

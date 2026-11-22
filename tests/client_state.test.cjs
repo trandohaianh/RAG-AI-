@@ -665,3 +665,53 @@ test("same-origin /api deploy: axios, offline scope and Next rewrites all accept
     if (previous === undefined) delete process.env.API_PROXY_TARGET; else process.env.API_PROXY_TARGET = previous;
   }
 });
+
+// ---------------------------------------------------------------- M11: lịch của tôi offline
+function scheduleFor(date, title) {
+  return { date, stops: [{ case_id: 1, title, status: "open", scheduled_start: `${date}T08:30:00+07:00` }], unscheduled: [], done: 0, total: 1 };
+}
+
+test("today's schedule is cached per user, readable offline, and only today + tomorrow are kept", async () => {
+  let online = true;
+  const h = mobileHarness({ fetch: async (url) => {
+    if (!online) throw new TypeError("Network request failed");
+    const date = new URL(url).searchParams.get("date");
+    return { ok: true, status: 200, json: async () => scheduleFor(date, "Ca " + date) };
+  } });
+  await h.api.saveAuth("token", user);
+  const offline = offlineHarness(h);
+  const mine = load("mobile/lib/mySchedule.ts", { "./api": h.api, "./fieldOffline": offline });
+  const today = h.api.localDate(0);
+  const tomorrow = h.api.localDate(1);
+
+  const fresh = await mine.loadMySchedule(today);
+  assert.equal(fresh.offline, false);
+  assert.equal(fresh.schedule.stops[0].title, "Ca " + today);
+  await mine.loadMySchedule(tomorrow);
+
+  online = false;
+  const cached = await mine.loadMySchedule(today);
+  assert.equal(cached.offline, true, "no network: the saved schedule is shown");
+  assert.equal(cached.schedule.stops[0].title, "Ca " + today);
+  assert.ok(cached.cachedAt, "the screen can say when it was last updated");
+  const never = await mine.loadMySchedule("2026-01-01");
+  assert.equal(never.schedule, null);
+  assert.match(never.error, /cần kết nối mạng/);
+
+  // An old day is dropped as soon as a newer schedule is saved.
+  await offline.cacheMySchedule(1, scheduleFor("2026-01-01", "cũ"), ["2026-01-01"]);
+  await offline.cacheMySchedule(1, scheduleFor(today, "mới"), [today, tomorrow]);
+  assert.equal(await offline.getCachedMySchedule(1, "2026-01-01"), null);
+  assert.equal((await offline.getCachedMySchedule(1, today)).stops[0].title, "mới");
+
+  // Another account on the same phone cannot read it.
+  assert.equal(await offline.getCachedMySchedule(2, today), null);
+});
+
+test("directions prefer coordinates and fall back to the address", () => {
+  const h = mobileHarness();
+  const mine = load("mobile/lib/mySchedule.ts", { "./api": h.api, "./fieldOffline": {} });
+  assert.match(mine.directionsUrl({ latitude: 10.77, longitude: 106.7, address: "x" }), /destination=10.77,106.7$/);
+  assert.match(mine.directionsUrl({ latitude: null, longitude: null, address: "12 Lê Lợi" }), /destination=12%20L/);
+  assert.equal(mine.directionsUrl({ latitude: null, longitude: null, address: null }), null);
+});

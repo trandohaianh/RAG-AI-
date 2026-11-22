@@ -218,7 +218,7 @@ async function removeRecord(key: string): Promise<void> {
 
 // Các bản ghi gốc của một người dùng: hàng đợi, thao tác bị từ chối, chỉ mục ca đã cache và
 // workspace đang mở (tổng quan workspace được tìm qua khoá này).
-const USER_ROOT_RECORDS = ["actions", "rejected_actions", "case_index", "active_workspace"];
+const USER_ROOT_RECORDS = ["actions", "rejected_actions", "case_index", "active_workspace", "schedule_index"];
 
 async function userHasOfflineRecords(userId: number): Promise<boolean> {
   for (const name of USER_ROOT_RECORDS) {
@@ -276,6 +276,35 @@ export function getCachedActiveFieldOverview(
     if (!workspaceId) return null;
     return readRecord<CachedFieldOverview>(recordKey(userId, workspaceId, "overview"));
   });
+}
+
+// ---- M11: lịch của tôi (hôm nay + ngày mai) ----
+export type CachedMySchedule = api.MySchedule & { cached_at: string };
+
+/** Lưu lịch của một ngày; chỉ giữ các ngày trong `keepDates` (hôm nay, ngày mai), xoá ngày cũ. */
+export function cacheMySchedule(
+  userId: number,
+  schedule: api.MySchedule,
+  keepDates: string[]
+): Promise<void> {
+  return withStorageLock(async () => {
+    const cached: CachedMySchedule = { ...schedule, cached_at: new Date().toISOString() };
+    await writeRecord(recordKey(userId, "schedule", schedule.date), cached);
+    const indexKey = recordKey(userId, "schedule_index");
+    const dates = new Set([...((await readRecord<string[]>(indexKey)) ?? []), schedule.date]);
+    const keep = new Set(keepDates);
+    for (const date of [...dates]) {
+      if (!keep.has(date)) {
+        await removeRecord(recordKey(userId, "schedule", date));
+        dates.delete(date);
+      }
+    }
+    await writeRecord(indexKey, [...dates].sort());
+  });
+}
+
+export function getCachedMySchedule(userId: number, date: string): Promise<CachedMySchedule | null> {
+  return withStorageLock(() => readRecord<CachedMySchedule>(recordKey(userId, "schedule", date)));
 }
 
 export function cacheFieldCase(

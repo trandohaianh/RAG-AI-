@@ -482,6 +482,47 @@ export type FieldCase = {
   events: FieldEvent[];
 };
 
+// ---- M11: lịch trong ngày của chính kỹ thuật viên ----
+export type MyScheduleStop = {
+  case_id: number;
+  workspace_id: number;
+  workspace: string;
+  title: string;
+  status: CaseStatus;
+  priority: "urgent" | "high" | "normal" | "low";
+  address: string | null;
+  customer_label: string | null;
+  device_model: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  route_order: number | null;
+  scheduled_start: string | null;
+  window_start: string | null;
+  window_end: string | null;
+  est_minutes: number;
+};
+
+export type MySchedule = {
+  date: string;
+  stops: MyScheduleStop[];
+  unscheduled: MyScheduleStop[];
+  done: number;
+  total: number;
+};
+
+/** Ngày theo giờ máy (YYYY-MM-DD), cộng thêm `offsetDays`. */
+export function localDate(offsetDays = 0, now: Date = new Date()): string {
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offsetDays);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
+}
+
+export async function getMySchedule(date: string) {
+  // Ranh giới ngày theo múi giờ của máy (Việt Nam: +420 phút).
+  const offset = -new Date().getTimezoneOffset();
+  return request<MySchedule>(`/field/my-schedule?date=${encodeURIComponent(date)}&tz_offset_minutes=${offset}`);
+}
+
 export async function listFieldWorkspaces() {
   return request<FieldWorkspace[]>("/field/workspaces");
 }

@@ -1,6 +1,6 @@
 # M11 — Lịch hôm nay trên mobile: bản thiết kế
 
-- **Trạng thái:** **ĐÃ DUYỆT (2026-11-22)**, với lựa chọn của chủ dự án ở mục 7. Chưa viết code.
+- **Trạng thái:** **ĐÃ LÀM XONG (2026-11-22).** Thiết kế được duyệt với lựa chọn của chủ dự án ở mục 7. Kết quả ở mục 8.
 - **PRD:** `docs/PRD.md` §5.1 M11.
 - **Ước lượng:** khoảng 1,5 ngày, gồm cả kiểm thử.
 
@@ -100,3 +100,46 @@ Không đổi giao diện web.
 | Q2 | Kỹ thuật viên có được xem lịch và địa chỉ khách của **cả đội** không? | **Không:** API lịch cả đội chỉ trả tuyến của chính họ; trưởng đội vẫn xem cả đội |
 | Q3 | Xem được những ngày nào? | **Hôm nay + ngày mai** |
 | Q4 | Ca giao cho tôi nhưng chưa xếp lịch có hiện không? | **Có**, ở nhóm riêng "Được giao, chưa xếp lịch" |
+
+## 8. Kết quả triển khai
+
+**File:**
+- `backend/field/dispatch.py`: `GET /field/my-schedule`. API lịch cả đội giờ chỉ trả tuyến của chính kỹ thuật viên (Q2).
+- `mobile/lib/api.ts`: `getMySchedule`, `localDate`.
+- `mobile/lib/fieldOffline.ts`: `cacheMySchedule` / `getCachedMySchedule`, chỉ giữ hôm nay và ngày mai.
+- `mobile/lib/mySchedule.ts` (mới): tải lịch, tự dùng bản đã lưu khi offline; tạo link chỉ đường.
+- `mobile/screens/TodayScreen.tsx` (mới); `mobile/screens/FieldHomeScreen.tsx` (khối "Lịch hôm nay"); `mobile/navigation/RootNavigator.tsx` (tab đầu "Hôm nay").
+- `tests/test_field_my_schedule.py` (7 test); `tests/client_state.test.cjs` (+2 test).
+
+**Hai lỗi phát hiện khi chạy thử, đã sửa:**
+1. **Khối "Lịch hôm nay" mở nhầm ngày mai.** Nếu lần trước tab đang ở "Ngày mai", bấm khối trên Tổng quan vẫn mở ngày mai. Sửa: khối truyền `day: 0`, và màn Hôm nay luôn về đúng ngày được yêu cầu.
+2. **Lỗi có sẵn: giờ ca bị lệch 7 tiếng ở màn chi tiết ca** (cả app lẫn web).
+   - Nguyên nhân: với SQLite, API trả thời gian **không kèm múi giờ**, nên app hiểu giờ UTC thành giờ địa phương. Lịch 07:04 hiện thành 00:04.
+   - Cách sửa: `backend/field/schemas.py` luôn gửi thời gian của ca, bước và nhật ký kèm `+00:00`.
+   - Test: `test_case_times_carry_a_timezone_so_apps_do_not_shift_them_by_seven_hours`.
+   - Các API khác ngoài ca hiện trường (ảnh, chi phí…) chưa rà lại theo cách này.
+
+**Kiểm thử tự động:**
+
+| Tiêu chí / quyết định | Test | Kết quả |
+|---|---|---|
+| Chỉ ca của tôi, đúng thứ tự giờ và tuyến | `test_technician_sees_only_own_cases_in_route_order` | đạt |
+| Gộp mọi đội tôi thuộc | `test_cases_from_every_team_of_the_technician_are_merged` | đạt |
+| Ranh giới ngày giờ Việt Nam (23:30 / 00:15) | `test_vietnam_day_boundaries_are_respected` | đạt |
+| Q4 nhóm chưa xếp lịch; tiến độ x/y | `test_unscheduled_open_cases_and_progress` | đạt |
+| Ca của đội đã rời không hiện | `test_a_case_from_a_team_i_left_is_not_shown` | đạt |
+| Q2 lịch cả đội: kỹ thuật viên chỉ thấy tuyến của mình | `test_team_schedule_shows_a_technician_only_their_own_route` | đạt |
+| Offline: lưu và đọc lại, giữ hôm nay + ngày mai, người khác trên cùng máy không đọc được | client test "today's schedule is cached per user…" | đạt |
+| Link chỉ đường (toạ độ, rồi địa chỉ) | client test "directions prefer coordinates…" | đạt |
+
+**Chạy thử thật:** app được build ra bản web của Expo và chạy với API thật, dữ liệu tạm, khung 375 px, tài khoản kỹ thuật viên:
+- Đăng nhập vào là tab "Hôm nay": 3 ca theo thứ tự tuyến, ca khẩn ở đầu, có nhãn ưu tiên, tiến độ 0/3, và nhóm "Được giao, chưa xếp lịch".
+- "Ngày mai" hiện thông báo trống.
+- Tổng quan có khối "0/3 ca xong" kèm 3 ca tiếp theo; bấm vào thì mở đúng hôm nay (sau khi sửa lỗi 1).
+- Bấm một ca thì mở chi tiết ca; giờ khớp 07:04 (sau khi sửa lỗi 2).
+- Đánh dấu một ca xong thì tiến độ thành 1/3, ca đó bị gạch mờ và ẩn nút chỉ đường.
+
+**Chưa kiểm chứng:**
+- Chưa chạy trên **điện thoại thật hay trình giả lập**. Bản web không có SecureStore nên **chế độ offline chỉ được kiểm bằng test tự động**.
+- Nút "Chỉ đường" mới được kiểm phần tạo link; chưa mở ứng dụng bản đồ thật.
+- Trên bản web, icon Ionicons hiện thành ô vuông ở mọi màn hình. Đây là vấn đề font của bản web (có từ trước), không thuộc M11; cần xác nhận lại trên điện thoại.

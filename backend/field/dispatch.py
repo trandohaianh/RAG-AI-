@@ -485,7 +485,11 @@ def day_schedule(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _owner(db, workspace_id, user.id)
+    member = _owner(db, workspace_id, user.id)
+    if member.role != "owner":
+        # M11 (Q2): kỹ thuật viên chỉ xem tuyến của chính mình — không thấy ca và địa chỉ khách
+        # của người khác (quyền tối thiểu). Trưởng đội vẫn xem cả đội.
+        technician_id = user.id
     tz = timezone(timedelta(minutes=tz_offset_minutes))
     start = datetime.combine(day, time(0), tz).astimezone(UTC)
     query = select(ServiceCase).where(
@@ -515,4 +519,72 @@ def day_schedule(
     return {
         "date": day.isoformat(),
         "routes": [{"technician_id": t, "technician": emails.get(t), "stops": s} for t, s in routes.items()],
+    }
+
+
+def _my_stop(case: ServiceCase, workspace_name: str, tz: timezone) -> dict:
+    def local(moment: datetime | None) -> str | None:
+        return _aware(moment).astimezone(tz).isoformat() if moment else None
+
+    return {
+        "case_id": case.id,
+        "workspace_id": case.workspace_id,
+        "workspace": workspace_name,
+        "title": case.title,
+        "status": case.status,
+        "priority": case.priority,
+        "address": case.address,
+        "customer_label": case.customer_label,
+        "device_model": case.device_model,
+        "latitude": case.latitude,
+        "longitude": case.longitude,
+        "route_order": case.route_order,
+        "scheduled_start": local(case.scheduled_start),
+        "window_start": local(case.window_start),
+        "window_end": local(case.window_end),
+        "est_minutes": case.est_minutes,
+    }
+
+
+@router.get("/my-schedule")
+def my_schedule(
+    day: date = Query(alias="date"),
+    tz_offset_minutes: int = Query(420, ge=-720, le=840),
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """M11 — lịch trong ngày của CHÍNH người đăng nhập, gộp mọi đội (docs/design/M11_lich_hom_nay_mobile.md).
+
+    - `stops`: ca giao cho tôi có giờ dự kiến trong ngày (theo múi giờ của máy), theo giờ rồi thứ tự
+      tuyến. Ca đã hoàn tất vẫn trả về để app hiện tiến độ "x/y ca xong".
+    - `unscheduled`: ca đang mở giao cho tôi nhưng chưa được xếp giờ (Q4).
+    """
+    from field.models import FieldWorkspace
+
+    tz = timezone(timedelta(minutes=tz_offset_minutes))
+    start = datetime.combine(day, time(0), tz).astimezone(UTC)
+    workspace_ids = select(FieldWorkspaceMember.workspace_id).where(FieldWorkspaceMember.user_id == user.id)
+    mine = select(ServiceCase).where(ServiceCase.assigned_to == user.id, ServiceCase.workspace_id.in_(workspace_ids))
+    scheduled = db.scalars(
+        mine.where(
+            ServiceCase.scheduled_start >= start, ServiceCase.scheduled_start < start + timedelta(days=1)
+        ).order_by(ServiceCase.scheduled_start, ServiceCase.route_order, ServiceCase.id)
+    ).all()
+    unscheduled = db.scalars(
+        mine.where(ServiceCase.scheduled_start.is_(None), ServiceCase.status.in_(ACTIVE_STATUSES)).order_by(
+            ServiceCase.id
+        )
+    ).all()
+    names = {
+        w.id: w.name
+        for w in db.scalars(
+            select(FieldWorkspace).where(FieldWorkspace.id.in_({c.workspace_id for c in [*scheduled, *unscheduled]}))
+        )
+    }
+    return {
+        "date": day.isoformat(),
+        "stops": [_my_stop(c, names.get(c.workspace_id, ""), tz) for c in scheduled],
+        "unscheduled": [_my_stop(c, names.get(c.workspace_id, ""), tz) for c in unscheduled],
+        "done": sum(c.status == "resolved" for c in scheduled),
+        "total": len(scheduled),
     }

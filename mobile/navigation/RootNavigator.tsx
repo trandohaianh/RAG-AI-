@@ -16,6 +16,7 @@ import FieldHomeScreen from "../screens/FieldHomeScreen";
 import FieldCasesScreen from "../screens/FieldCasesScreen";
 import FieldCaseDetailScreen from "../screens/FieldCaseDetailScreen";
 import FieldTeamScreen from "../screens/FieldTeamScreen";
+import TodayScreen from "../screens/TodayScreen";
 
 const AuthStack = createNativeStackNavigator();
 const AppStack = createNativeStackNavigator();
@@ -63,6 +64,7 @@ function MainTabs() {
         tabBarInactiveTintColor: colors.textMuted,
         tabBarIcon: ({ color, size }) => {
           const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
+            Today: "today",
             Overview: "grid",
             Cases: "construct",
             Knowledge: "book",
@@ -73,6 +75,12 @@ function MainTabs() {
         },
       })}
     >
+      {/* M11: tab đầu tiên — kỹ thuật viên mở app là thấy lịch trong ngày. */}
+      <Tabs.Screen
+        name="Today"
+        component={TodayScreen}
+        options={{ title: "Hôm nay" }}
+      />
       <Tabs.Screen
         name="Overview"
         component={FieldHomeScreen}
