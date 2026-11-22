@@ -143,7 +143,9 @@ def test_new_address_clears_the_old_coordinates_so_routing_never_uses_them(env):
 def test_resolved_case_must_be_reopened_before_editing(env):  # noqa: F811
     client, actor, ws, sessions = env
     case = _case(client, ws)
-    client.patch(f"/field/cases/{case['id']}", json={"status": "resolved"})
+    from test_field_case_closure import close_case
+
+    assert close_case(client, case["id"]).status_code == 200  # M12: đóng ca bằng biên bản
     closed = _edit(client, case, title="Sửa sau khi đóng")
     assert closed.status_code == 409 and "Mở lại ca" in closed.json()["detail"]
     client.patch(f"/field/cases/{case['id']}", json={"status": "in_progress"})

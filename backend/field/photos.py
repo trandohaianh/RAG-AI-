@@ -31,7 +31,14 @@ import config
 from auth.schemas import CurrentUser
 from database import get_db
 from dependencies import get_current_user
-from field.models import FieldWorkspace, FieldWorkspaceMember, ServiceCase, ServiceCaseEvent, ServiceCasePhoto
+from field.models import (
+    FieldCaseClosure,
+    FieldWorkspace,
+    FieldWorkspaceMember,
+    ServiceCase,
+    ServiceCaseEvent,
+    ServiceCasePhoto,
+)
 
 router = APIRouter(prefix="/field", tags=["field photos"])
 
@@ -235,6 +242,36 @@ async def upload_photo(
     return _to_out(photo)
 
 
+def store_generated_image(
+    db: Session, case: ServiceCase, user_id: int, full: bytes, thumb: bytes, width: int, height: int, caption: str
+) -> tuple[ServiceCasePhoto, list[Path]]:
+    """Ghi một ảnh do máy chủ tạo (vd. chữ ký M12) vào cùng kho ảnh hiện trường: cùng thư mục,
+    cùng URL ký có hạn, cùng hạn giữ và bản sao lưu. Chưa commit; trả về các tệp đã ghi để xoá
+    nếu giao dịch thất bại."""
+    key = f"{case.workspace_id}/{case.id}/{uuid.uuid4().hex}"
+    paths = [_path(key, "full"), _path(key, "thumb")]
+    paths[0].parent.mkdir(parents=True, exist_ok=True)
+    paths[0].write_bytes(full)
+    paths[1].write_bytes(thumb)
+    photo = ServiceCasePhoto(
+        case_id=case.id,
+        uploaded_by=user_id,
+        storage_key=key,
+        sha256=hashlib.sha256(full).hexdigest(),
+        content_type="image/jpeg",
+        size_bytes=len(full),
+        width=width,
+        height=height,
+        caption=caption,
+    )
+    db.add(photo)
+    return photo, paths
+
+
+def is_signature(db: Session, photo_id: int) -> bool:
+    return db.scalar(select(FieldCaseClosure.id).where(FieldCaseClosure.signature_photo_id == photo_id)) is not None
+
+
 @router.get("/cases/{case_id}/photos", response_model=list[PhotoOut])
 def list_photos(case_id: int, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     case, _ = _case_for_member(db, case_id, user.id)
@@ -273,6 +310,9 @@ def delete_photo(photo_id: int, user: CurrentUser = Depends(get_current_user), d
     if not photo:
         raise HTTPException(status_code=404, detail="Không tìm thấy ảnh")
     case, member = _case_for_member(db, photo.case_id, user.id)
+    if is_signature(db, photo.id):
+        # Chữ ký là bằng chứng của biên bản đóng ca (M12): không xoá lẻ được.
+        raise HTTPException(status_code=409, detail="Ảnh chữ ký thuộc biên bản đóng ca, không xoá được")
     if photo.uploaded_by != user.id and member.role != "owner":
         raise HTTPException(status_code=403, detail="Chỉ người chụp hoặc trưởng đội được xoá ảnh")
     remove_photo(db, photo)
@@ -281,6 +321,13 @@ def delete_photo(photo_id: int, user: CurrentUser = Depends(get_current_user), d
 
 
 def remove_photo(db: Session, photo: ServiceCasePhoto) -> None:
+    # Hết hạn giữ thì chữ ký bị xoá như mọi ảnh; biên bản vẫn còn, chỉ mất liên kết ảnh.
+    db.execute(
+        update(FieldCaseClosure)
+        .where(FieldCaseClosure.signature_photo_id == photo.id)
+        .values(signature_photo_id=None)
+        .execution_options(synchronize_session=False)
+    )
     for variant in ("full", "thumb"):
         _path(photo.storage_key, variant).unlink(missing_ok=True)
     db.delete(photo)

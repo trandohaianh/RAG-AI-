@@ -110,9 +110,10 @@ def test_case_workflow_and_audit_events(field_client):
         "step_updated",
     }
 
+    # M12: đóng ca từ giao diện phải qua biên bản (tests/test_field_case_closure.py).
     resolved = client.patch(f"/field/cases/{case_id}", json={"status": "resolved"})
-    assert resolved.status_code == 200
-    assert resolved.json()["status"] == "resolved"
+    assert resolved.status_code == 409
+    assert client.get(f"/field/cases/{case_id}").json()["status"] != "resolved"
 
 
 def test_workspace_membership_scopes_case_access(field_client):

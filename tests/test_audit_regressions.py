@@ -231,7 +231,9 @@ def test_schedule_rejects_closed_cases_and_out_of_range_offsets(env):  # noqa: F
     client.patch(f"/field/workspaces/{ws}/members/1/dispatch", json={"base_latitude": 21.03, "base_longitude": 105.85})
     case = _case(client, ws)
     client.patch(f"/field/cases/{case['id']}/dispatch", json={"latitude": 21.04, "longitude": 105.86})
-    assert client.patch(f"/field/cases/{case['id']}", json={"status": "resolved"}).status_code == 200
+    from test_field_case_closure import close_case
+
+    assert close_case(client, case["id"]).status_code == 200  # M12: đóng ca bằng biên bản
     day = (date.today() + timedelta(days=1)).isoformat()
     applied = client.post(
         f"/field/workspaces/{ws}/schedule/apply",

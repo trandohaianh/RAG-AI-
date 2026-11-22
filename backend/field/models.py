@@ -77,6 +77,36 @@ class ServiceCase(Base):
     steps = relationship("ServiceCaseStep", back_populates="case", cascade="all, delete-orphan")
     events = relationship("ServiceCaseEvent", back_populates="case", cascade="all, delete-orphan")
     photos = relationship("ServiceCasePhoto", back_populates="case", cascade="all, delete-orphan")
+    closures = relationship(
+        "FieldCaseClosure", back_populates="case", cascade="all, delete-orphan", order_by="FieldCaseClosure.id"
+    )
+
+    @property
+    def closure(self) -> "FieldCaseClosure | None":
+        """M12 — biên bản hiệu lực: bản mới nhất, chỉ khi ca đang ở trạng thái đã hoàn tất."""
+        return self.closures[-1] if self.status == "resolved" and self.closures else None
+
+
+class FieldCaseClosure(Base):
+    """M12 — biên bản đóng ca (docs/design/M12_bien_ban_dong_ca.md). Mở lại rồi đóng lại thì có
+    thêm bản mới; các bản cũ giữ làm lịch sử."""
+
+    __tablename__ = "field_case_closures"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    case_id: Mapped[int] = mapped_column(ForeignKey("field_service_cases.id"), index=True)
+    outcome_code: Mapped[str] = mapped_column(String(32))
+    note: Mapped[str] = mapped_column(Text)
+    customer_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Ảnh chữ ký (lưu như ảnh hiện trường, cùng hạn giữ); trống khi khách vắng / từ chối.
+    signature_photo_id: Mapped[int | None] = mapped_column(ForeignKey("field_case_photos.id"), nullable=True)
+    # Lúc đóng ca có chữ ký không — giữ nguyên kể cả khi ảnh chữ ký sau này hết hạn giữ và bị xoá.
+    signed: Mapped[bool] = mapped_column(Boolean, default=False)
+    closed_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    closed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    client_action_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
+
+    case = relationship("ServiceCase", back_populates="closures")
 
 
 class ServiceCasePhoto(Base):

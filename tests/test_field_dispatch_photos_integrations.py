@@ -19,7 +19,7 @@ from auth.schemas import CurrentUser
 from chat import models as chat_models  # noqa: F401
 from database import Base, get_db
 from dependencies import get_current_user
-from field import dispatch, integrations, photos
+from field import closures, dispatch, integrations, photos
 from field import models as field_models
 from field.router import router as field_router
 
@@ -37,7 +37,14 @@ def env(tmp_path, monkeypatch):
         db.add_all([User(id=i, email=f"u{i}@example.com", hashed_password="x", role="user") for i in (1, 2, 3, 4)])
         db.commit()
     app = FastAPI()
-    for r in (field_router, photos.router, dispatch.router, integrations.router, integrations.public_router):
+    for r in (
+        field_router,
+        photos.router,
+        dispatch.router,
+        integrations.router,
+        integrations.public_router,
+        closures.router,
+    ):
         app.include_router(r)
     actor = {"user": CurrentUser(id=1, email="u1@example.com", role="user")}
 
@@ -129,7 +136,11 @@ def test_photo_delete_rights_and_retention(env):
     actor["user"] = CurrentUser(id=2, email="u2@example.com", role="user")  # technician, not uploader
     assert client.delete(f"/field/photos/{pid}").status_code == 403
     actor["user"] = CurrentUser(id=1, email="u1@example.com", role="user")
-    client.patch(f"/field/cases/{case['id']}", json={"status": "resolved"})
+    from test_field_case_closure import close_case
+
+    # M12: đóng bằng biên bản "khách vắng" (bằng chứng là ảnh đã có, không tạo thêm ảnh chữ ký).
+    closed = close_case(client, case["id"], outcome_code="customer_absent", note="Khách vắng nhà", signature=None)
+    assert closed.status_code == 200, closed.text
     with sessions() as db:
         assert photos.purge_expired_photos(db, now=datetime.now(UTC) + timedelta(days=400)) == 1
         assert db.query(field_models.ServiceCasePhoto).count() == 0
@@ -334,7 +345,9 @@ def test_outbound_webhooks_retry_then_deliver_or_dead_letter(env):
         assert json.loads(body)["case"]["status"] == "in_progress"
         later = datetime.now(UTC) + timedelta(hours=1)
         assert integrations.dispatch_due(db, client=_FakeClient([204]), now=later) == {"delivered": 1}
-    client.patch(f"/field/cases/{created['case_id']}", json={"status": "resolved"})
+    from test_field_case_closure import close_case
+
+    assert close_case(client, created["case_id"]).status_code == 200  # M12: đóng ca bằng biên bản
     with sessions() as db:
         moment = datetime.now(UTC)
         for _ in range(integrations.MAX_ATTEMPTS):

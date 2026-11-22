@@ -413,6 +413,11 @@ def update_case(
     if body.status is not None:
         if body.status not in CASE_STATUSES:
             raise HTTPException(status_code=422, detail="Trạng thái ca sửa không hợp lệ")
+        if body.status == "resolved" and case.status != "resolved":
+            # M12 (Q3): đóng ca từ giao diện luôn phải có biên bản. CRM đóng từ xa đi đường riêng.
+            raise HTTPException(
+                status_code=409, detail="Đóng ca bằng biên bản đóng ca (mã kết quả, ghi chú, chữ ký khách)"
+            )
         if case.status != body.status:
             case.status = body.status
             _add_event(
