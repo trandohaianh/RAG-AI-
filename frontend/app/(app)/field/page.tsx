@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import MarkdownContent from "@/components/MarkdownContent";
 import CasePhotos from "@/components/field/CasePhotos";
+import { ClosureSummary, CloseCaseDialog } from "@/components/field/CaseClosure";
 import CaseDetailsEditor from "@/components/field/CaseDetailsEditor";
 import CaseDispatchEditor from "@/components/field/CaseDispatchEditor";
 import {
@@ -83,6 +84,8 @@ export default function FieldOperationsPage() {
   const [members, setMembers] = useState<FieldMember[]>([]);
   const [docs, setDocs] = useState<DocItem[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  // M12: đóng ca luôn qua biên bản — chọn "Đã hoàn tất" mở hộp thoại thay vì đổi trạng thái thẳng.
+  const [closing, setClosing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [formOpen, setFormOpen] = useState(false);
@@ -716,7 +719,11 @@ export default function FieldOperationsPage() {
                     </span>
                     <select
                       value={selectedCase.status}
-                      onChange={(event) => void updateStatus(event.target.value as FieldStatus)}
+                      onChange={(event) => {
+                        const next = event.target.value as FieldStatus;
+                        if (next === "resolved") setClosing(true);
+                        else void updateStatus(next);
+                      }}
                       className="rounded-lg border border-white/20 bg-slate-800 px-3 py-2 text-xs text-white"
                     >
                       {Object.entries(STATUS_LABEL).map(([value, label]) => (
@@ -740,6 +747,22 @@ export default function FieldOperationsPage() {
                   )}
                   {selectedCase.address && <p className="mt-2 text-xs text-slate-300">{selectedCase.address}</p>}
                 </div>
+                {selectedCase.closure && (
+                  <div className="px-5 pt-5">
+                    <ClosureSummary item={selectedCase} />
+                  </div>
+                )}
+                {closing && (
+                  <CloseCaseDialog
+                    item={selectedCase}
+                    onClose={() => setClosing(false)}
+                    onClosed={() => {
+                      setClosing(false);
+                      void load(workspaceId);
+                    }}
+                    queue={queueCase}
+                  />
+                )}
                 <div className="grid gap-5 p-5 lg:grid-cols-2">
                   <div className="space-y-5">
                     <div>

@@ -192,11 +192,26 @@ export type FieldCase = {
   external_ref: string | null;
   /** Dấu phiên bản thông tin ca — gửi lại khi sửa (M14) để phát hiện người khác vừa sửa. */
   details_version: string;
+  /** M12 — biên bản đóng ca hiệu lực (chỉ khi ca đã hoàn tất). */
+  closure: FieldClosure | null;
   steps: FieldStep[];
   events: FieldEvent[];
 };
 
 export type FieldPriority = "urgent" | "high" | "normal" | "low";
+
+export type FieldClosure = {
+  id: number;
+  outcome_code: string;
+  outcome_label: string;
+  note: string;
+  customer_name: string | null;
+  signature_photo_id: number | null;
+  signed: boolean;
+  signature_url: string | null;
+  closed_by: number;
+  closed_at: string;
+};
 
 export type FieldPhoto = {
   id: number;
