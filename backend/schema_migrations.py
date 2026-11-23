@@ -264,6 +264,17 @@ def _add_case_location_suggestion(conn: Connection) -> None:
         conn.execute(text("ALTER TABLE field_service_cases ADD COLUMN location_suggestion_json TEXT"))
 
 
+def _add_case_external_updated_at(conn: Connection) -> None:
+    """F5-A: mốc updated_at của CRM/NMS để bỏ qua sự kiện đến trễ (cũ hơn bản đang có)."""
+    inspector = inspect(conn)
+    if "field_service_cases" not in set(inspector.get_table_names()):
+        return
+    columns = {column["name"] for column in inspector.get_columns("field_service_cases")}
+    if "external_updated_at" not in columns:
+        timestamp = "TIMESTAMP WITH TIME ZONE" if conn.dialect.name == "postgresql" else "DATETIME"
+        conn.execute(text(f"ALTER TABLE field_service_cases ADD COLUMN external_updated_at {timestamp}"))
+
+
 # create_all KHÔNG thêm index vào bảng đã tồn tại: DB cũ cần migration. Tên trùng với tên
 # SQLAlchemy sinh từ index=True / Index(...) trong models để DB mới và DB nâng cấp giống nhau.
 _HOT_INDEXES = (
@@ -291,6 +302,7 @@ _MIGRATIONS = (
     Migration(7, "hot_query_indexes", _add_hot_query_indexes),
     Migration(8, "field_case_location_suggestion", _add_case_location_suggestion),
     Migration(9, "user_privacy_consent", _add_user_privacy_consent),
+    Migration(10, "field_case_external_updated_at", _add_case_external_updated_at),
 )
 
 

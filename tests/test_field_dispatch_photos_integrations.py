@@ -432,3 +432,68 @@ def test_manual_retry_refuses_when_integration_cannot_deliver_and_needs_owner(en
     client.patch(f"/field/integrations/{integ['id']}", json={"is_active": True})
     actor["user"] = CurrentUser(id=2, email="u2@example.com", role="user")
     assert client.post(f"/field/integrations/{integ['id']}/deliveries/retry-dead").status_code == 403
+
+
+# ----------------------------------------------------------------------------- F5-A: sự kiện đến trễ
+def test_out_of_order_crm_events_older_than_applied_are_ignored(env):
+    client, actor, ws, sessions = env
+    integ = client.post(f"/field/workspaces/{ws}/integrations", json={"name": "CRM", "kind": "crm"}).json()
+
+    def event(eid, kind, at, **data):
+        return _send(
+            client, integ, {"event_id": eid, "type": kind, "external_ref": "T-ORD", "updated_at": at, "data": data}
+        ).json()
+
+    created = event("o1", "ticket.created", "2026-11-23T08:00:00Z", title="Mất mạng", description="LOS", address="A")
+    case_id = created["case_id"]
+    # Bản sửa lúc 10:00 đến TRƯỚC bản sửa lúc 09:00.
+    assert event("o3", "ticket.updated", "2026-11-23T10:00:00+00:00", address="Địa chỉ mới")["outcome"] == "updated"
+    late = event("o2", "ticket.updated", "2026-11-23T09:00:00Z", address="Địa chỉ cũ", priority="urgent")
+    assert late["outcome"] == "stale_ignored" and late["case_id"] == case_id
+    case = client.get(f"/field/cases/{case_id}").json()
+    assert case["address"] == "Địa chỉ mới" and case["priority"] != "urgent"
+    # Gửi lại đúng sự kiện cũ (cùng event_id) vẫn là duplicate, không áp dụng.
+    assert _send(
+        client, integ, {"event_id": "o2", "type": "ticket.updated", "external_ref": "T-ORD", "data": {}}
+    ).json()["duplicate"]
+    # Đóng ca lúc 08:30 đến trễ -> không đóng ca đã có bản 10:00.
+    assert event("o4", "ticket.closed", "2026-11-23T08:30:00Z")["outcome"] == "stale_ignored"
+    assert client.get(f"/field/cases/{case_id}").json()["status"] == "open"
+    with sessions() as db:
+        stored = db.get(field_models.ServiceCase, case_id).external_updated_at
+        assert integrations._as_utc(stored) == datetime(2026, 11, 23, 10, tzinfo=UTC)
+        outcomes = {e.event_id: e.outcome for e in db.query(field_models.FieldIntegrationEvent).all()}
+    assert outcomes["o2"] == "stale_ignored" and outcomes["o4"] == "stale_ignored"
+
+
+def test_equal_updated_at_is_idempotent_and_missing_updated_at_keeps_old_behaviour(env):
+    client, actor, ws, sessions = env
+    integ = client.post(f"/field/workspaces/{ws}/integrations", json={"name": "CRM", "kind": "crm"}).json()
+    at = "2026-11-23T10:00:00Z"
+    data = {
+        "title": "Mất mạng",
+        "description": "LOS",
+        "address": "12 Láng Hạ",
+        "latitude": 21.0,
+        "longitude": 105.8,
+        "window_start": "2026-11-24T01:00:00Z",
+    }
+    body = {"type": "ticket.updated", "external_ref": "T-EQ", "updated_at": at, "data": data}
+    first = _send(client, integ, {**body, "event_id": "q1"}).json()
+    assert first["outcome"] == "created"
+    # Cùng updated_at, khác event_id (CRM phát lại): xử lý nhưng không đổi gì, không thêm nhật ký.
+    again = _send(client, integ, {**body, "event_id": "q2"}).json()
+    assert again["outcome"] == "unchanged"
+    with sessions() as db:
+        external = [
+            e
+            for e in db.query(field_models.ServiceCaseEvent).filter_by(case_id=first["case_id"]).all()
+            if e.event_type == "external"
+        ]
+    assert external == []
+    # Không có updated_at: vẫn áp dụng như trước, không đụng mốc đã lưu.
+    plain = {"event_id": "q3", "type": "ticket.updated", "external_ref": "T-EQ", "data": {"address": "14 Láng Hạ"}}
+    assert _send(client, integ, plain).json()["outcome"] == "updated"
+    with sessions() as db:
+        stored = db.get(field_models.ServiceCase, first["case_id"]).external_updated_at
+    assert integrations._as_utc(stored) == datetime(2026, 11, 23, 10, tzinfo=UTC)

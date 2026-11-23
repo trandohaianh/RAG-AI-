@@ -81,7 +81,7 @@ flowchart LR
 - Thời gian đi là ước lượng theo đường chim bay × 1,35, chưa phải dẫn đường thật.
 
 **Kết nối CRM/NMS (`/field/integrations`).**
-- Ticket/cảnh báo gửi vào webhook có ký HMAC sẽ tự tạo, cập nhật hoặc đóng ca. Gửi lặp cùng `event_id` thì bỏ qua.
+- Ticket/cảnh báo gửi vào webhook có ký HMAC sẽ tự tạo, cập nhật hoặc đóng ca. Gửi lặp cùng `event_id` thì bỏ qua. Sự kiện kèm `updated_at` cũ hơn bản đã áp dụng cho ca (đến trễ, sai thứ tự) bị bỏ qua với kết quả `stale_ignored` (metric `fieldops_field_webhooks_total{outcome="stale_ignored"}`); bằng nhau thì xử lý lại, không đổi gì.
 - Khi ca đổi trạng thái, người phụ trách hoặc lịch, FieldOps gửi webhook báo ngược (outbox, tự thử lại trong khoảng ~63,5 phút; thất bại 8 lần thì vào dead-letter để người xử lý: trang *Kết nối CRM/NMS* liệt kê và gửi lại từng lượt hoặc tất cả lượt dead — `POST /field/integrations/{id}/deliveries/retry-dead`; gauge `fieldops_field_webhook_deliveries{status="dead"}` có cảnh báo).
 - Có thể thử bằng `backend/scripts/simulate_integration.py`. Chưa có adapter riêng cho một CRM/NMS cụ thể: hệ thống đó cần gửi đúng định dạng webhook chung (xem docstring `backend/field/integrations.py`).
 

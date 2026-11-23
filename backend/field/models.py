@@ -65,6 +65,8 @@ class ServiceCase(Base):
     # Nguồn ngoài (CRM ticket / NMS alarm) — duy nhất theo workspace.
     external_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     external_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # F5-A: updated_at (theo CRM/NMS) của sự kiện mới nhất đã áp dụng; sự kiện cũ hơn bị bỏ qua.
+    external_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

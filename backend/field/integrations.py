@@ -7,6 +7,10 @@ VÀO — POST /public/field/integrations/{public_id}/events
              "external_ref": "TCK-1234", "data": {"title", "description", "customer", "address", "latitude",
              "longitude", "priority"|"severity", "device_model", "serial_number", "window_start", "window_end"}}
     - Chữ ký sai/lệch giờ > 5 phút -> 401; cùng event_id gửi lại -> 200 duplicate (không tạo trùng).
+    - F5-A (chủ dự án chọn 23/11): "updated_at" (ISO 8601, ở gốc body hoặc trong data) là thời điểm
+      bản ghi đổi trên CRM/NMS. Sự kiện có updated_at CŨ HƠN bản đã áp dụng cho ca -> 200
+      outcome "stale_ignored", không đổi gì (sự kiện đến trễ/sai thứ tự không ghi đè dữ liệu mới);
+      bằng nhau -> xử lý lại, kết quả idempotent; không gửi updated_at -> xử lý như trước.
     - created/raised: tạo ca mới (hoặc cập nhật nếu external_ref đã có); updated: cập nhật trường;
       ticket.closed: đóng ca; alarm.cleared: ghi sự kiện, chỉ tự đóng nếu chưa ai bắt đầu xử lý.
 
@@ -422,7 +426,13 @@ def _apply_fields(case: ServiceCase, data: dict) -> list[str]:
             setattr(case, attr, str(data[key])[:size])
             changed.append(attr)
     lat, lng = data.get("latitude"), data.get("longitude")
-    if isinstance(lat, (int, float)) and isinstance(lng, (int, float)) and -90 <= lat <= 90 and -180 <= lng <= 180:
+    if (
+        isinstance(lat, (int, float))
+        and isinstance(lng, (int, float))
+        and -90 <= lat <= 90
+        and -180 <= lng <= 180
+        and (case.latitude, case.longitude) != (float(lat), float(lng))
+    ):
         case.latitude, case.longitude = float(lat), float(lng)
         changed.append("location")
     level = SEVERITY.get(str(data.get("priority") or data.get("severity") or "").lower())
@@ -431,10 +441,17 @@ def _apply_fields(case: ServiceCase, data: dict) -> list[str]:
         changed.append("priority")
     for key in ("window_start", "window_end"):
         moment = _parse_time(data.get(key))
-        if moment:
+        if moment and moment != _as_utc(getattr(case, key)):
             setattr(case, key, moment)
             changed.append(key)
     return changed
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    """SQLite trả datetime không múi giờ (đã lưu UTC); so sánh với datetime có múi giờ cần chuẩn hoá."""
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 @public_router.post("/integrations/{public_id}/events")
@@ -496,7 +513,20 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
     outcome = "ignored"
     address_changed = False
     pushed = 0
-    if case is None and event_type in ("ticket.created", "alarm.raised", "ticket.updated"):
+    source_updated_at = _parse_time(payload.get("updated_at") or data.get("updated_at"))
+    applied_at = _as_utc(case.external_updated_at) if case is not None else None
+    if source_updated_at is not None and applied_at is not None and source_updated_at < applied_at:
+        # F5-A: sự kiện đến trễ (CRM gửi lại, hàng đợi đảo thứ tự) — bản đang có mới hơn, bỏ qua.
+        logger.info(
+            "integration %s: stale event %s for %s ignored (%s < %s)",
+            integration.id,
+            event_id,
+            external_ref,
+            source_updated_at.isoformat(),
+            applied_at.isoformat(),
+        )
+        outcome = "stale_ignored"
+    elif case is None and event_type in ("ticket.created", "alarm.raised", "ticket.updated"):
         title = str(data.get("title") or "").strip()
         symptom = str(data.get("description") or "").strip()
         if len(title) < 3 or len(symptom) < 3:
@@ -571,6 +601,13 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
             note += " — ca chưa ai xử lý nên được đóng tự động"
         db.add(ServiceCaseEvent(case_id=case.id, actor_id=actor, event_type="external", detail=note))
         outcome = "cleared"
+    if (
+        case is not None
+        and outcome != "stale_ignored"
+        and source_updated_at is not None
+        and (applied_at is None or source_updated_at > applied_at)
+    ):
+        case.external_updated_at = source_updated_at
     db.add(
         FieldIntegrationEvent(
             integration_id=integration.id,
@@ -586,7 +623,7 @@ async def inbound_event(public_id: str, request: Request, db: Session = Depends(
         db.rollback()
         FIELD_WEBHOOKS.labels("inbound", "duplicate").inc()
         return {"duplicate": True}
-    FIELD_WEBHOOKS.labels("inbound", "accepted").inc()
+    FIELD_WEBHOOKS.labels("inbound", "stale_ignored" if outcome == "stale_ignored" else "accepted").inc()
     if pushed:
         from field import push
 
