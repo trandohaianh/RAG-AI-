@@ -112,6 +112,17 @@ export default function IntegrationsPage() {
     }
   }
 
+  async function retryAllDead(item: FieldIntegration) {
+    if (!confirm("Gửi lại mọi lượt báo ngược đang dead của kết nối này?")) return;
+    try {
+      const res = await api.post<{ requeued: number }>(`/field/integrations/${item.id}/deliveries/retry-dead`);
+      setMessage(`Đã đưa ${res.data.requeued} lượt về hàng đợi gửi lại.`);
+      await Promise.all([load(), showDeliveries(item)]);
+    } catch (err) {
+      setMessage(getApiErrorMessage(err));
+    }
+  }
+
   if (workspace && workspace.role !== "owner") {
     return <div className="p-6 text-sm text-slate-600">Chỉ trưởng đội quản lý kết nối CRM/NMS.</div>;
   }
@@ -248,6 +259,15 @@ export default function IntegrationsPage() {
               >
                 <RefreshCw className="h-3.5 w-3.5" /> Lượt báo ngược
               </button>
+              {(item.deliveries.dead ?? 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void retryAllDead(item)}
+                  className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" /> Gửi lại {item.deliveries.dead} lượt dead
+                </button>
+              )}
             </div>
           </div>
           <label className="mt-3 flex items-center gap-2 text-xs">

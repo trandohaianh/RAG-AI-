@@ -370,3 +370,65 @@ def test_outbound_url_must_be_public_https(monkeypatch):
     for url in ("http://example.com/hook", "https://127.0.0.1/hook", "https://10.0.0.5/x", "https://localhost/x"):
         with pytest.raises(ValueError):
             integrations.validate_outbound_url(url)
+
+
+# ----------------------------------------------------------------------------- F4-A: dead-letter
+def _crm_with_pending_deliveries(client, ws, n=2):
+    integ = client.post(
+        f"/field/workspaces/{ws}/integrations",
+        json={"name": "CRM", "kind": "crm", "outbound_url": "http://crm.local/hook"},
+    ).json()
+    created = _send(
+        client,
+        integ,
+        {
+            "event_id": "dl1",
+            "type": "ticket.created",
+            "external_ref": "T-DL",
+            "data": {"title": "Mất", "description": "LOS"},
+        },
+    ).json()
+    for status in ("in_progress", "open", "in_progress")[:n]:
+        client.patch(f"/field/cases/{created['case_id']}", json={"status": status})
+    return integ
+
+
+def test_outbound_goes_dead_after_about_one_hour_then_bulk_retry_delivers(env):
+    client, actor, ws, sessions = env
+    integ = _crm_with_pending_deliveries(client, ws, n=2)
+    with sessions() as db:
+        first = datetime.now(UTC)
+        moment = first
+        for _ in range(integrations.MAX_ATTEMPTS):
+            integrations.dispatch_due(db, client=_FakeClient([503, 503]), now=moment)
+            nxt = db.query(field_models.FieldWebhookDelivery).filter_by(status="pending").all()
+            if not nxt:
+                break
+            moment = max(r.next_attempt_at.replace(tzinfo=UTC) for r in nxt)
+        rows = db.query(field_models.FieldWebhookDelivery).all()
+        assert {r.status for r in rows} == {"dead"} and all(r.attempts == integrations.MAX_ATTEMPTS for r in rows)
+        # Cửa sổ thử lại F4-A: ~63,5 phút ±20%, không phải 6 giờ.
+        assert timedelta(minutes=45) < moment - first < timedelta(minutes=80)
+
+    listed = client.get(f"/field/integrations/{integ['id']}/deliveries", params={"status": "dead"}).json()
+    assert len(listed) == 2 and all(d["last_error"] == "HTTP 503" for d in listed)
+
+    res = client.post(f"/field/integrations/{integ['id']}/deliveries/retry-dead")
+    assert res.status_code == 200 and res.json() == {"requeued": 2}
+    assert client.post(f"/field/integrations/{integ['id']}/deliveries/retry-dead").json() == {"requeued": 0}
+    with sessions() as db:
+        assert integrations.dispatch_due(db, client=_FakeClient([204, 204])) == {"delivered": 2}
+
+
+def test_manual_retry_refuses_when_integration_cannot_deliver_and_needs_owner(env):
+    client, actor, ws, sessions = env
+    integ = _crm_with_pending_deliveries(client, ws, n=1)
+    with sessions() as db:
+        integrations.dispatch_due(db, client=_FakeClient([410]))  # 4xx vĩnh viễn -> dead ngay
+        delivery_id = db.query(field_models.FieldWebhookDelivery).one().id
+    client.patch(f"/field/integrations/{integ['id']}", json={"is_active": False})
+    assert client.post(f"/field/integrations/{integ['id']}/deliveries/{delivery_id}/retry").status_code == 409
+    assert client.post(f"/field/integrations/{integ['id']}/deliveries/retry-dead").status_code == 409
+    client.patch(f"/field/integrations/{integ['id']}", json={"is_active": True})
+    actor["user"] = CurrentUser(id=2, email="u2@example.com", role="user")
+    assert client.post(f"/field/integrations/{integ['id']}/deliveries/retry-dead").status_code == 403

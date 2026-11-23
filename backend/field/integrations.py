@@ -14,7 +14,10 @@ RA — khi ca có nguồn từ một kết nối đổi trạng thái/người p
     (field_webhook_deliveries) được gửi tới outbound_url với cùng kiểu chữ ký. Lỗi -> thử lại
     với backoff 30s·2^(n-1) ±20% jitter (30 s, 1, 2, 4, 8, 16, 32 phút), sau 8 lần gửi ->
     dead-letter (xem và gửi lại trong giao diện). Tổng cửa sổ thử lại chỉ ~63,5 phút (±20%:
-    ~51–76 phút) kể từ lần gửi đầu; đối tác sập lâu hơn thì phải gửi lại bằng tay.
+    ~51–76 phút) kể từ lần gửi đầu; đối tác sập lâu hơn thì phải gửi lại bằng tay (F4-A, chủ dự
+    án chọn 23/11): GET .../deliveries?status=dead liệt kê, POST .../deliveries/{id}/retry gửi lại
+    một lượt, POST .../deliveries/retry-dead gửi lại tất cả; gauge fieldops_field_webhook_deliveries
+    {status="dead"} + cảnh báo trong monitoring/alerts báo khi có lượt dead mới.
     Lỗi 4xx vĩnh viễn (trừ 408/429) -> dead ngay.
     Mỗi lần gửi có hạn chót tổng WEBHOOK_DEADLINE_SECONDS và chỉ đọc tối đa 4 KB phản hồi.
     URL ra phải là https và không trỏ vào mạng nội bộ (chống SSRF).
@@ -328,22 +331,57 @@ def list_deliveries(
     ]
 
 
+def _require_deliverable(integration: FieldIntegration) -> None:
+    """Gửi lại khi kết nối đang tắt / chưa có URL chỉ làm lượt gửi thành dead lần nữa ngay lập tức."""
+    if not integration.is_active or not integration.outbound_url:
+        raise HTTPException(status_code=409, detail="Kết nối đang tắt hoặc chưa có URL báo ngược — bật/điền URL trước")
+
+
 @router.post("/integrations/{integration_id}/deliveries/{delivery_id}/retry")
 def retry_delivery(
     integration_id: int, delivery_id: int, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    _integration_for_owner(db, integration_id, user.id)
+    from metrics import FIELD_WEBHOOKS
+
+    integration = _integration_for_owner(db, integration_id, user.id)
     delivery = db.get(FieldWebhookDelivery, delivery_id)
     if not delivery or delivery.integration_id != integration_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy lượt gửi")
     if delivery.status == "delivered":
         # Gửi lại một sự kiện đã giao thành công sẽ tạo bản trùng phía CRM.
         raise HTTPException(status_code=409, detail="Lượt gửi này đã thành công, không cần gửi lại")
+    _require_deliverable(integration)
     delivery.status, delivery.attempts = "pending", 0
     delivery.next_attempt_at = datetime.now(UTC)
     db.commit()
+    FIELD_WEBHOOKS.labels("outbound", "manual_retry").inc()
     kick()
     return {"id": delivery.id, "status": delivery.status}
+
+
+@router.post("/integrations/{integration_id}/deliveries/retry-dead")
+def retry_dead_deliveries(
+    integration_id: int, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """F4-A: sau khi CRM sập quá cửa sổ ~1 giờ, đưa MỌI lượt dead của kết nối về hàng đợi một lần.
+
+    Mỗi lượt được thêm một cửa sổ 8 lần thử mới. Thứ tự gửi giữ theo id (thứ tự sự kiện gốc).
+    """
+    from metrics import FIELD_WEBHOOKS
+
+    integration = _integration_for_owner(db, integration_id, user.id)
+    _require_deliverable(integration)
+    requeued = db.execute(
+        update(FieldWebhookDelivery)
+        .where(FieldWebhookDelivery.integration_id == integration_id, FieldWebhookDelivery.status == "dead")
+        .values(status="pending", attempts=0, next_attempt_at=datetime.now(UTC))
+        .execution_options(synchronize_session=False)
+    ).rowcount
+    db.commit()
+    if requeued:
+        FIELD_WEBHOOKS.labels("outbound", "manual_retry").inc(requeued)
+        kick()
+    return {"requeued": requeued or 0}
 
 
 # ----------------------------------------------------------------------------- inbound
@@ -684,6 +722,7 @@ def dispatch_due(db: Session, *, now: datetime | None = None, client=None, limit
             if not integration or not integration.is_active or not integration.outbound_url:
                 delivery.status, delivery.last_error = "dead", "kết nối đã tắt hoặc không còn URL"
                 summary["dead"] += 1
+                FIELD_WEBHOOKS.labels("outbound", "dead").inc()
                 continue
             body = delivery.payload_json.encode()
             timestamp = str(int(time.time()))
