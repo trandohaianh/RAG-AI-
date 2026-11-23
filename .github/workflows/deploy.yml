@@ -3,10 +3,11 @@ name: Deploy
 # Sau khi CI xanh trên main: SSH vào VM, kéo code mới, build lại, chạy smoke test.
 # Secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY (private key), tuỳ chọn DEPLOY_PORT.
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main]
+  # Tự deploy sau CI tạm tắt (F7-b): chỉ chạy khi bấm tay. Bật lại bằng cách bỏ chú thích.
+  # workflow_run:
+  #   workflows: ["CI"]
+  #   types: [completed]
+  #   branches: [main]
   workflow_dispatch:
 
 concurrency:

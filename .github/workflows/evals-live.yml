@@ -3,8 +3,9 @@ name: Eval (live Gemini)
 # Chạy bộ eval với Gemini thật: hằng đêm + khi bấm tay. Cần secret GEMINI_API_KEY.
 # Chi phí mỗi lần được ghi trong báo cáo (68 câu ≈ vài cent ở paid tier; free tier = $0).
 on:
-  schedule:
-    - cron: "30 19 * * *"   # 02:30 giờ Việt Nam
+  # Lịch tạm tắt (F7-b): bật lại khi chấp nhận tốn token LLM mỗi đêm.
+  # schedule:
+  #   - cron: "30 19 * * *"   # 02:30 giờ Việt Nam
   workflow_dispatch:
     inputs:
       split:

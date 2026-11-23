@@ -4,8 +4,9 @@ name: Uptime
 # cho người có quyền repo. Biến repo: PUBLIC_URL (VD https://fieldops.duckdns.org) — bắt buộc:
 # thiếu thì job báo lỗi (đỏ), không thoát 0.
 on:
-  schedule:
-    - cron: "7 * * * *"   # mỗi giờ (repo private: 2.000 phút Actions free/tháng)
+  # Lịch tạm tắt (F7-b): bật lại khi đã đặt secret PUBLIC_URL.
+  # schedule:
+  #   - cron: "7 * * * *"   # mỗi giờ (repo private: 2.000 phút Actions free/tháng)
   workflow_dispatch:
 
 jobs:
