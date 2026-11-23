@@ -27,7 +27,7 @@
 
 | Dữ liệu | Của ai | Lưu ở đâu | Ai xem được | Hạn lưu |
 |---|---|---|---|---|
-| Email, mật khẩu đã băm | Thành viên đội | CSDL (SQLite trên VM) | Chính người đó; admin hệ thống | Đến khi xoá tài khoản (**chưa có chức năng tự xoá**, xem §5) |
+| Email, mật khẩu đã băm | Thành viên đội | CSDL (SQLite trên VM) | Chính người đó; admin hệ thống | Đến khi người đó tự xoá tài khoản (Cài đặt → Xoá tài khoản) |
 | Tên/nhãn khách, địa chỉ, toạ độ, model và số serial thiết bị, triệu chứng | Khách hàng của đội | CSDL | Thành viên của đội đó | Chưa có hạn (ca được giữ để tra lịch sử) |
 | Ảnh hiện trường, **chữ ký khách** (M12) | Khách hàng | Thư mục ảnh trên VM, đã xoá EXIF/GPS | Thành viên đội, qua link 15 phút | 365 ngày sau khi ca xong |
 | Vị trí GPS của thợ khi bấm "Tôi đang ở nhà khách" (M13) | Thợ, gián tiếp là khách | Chỉ lưu thành toạ độ của ca | Thành viên đội | Như ca |
@@ -55,9 +55,9 @@ Những nghĩa vụ liên quan trực tiếp tới FieldOps, và tình trạng h
 
 | Nghĩa vụ | Tình trạng FieldOps |
 |---|---|
-| Thông báo cho người dùng: thu thập gì, để làm gì, gửi cho ai, lưu bao lâu | ❌ Chưa có trang chính sách quyền riêng tư. Màn đăng ký chỉ có câu chung "đồng ý với các điều khoản sử dụng" |
-| Sự đồng ý phải được lưu lại và kiểm chứng được thời điểm, nội dung (Nghị định 356 siết chặt điểm này) | ❌ Chưa lưu thời điểm hay phiên bản điều khoản mà người dùng đã đồng ý |
-| Quyền của chủ thể dữ liệu: xem, sửa, xoá, rút đồng ý | ⚠ Sửa thông tin ca thì có (M14). **Chưa có** chức năng tự xoá tài khoản hay xuất dữ liệu của mình |
+| Thông báo cho người dùng: thu thập gì, để làm gì, gửi cho ai, lưu bao lâu | ✅ Trang `/privacy` (web) và màn "Chính sách quyền riêng tư" (app), phiên bản 2026-11-23. ⚠ Nội dung cần luật sư duyệt; cần điền liên hệ (`NEXT_PUBLIC_PRIVACY_CONTACT`, `EXPO_PUBLIC_PRIVACY_CONTACT`) |
+| Sự đồng ý phải được lưu lại và kiểm chứng được thời điểm, nội dung (Nghị định 356 siết chặt điểm này) | ✅ Đăng ký bắt buộc tick đồng ý; mỗi lần đồng ý ghi một dòng `user_consents` (phiên bản, nguồn, thời điểm). Tài khoản cũ, đăng nhập Google, hoặc khi chính sách đổi phiên bản thì phải đồng ý mới dùng tiếp |
+| Quyền của chủ thể dữ liệu: xem, sửa, xoá, rút đồng ý | ✅ Cài đặt → "Tải dữ liệu của tôi" (JSON) và "Xoá tài khoản" (web + app). Xoá: ẩn danh email, thu hồi mọi phiên, xoá hội thoại, tài liệu cá nhân, máy nhận thông báo, nhật ký đồng ý; xoá hẳn đội chỉ có một mình người đó (kèm ca, ảnh, chữ ký); trưởng đội duy nhất của đội còn thành viên phải chuyển quyền trước |
 | Dữ liệu khách hàng của đội | ⚠ Đội là bên thu thập dữ liệu khách. Cần thông báo cho khách, ví dụ trong hợp đồng dịch vụ hoặc phiếu biên bản, và cần chốt vai trò "bên kiểm soát / bên xử lý" giữa đội và FieldOps |
 | Hồ sơ đánh giá tác động xử lý dữ liệu (DPIA) | ❌ Chưa lập. Nghị định 356 có biểu mẫu mới |
 | Hồ sơ đánh giá tác động chuyển dữ liệu ra nước ngoài (CTIA) | ❌ Chưa lập, trong khi có chuyển dữ liệu sang Gemini, Nominatim, Expo/Google (§3) |
@@ -74,8 +74,8 @@ Nguồn đã đối chiếu:
 
 | Ưu tiên | Việc | Loại | Ước lượng |
 |---|---|---|---|
-| P1 | Trang "Chính sách quyền riêng tư" (web + app), dẫn từ màn đăng ký; **lưu thời điểm và phiên bản** điều khoản mỗi người đã đồng ý | Code + nội dung (nội dung cần luật sư duyệt) | 1 ngày |
-| P1 | "Xoá tài khoản" và "Tải dữ liệu của tôi" trong Cài đặt | Code | 1–1,5 ngày |
+| ✅ P1 | Trang "Chính sách quyền riêng tư" (web + app), dẫn từ màn đăng ký; **lưu thời điểm và phiên bản** điều khoản mỗi người đã đồng ý — *đã làm 2026-11-23; nội dung còn chờ luật sư duyệt* | Code + nội dung | — |
+| ✅ P1 | "Xoá tài khoản" và "Tải dữ liệu của tôi" trong Cài đặt — *đã làm 2026-11-23* | Code | — |
 | P1 | Sao lưu **ra ngoài VM** (hiện bản sao lưu nằm cùng ổ với dữ liệu: mất VM là mất cả hai). Ví dụ `rclone` lên Google Drive hoặc Oracle Object Storage miễn phí, kèm mã hoá | Cấu hình VM | 0,5 ngày |
 | P2 | Hạn lưu giữ cho **ca đã xong** (ví dụ ẩn danh tên, địa chỉ khách sau N tháng) | Code + quyết định của bạn | 0,5 ngày |
 | P2 | Lập hồ sơ DPIA và CTIA theo biểu mẫu Nghị định 356 | Tài liệu, bạn hoặc luật sư | — |

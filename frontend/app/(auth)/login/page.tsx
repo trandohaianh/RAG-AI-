@@ -95,7 +95,11 @@ export default function LoginPage() {
         </form>
 
         <p className="mt-8 text-xs text-white/30">
-          Bằng việc đăng nhập, bạn đồng ý với các điều khoản sử dụng của hệ thống.
+          Xem{" "}
+          <Link href="/privacy" className="underline hover:text-white/60">
+            Chính sách quyền riêng tư
+          </Link>
+          .
         </p>
       </div>
     </AuthBackdrop>

@@ -79,7 +79,19 @@ export type User = {
   auth_provider?: string;
   email_verified?: boolean;
   created_at: string;
+  /** Bước 7 (P1): phiên bản Chính sách quyền riêng tư đã đồng ý / phiên bản hiện hành. */
+  privacy_version?: string | null;
+  privacy_version_current?: string;
 };
+
+/** Cập nhật hồ sơ đã lưu (không đổi token), ví dụ sau khi đồng ý chính sách. */
+export function updateStoredUser(user: User): Promise<void> {
+  return withAuthLock(async () => {
+    if (!(await readToken())) return;
+    await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+    notifyAuth(user);
+  });
+}
 
 export function saveAuth(token: string, user: User): Promise<void> {
   return withAuthLock(async () => {
@@ -226,11 +238,43 @@ export async function loginWithGoogle(idToken: string) {
   });
 }
 
-export async function register(email: string, password: string) {
+export async function register(email: string, password: string, acceptedPrivacyVersion: string) {
   return request<{ user: User; access_token: string }>("/auth/register", {
     method: "POST",
-    body: { email, password },
+    body: { email, password, accepted_privacy_version: acceptedPrivacyVersion },
     auth: false,
+  });
+}
+
+// ---- Bước 7 (P1): chính sách quyền riêng tư, tải dữ liệu, xoá tài khoản ----
+export async function getMe() {
+  return request<User>("/auth/me");
+}
+
+export async function acceptPrivacy(version: string) {
+  return request<User>("/auth/me/consent", { method: "POST", body: { version } });
+}
+
+export async function exportMyData() {
+  return request<Record<string, unknown>>("/auth/me/export");
+}
+
+export type DeletePreview = {
+  teams_deleted: { id: number; name: string; cases: number }[];
+  teams_blocked: { id: number; name: string }[];
+  teams_left: { id: number; name: string }[];
+  requires_password: boolean;
+  confirm_word: string;
+};
+
+export async function getDeletePreview() {
+  return request<DeletePreview>("/auth/me/delete-preview");
+}
+
+export async function deleteMyAccount(confirm: string, password: string | null) {
+  return request<{ message: string; teams_deleted: string[] }>("/auth/me/delete", {
+    method: "POST",
+    body: { confirm, password },
   });
 }
 

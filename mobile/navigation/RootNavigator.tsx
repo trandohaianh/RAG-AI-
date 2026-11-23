@@ -22,6 +22,9 @@ import FieldCaseDetailScreen from "../screens/FieldCaseDetailScreen";
 import LocationPickerScreen from "../screens/LocationPickerScreen";
 import FieldTeamScreen from "../screens/FieldTeamScreen";
 import TodayScreen from "../screens/TodayScreen";
+import PrivacyScreen from "../screens/PrivacyScreen";
+import PrivacyConsentScreen from "../screens/PrivacyConsentScreen";
+import { needsConsent } from "../lib/privacy";
 
 const navigationRef = createNavigationContainerRef<any>();
 let handledNotification: string | null = null;
@@ -66,6 +69,11 @@ function AuthNavigator() {
     <AuthStack.Navigator screenOptions={{ headerShown: false }}>
       <AuthStack.Screen name="Login" component={LoginScreen} />
       <AuthStack.Screen name="Register" component={RegisterScreen} />
+      <AuthStack.Screen
+        name="Privacy"
+        component={PrivacyScreen}
+        options={{ ...headerOptions, headerShown: true, title: "Chính sách quyền riêng tư" }}
+      />
     </AuthStack.Navigator>
   );
 }
@@ -162,7 +170,9 @@ export default function RootNavigator() {
 
   return (
     <NavigationContainer ref={navigationRef} onReady={() => setReady(true)}>
-      {user ? (
+      {user && needsConsent(user) ? (
+        <PrivacyConsentScreen />
+      ) : user ? (
         <AppStack.Navigator screenOptions={headerOptions}>
           <AppStack.Screen
             name="Main"
@@ -178,6 +188,11 @@ export default function RootNavigator() {
             name="ChatDetail"
             component={ChatScreen}
             options={{ title: "Trợ lý tri thức" }}
+          />
+          <AppStack.Screen
+            name="Privacy"
+            component={PrivacyScreen}
+            options={{ title: "Chính sách quyền riêng tư" }}
           />
         </AppStack.Navigator>
       ) : <AuthNavigator />}

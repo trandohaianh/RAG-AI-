@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import * as api from "./api";
 import { unregisterPush } from "./push";
+import { PRIVACY_VERSION } from "./privacy";
 
 type AuthContextValue = {
   user: api.User | null;
@@ -9,6 +10,10 @@ type AuthContextValue = {
   register: (email: string, password: string) => Promise<void>;
   loginWithGoogle: (idToken: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Bước 7 (P1): đồng ý phiên bản chính sách hiện hành do máy chủ báo. */
+  acceptPrivacy: () => Promise<void>;
+  /** Xoá tài khoản trên máy chủ rồi đăng xuất khỏi máy này. */
+  deleteAccount: (confirm: string, password: string | null) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -29,6 +34,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const cached = await api.loadUser();
         const token = await api.getToken();
         if (alive && !changed) setUser(cached && token ? cached : null);
+        if (cached && token) {
+          // Hồ sơ mới nhất từ máy chủ (ví dụ chính sách vừa đổi phiên bản). Mất mạng thì giữ bản đã lưu.
+          void api.getMe().then((fresh) => api.updateStoredUser(fresh)).catch(() => undefined);
+        }
       } catch {
         if (alive && !changed) setUser(null);
       } finally {
@@ -45,7 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const register = useCallback(async (email: string, password: string) => {
-    const res = await api.register(email, password);
+    const res = await api.register(email, password, PRIVACY_VERSION);
     await api.saveAuth(res.access_token, res.user);
     setUser(res.user);
   }, []);
@@ -63,9 +72,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, []);
 
+  const acceptPrivacy = useCallback(async () => {
+    const version = user?.privacy_version_current;
+    if (!version) return;
+    await api.updateStoredUser(await api.acceptPrivacy(version));
+  }, [user]);
+
+  const deleteAccount = useCallback(async (confirm: string, password: string | null) => {
+    await api.deleteMyAccount(confirm, password);
+    // Máy chủ đã xoá máy nhận thông báo và thu hồi phiên; chỉ cần dọn trên máy này.
+    await unregisterPush().catch(() => undefined);
+    await api.clearAuth();
+    setUser(null);
+  }, []);
+
   const value = useMemo(
-    () => ({ user, loading, login, register, loginWithGoogle, logout }),
-    [user, loading, login, register, loginWithGoogle, logout]
+    () => ({ user, loading, login, register, loginWithGoogle, logout, acceptPrivacy, deleteAccount }),
+    [user, loading, login, register, loginWithGoogle, logout, acceptPrivacy, deleteAccount]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

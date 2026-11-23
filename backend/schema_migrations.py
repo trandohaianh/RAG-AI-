@@ -242,6 +242,18 @@ def _add_case_resolved_at(conn: Connection) -> None:
     )
 
 
+def _add_user_privacy_consent(conn: Connection) -> None:
+    """Bước 7 (P1): phiên bản Chính sách quyền riêng tư đã đồng ý. Bảng user_consents do create_all tạo."""
+    inspector = inspect(conn)
+    if "users" not in set(inspector.get_table_names()):
+        return
+    columns = {column["name"] for column in inspector.get_columns("users")}
+    if "privacy_version" not in columns:
+        conn.execute(text("ALTER TABLE users ADD COLUMN privacy_version VARCHAR(32)"))
+    if "privacy_accepted_at" not in columns:
+        conn.execute(text("ALTER TABLE users ADD COLUMN privacy_accepted_at TIMESTAMP"))
+
+
 def _add_case_location_suggestion(conn: Connection) -> None:
     """M13: vị trí đề xuất chờ trưởng đội xác nhận (docs/design/M13_dia_chi_toa_do.md)."""
     inspector = inspect(conn)
@@ -278,6 +290,7 @@ _MIGRATIONS = (
     Migration(6, "field_case_resolved_at", _add_case_resolved_at),
     Migration(7, "hot_query_indexes", _add_hot_query_indexes),
     Migration(8, "field_case_location_suggestion", _add_case_location_suggestion),
+    Migration(9, "user_privacy_consent", _add_user_privacy_consent),
 )
 
 

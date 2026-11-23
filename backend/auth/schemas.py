@@ -20,6 +20,11 @@ class UserCreate(PasswordInput):
     email: EmailStr
 
 
+class RegisterRequest(UserCreate):
+    # Phiên bản Chính sách quyền riêng tư người dùng đã đọc và đồng ý khi đăng ký (bắt buộc qua API).
+    accepted_privacy_version: str = Field(..., min_length=1, max_length=32)
+
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
@@ -52,12 +57,18 @@ class UserOut(BaseModel):
     email_verified: bool = False
     has_google: bool = False
     created_at: datetime
+    privacy_version: str | None = None
+    privacy_version_current: str = ""
 
     model_config = {"from_attributes": True}
 
     @classmethod
     def from_user(cls, user) -> "UserOut":
+        import config
+
         return cls(
+            privacy_version=getattr(user, "privacy_version", None),
+            privacy_version_current=config.PRIVACY_POLICY_VERSION,
             id=user.id,
             email=user.email,
             role=user.role,
@@ -71,6 +82,16 @@ class UserOut(BaseModel):
 
 class GoogleLoginRequest(BaseModel):
     credential: str = Field(..., min_length=20, max_length=4096)
+    accepted_privacy_version: str | None = Field(default=None, max_length=32)
+
+
+class ConsentIn(BaseModel):
+    version: str = Field(..., min_length=1, max_length=32)
+
+
+class DeleteAccountIn(BaseModel):
+    confirm: str = Field(..., max_length=20)
+    password: str | None = Field(default=None, max_length=72)
 
 
 class VerifyEmailRequest(BaseModel):

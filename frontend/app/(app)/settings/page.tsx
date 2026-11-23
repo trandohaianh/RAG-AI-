@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import api, { getApiErrorMessage } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import PersonalDataSection from "@/components/PersonalDataSection";
 
 type BillingStatus = {
   plan: string;
@@ -109,7 +110,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-xl font-semibold">Cài đặt</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Gói sử dụng, khóa API cho hệ thống khác và khung chat nhúng vào website
+          Gói sử dụng, khóa API, khung chat nhúng vào website và dữ liệu cá nhân của bạn
         </p>
       </div>
 
@@ -215,6 +216,8 @@ export default function SettingsPage() {
           ))}
         </ul>
       </section>
+
+      <PersonalDataSection />
     </div>
   );
 }

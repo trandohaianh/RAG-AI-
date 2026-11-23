@@ -17,6 +17,7 @@ from auth.models import User
 from auth.router import router as auth_router
 from auth.service import create_access_token, create_email_verification_token, hash_password
 from chat import models as chat_models  # noqa: F401
+from config import PRIVACY_POLICY_VERSION as PRIVACY_VERSION
 from database import Base, _enable_sqlite_foreign_keys, get_db
 from dependencies import get_current_user
 from field import models as field_models  # noqa: F401
@@ -190,7 +191,10 @@ def test_real_signature_audience_and_expiry_checks(monkeypatch):
 
 # ------------------------------------------------------------------ email verification
 def test_register_then_verify_email(client, db_factory):
-    res = client.post("/auth/register", json={"email": "v@example.com", "password": "Password-123"})
+    res = client.post(
+        "/auth/register",
+        json={"email": "v@example.com", "password": "Password-123", "accepted_privacy_version": PRIVACY_VERSION},
+    )
     user = res.json()["user"]
     assert user["email_verified"] is False
     with db_factory() as db:
@@ -215,7 +219,10 @@ def test_unverified_users_are_blocked_only_when_required(client, db_factory, mon
     import auth.email_utils
     import config
 
-    res = client.post("/auth/register", json={"email": "u@example.com", "password": "Password-123"})
+    res = client.post(
+        "/auth/register",
+        json={"email": "u@example.com", "password": "Password-123", "accepted_privacy_version": PRIVACY_VERSION},
+    )
     headers = {"Authorization": f"Bearer {res.json()['access_token']}"}
     assert client.get("/protected", headers=headers).status_code == 200  # mặc định không bắt buộc
 
@@ -286,7 +293,10 @@ def test_smtp_channel_sends_verification_and_reset(client, db_factory, monkeypat
     _FakeSMTP.sent = []
     assert eu.email_channel() == "smtp" and eu.is_email_configured()
 
-    res = client.post("/auth/register", json={"email": "smtp@example.com", "password": "Password-123"})
+    res = client.post(
+        "/auth/register",
+        json={"email": "smtp@example.com", "password": "Password-123", "accepted_privacy_version": PRIVACY_VERSION},
+    )
     assert res.status_code == 200
     for _ in range(50):  # email gửi nền
         if _FakeSMTP.sent:

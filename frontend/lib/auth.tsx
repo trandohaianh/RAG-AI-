@@ -13,6 +13,9 @@ export type User = {
   email_verified?: boolean;
   has_google?: boolean;
   created_at: string;
+  /** Phiên bản Chính sách quyền riêng tư đã đồng ý / phiên bản hiện hành (bước 7, P1). */
+  privacy_version?: string | null;
+  privacy_version_current?: string;
 };
 
 type AuthContextValue = {

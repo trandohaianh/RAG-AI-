@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { Alert, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useAuth } from "../lib/auth";
 import { getApiUrl, setApiUrl, getErrorMessage } from "../lib/api";
 import GradientButton from "../components/GradientButton";
+import PersonalDataCard from "../components/PersonalDataCard";
 import { colors, radius } from "../lib/theme";
 
-export default function SettingsScreen() {
+export default function SettingsScreen({ navigation }: any) {
   const { user, logout } = useAuth();
   const [url, setUrl] = useState("");
   const [saved, setSaved] = useState(false);
@@ -25,7 +26,7 @@ export default function SettingsScreen() {
   }
 
   return (
-    <View style={styles.flex}>
+    <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: 24 }}>
       <View style={styles.card}>
         <Text style={styles.label}>Tài khoản</Text>
         <Text style={styles.value}>{user?.email}</Text>
@@ -55,6 +56,8 @@ export default function SettingsScreen() {
         />
       </View>
 
+      <PersonalDataCard onOpenPolicy={() => navigation.navigate("Privacy")} />
+
       <GradientButton
         title="Đăng xuất"
         variant="outline"
@@ -64,7 +67,7 @@ export default function SettingsScreen() {
         ])}
         style={{ margin: 16 }}
       />
-    </View>
+    </ScrollView>
   );
 }
 

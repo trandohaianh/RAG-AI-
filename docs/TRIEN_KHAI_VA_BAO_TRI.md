@@ -19,7 +19,7 @@
 | 9 | Sao lưu ra ngoài VM (`rclone` lên Google Drive hoặc Object Storage, có mã hoá) | Chủ dự án | ⬜ |
 | 10 | Monitoring Grafana Cloud và uptime | Chủ dự án | ⬜ |
 | 11 | Bản APK Android có thông báo đẩy (Expo + Firebase) | Chủ dự án | ⬜ |
-| 12 | Các việc pháp lý P1 trong `docs/BAO_MAT_VA_DU_LIEU_CA_NHAN.md` §5, **trước khi** nhập dữ liệu khách thật | Chủ dự án quyết; Claude code | ⬜ |
+| 12 | Các việc pháp lý P1 trong `docs/BAO_MAT_VA_DU_LIEU_CA_NHAN.md` §5, **trước khi** nhập dữ liệu khách thật | Chủ dự án quyết; Claude code | 🟡 Chính sách, lưu đồng ý, tải dữ liệu, xoá tài khoản đã code. Còn: luật sư duyệt nội dung, điền liên hệ, sao lưu ra ngoài VM |
 
 ## 2. Kiểm tra sau khi triển khai
 
@@ -55,7 +55,7 @@
 
 | Ưu tiên | Việc | Lý do |
 |---|---|---|
-| P1 | Việc pháp lý P1: chính sách quyền riêng tư, lưu sự đồng ý, xoá tài khoản / tải dữ liệu, sao lưu ra ngoài VM | Bắt buộc trước khi dùng dữ liệu khách thật |
+| P1 | Luật sư duyệt nội dung chính sách; điền liên hệ; sao lưu ra ngoài VM | Bắt buộc trước khi dùng dữ liệu khách thật (phần code P1 đã xong 2026-11-23) |
 | P1 | Thử M11–M15 trên điện thoại Android thật | Chưa có tính năng mobile nào được thử trên máy thật |
 | P2 | Hạn lưu giữ cho ca đã xong (ẩn danh khách sau N tháng) | Giảm dữ liệu cá nhân lưu lâu |
 | P2 | Danh sách ca nhẹ hơn (trả tóm tắt, phân trang, gzip) | Khi cả đội cùng mở danh sách 200 ca trong 1 giây, người mở sau chờ 2–3 giây |

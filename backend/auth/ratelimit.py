@@ -25,6 +25,8 @@ LIMITS: dict[str, tuple[int, int]] = {
     "google:ip": (30, 15 * 60),
     "email:address": (5, 60 * 60),
     "email:ip": (20, 60 * 60),
+    # Xoá tài khoản cần nhập lại mật khẩu: chặn dò mật khẩu bằng token đã bị lộ.
+    "delete:user": (5, 60 * 60),
 }
 
 _lock = threading.Lock()

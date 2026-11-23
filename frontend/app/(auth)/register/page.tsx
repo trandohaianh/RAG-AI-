@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import AuthBackdrop, { darkInputClass } from "@/components/AuthBackdrop";
 import { LogoMark } from "@/components/Logo";
 import GoogleSignInButton from "@/components/GoogleSignInButton";
+import { PRIVACY_VERSION } from "@/lib/privacy";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -15,6 +16,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -33,9 +35,13 @@ export default function RegisterPage() {
       setError("Mật khẩu tối thiểu 6 ký tự");
       return;
     }
+    if (!agreed) {
+      setError("Vui lòng đọc và đồng ý Chính sách quyền riêng tư");
+      return;
+    }
     setLoading(true);
     try {
-      const res = await api.post("/auth/register", { email, password });
+      const res = await api.post("/auth/register", { email, password, accepted_privacy_version: PRIVACY_VERSION });
       login(res.data.user);
       router.replace("/chat");
     } catch (err: unknown) {
@@ -101,9 +107,25 @@ export default function RegisterPage() {
             />
           </div>
 
+          <label className="flex items-start gap-2 pt-1 text-xs text-white/70">
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-white"
+            />
+            <span>
+              Tôi đã đọc và đồng ý{" "}
+              <Link href="/privacy" target="_blank" className="font-medium text-white underline">
+                Chính sách quyền riêng tư
+              </Link>
+              , gồm việc một số dữ liệu được xử lý trên máy chủ ở nước ngoài.
+            </span>
+          </label>
+
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !agreed}
             className="brand-gradient mt-2 w-full rounded-full py-3 text-sm font-semibold text-white shadow-lg shadow-black/40 transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             {loading ? "Đang tạo tài khoản..." : "Đăng ký"}
@@ -111,7 +133,7 @@ export default function RegisterPage() {
         </form>
 
         <p className="mt-8 text-xs text-white/30">
-          Bằng việc đăng ký, bạn đồng ý với các điều khoản sử dụng của hệ thống.
+          Đăng ký bằng Google: bạn sẽ được hỏi đồng ý chính sách ngay sau khi đăng nhập.
         </p>
       </div>
     </AuthBackdrop>

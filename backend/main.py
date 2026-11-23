@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from admin.router import router as admin_router
 from analytics.router import router as analytics_router
+from auth.privacy import router as auth_privacy_router
 from auth.router import router as auth_router
 from auth.schemas import CurrentUser
 from billing.router import router as billing_router
@@ -114,6 +115,7 @@ app.add_middleware(CORSMiddleware, **cors_options(APP_ENV, os.environ))
 app.add_middleware(SecurityHeadersMiddleware, hsts=APP_ENV == "production")
 
 app.include_router(auth_router)
+app.include_router(auth_privacy_router)
 app.include_router(chat_router)
 app.include_router(docs_router)
 app.include_router(field_router)

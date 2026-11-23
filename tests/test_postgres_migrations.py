@@ -44,7 +44,7 @@ def postgres_engine():
 
 def test_postgres_legacy_upgrade_boolean_revocation_and_sequence(postgres_engine):
     create_legacy_schema(postgres_engine)
-    assert migrations.run_migrations(postgres_engine, Base.metadata) == (1, 2, 3, 4, 5, 6, 7, 8)
+    assert migrations.run_migrations(postgres_engine, Base.metadata) == (1, 2, 3, 4, 5, 6, 7, 8, 9)
     assert migrations.run_migrations(postgres_engine, Base.metadata) == ()
     assert_upgraded_legacy(postgres_engine)
     columns = {c["name"]: c for c in inspect(postgres_engine).get_columns("users")}
@@ -76,10 +76,10 @@ def test_postgres_concurrent_startups(postgres_engine, legacy):
 
     with ThreadPoolExecutor(max_workers=4) as workers:
         results = list(workers.map(startup, range(4)))
-    assert results.count((1, 2, 3, 4, 5, 6, 7, 8)) == 1
+    assert results.count((1, 2, 3, 4, 5, 6, 7, 8, 9)) == 1
     assert results.count(()) == 3
     with postgres_engine.connect() as conn:
-        assert conn.execute(text("SELECT COUNT(*) FROM schema_migrations")).scalar_one() == 8
+        assert conn.execute(text("SELECT COUNT(*) FROM schema_migrations")).scalar_one() == 9
         if legacy:
             assert conn.execute(text("SELECT COUNT(*) FROM users WHERE id=99")).scalar_one() == 1
 
@@ -101,7 +101,7 @@ def test_postgres_failed_upgrade_rolls_back_ddl_and_repairs(postgres_engine, mon
         assert conn.execute(text("SELECT COUNT(*) FROM api_keys")).scalar_one() == 1
     # Removing the injected failure must allow a clean retry of the entire upgrade.
     monkeypatch.setattr(migrations, "_MIGRATIONS", migrations._MIGRATIONS[:-1])
-    assert migrations.run_migrations(postgres_engine, Base.metadata) == (1, 2, 3, 4, 5, 6, 7, 8)
+    assert migrations.run_migrations(postgres_engine, Base.metadata) == (1, 2, 3, 4, 5, 6, 7, 8, 9)
     assert_upgraded_legacy(postgres_engine)
 
 

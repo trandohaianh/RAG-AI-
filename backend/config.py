@@ -125,6 +125,10 @@ PUSH_ENABLED: bool = os.getenv("PUSH_ENABLED", "1").strip().lower() not in ("0",
 EXPO_PUSH_URL: str = os.getenv("EXPO_PUSH_URL", "https://exp.host/--/api/v2/push/send")
 EXPO_ACCESS_TOKEN: str = os.getenv("EXPO_ACCESS_TOKEN", "").strip()
 FIELD_TZ_OFFSET_MINUTES: int = int(os.getenv("FIELD_TZ_OFFSET_MINUTES", "420"))
+
+# Bước 7 (P1): phiên bản Chính sách quyền riêng tư (frontend/app/privacy + mobile). Đổi nội dung
+# chính sách thì tăng phiên bản: người dùng cũ phải đồng ý lại khi mở app.
+PRIVACY_POLICY_VERSION: str = "2026-11-23"
 DATABASE_PATH: Path = DATA_ROOT / "app.db"
 DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{DATABASE_PATH}")
 # Heroku/Render/Railway có thể đưa "postgres://…" — SQLAlchemy 2 không còn nhận tên đó và sập

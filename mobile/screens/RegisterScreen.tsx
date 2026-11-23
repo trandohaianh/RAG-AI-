@@ -21,6 +21,7 @@ export default function RegisterScreen({ navigation }: any) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -32,6 +33,10 @@ export default function RegisterScreen({ navigation }: any) {
     }
     if (password.length < 6) {
       setError("Mật khẩu tối thiểu 6 ký tự");
+      return;
+    }
+    if (!agreed) {
+      setError("Vui lòng đọc và đồng ý Chính sách quyền riêng tư");
       return;
     }
     setLoading(true);
@@ -91,6 +96,24 @@ export default function RegisterScreen({ navigation }: any) {
           placeholderTextColor={colors.textMuted}
         />
 
+        <View style={styles.agreeRow}>
+          <TouchableOpacity
+            onPress={() => setAgreed((v) => !v)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: agreed }}
+            style={[styles.checkbox, agreed && styles.checkboxOn]}
+          >
+            {agreed ? <Text style={styles.checkmark}>✓</Text> : null}
+          </TouchableOpacity>
+          <Text style={styles.agreeText}>
+            Tôi đã đọc và đồng ý{" "}
+            <Text style={styles.linkAccent} onPress={() => navigation.navigate("Privacy")}>
+              Chính sách quyền riêng tư
+            </Text>
+            , gồm việc một số dữ liệu được xử lý trên máy chủ ở nước ngoài.
+          </Text>
+        </View>
+
         <GradientButton pill
           title={loading ? "Đang tạo tài khoản..." : "Đăng ký"}
           onPress={onSubmit}
@@ -127,4 +150,18 @@ const styles = StyleSheet.create({
   link: { marginTop: 20, alignItems: "center" },
   linkText: { color: colors.textMuted, fontSize: 14 },
   linkAccent: { color: colors.primary, fontWeight: "700" },
+  agreeRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginTop: 16, marginBottom: 4 },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.card,
+  },
+  checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  checkmark: { color: "#fff", fontWeight: "800", fontSize: 13 },
+  agreeText: { flex: 1, color: colors.text, fontSize: 13, lineHeight: 19 },
 });

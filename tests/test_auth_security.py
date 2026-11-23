@@ -220,6 +220,7 @@ def test_password_byte_limit_is_validated_before_bcrypt(auth_client):
         json={
             "email": "long@example.com",
             "password": "á" * 40,
+            "accepted_privacy_version": "2026-11-23",
         },
     )
     assert response.status_code == 422

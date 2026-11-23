@@ -867,3 +867,18 @@ test("M15: notification data only opens the Today tab on today or tomorrow", () 
   assert.equal(parsePushTarget("ExponentPushToken", "2026-11-22", "2026-11-23"), null);
   assert.equal(parsePushTarget(null, "2026-11-22", "2026-11-23"), null);
 });
+
+test("P1: privacy policy version matches on server, web and mobile; consent is asked when it changes", () => {
+  const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
+  const server = read("backend/config.py").match(/PRIVACY_POLICY_VERSION: str = "([^"]+)"/)[1];
+  const web = read("frontend/lib/privacy.ts").match(/PRIVACY_VERSION = "([^"]+)"/)[1];
+  const mobile = read("mobile/lib/privacy.ts").match(/PRIVACY_VERSION = "([^"]+)"/)[1];
+  assert.equal(web, server);
+  assert.equal(mobile, server);
+  const { needsConsent } = load("mobile/lib/privacy.ts", {}, { process: { env: {} } });
+  assert.equal(needsConsent(null), false);
+  assert.equal(needsConsent({ privacy_version: null, privacy_version_current: server }), true);
+  assert.equal(needsConsent({ privacy_version: "2020-01-01", privacy_version_current: server }), true);
+  assert.equal(needsConsent({ privacy_version: server, privacy_version_current: server }), false);
+  assert.equal(needsConsent({ privacy_version: null }), false, "old cached profile without the field is not blocked");
+});

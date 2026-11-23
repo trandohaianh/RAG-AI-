@@ -13,6 +13,9 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 # Đặt cùng NEXT_PUBLIC_API_URL=/api để chạy API cùng origin (rewrites tính lúc build).
 ARG API_PROXY_TARGET=
 ENV API_PROXY_TARGET=$API_PROXY_TARGET
+# Liên hệ hiện trên trang Chính sách quyền riêng tư (email hoặc trang liên hệ của đơn vị vận hành).
+ARG NEXT_PUBLIC_PRIVACY_CONTACT=
+ENV NEXT_PUBLIC_PRIVACY_CONTACT=$NEXT_PUBLIC_PRIVACY_CONTACT
 RUN npm run build
 
 FROM node:22-alpine AS runner

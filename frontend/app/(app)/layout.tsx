@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import Sidebar, { MobileMenuButton } from "@/components/Sidebar";
 import VerifyEmailBanner from "@/components/VerifyEmailBanner";
+import PrivacyConsentGate from "@/components/PrivacyConsentGate";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -60,6 +61,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <VerifyEmailBanner />
         <main className="flex-1 min-h-0 overflow-hidden">{children}</main>
       </div>
+      <PrivacyConsentGate />
     </div>
   );
 }

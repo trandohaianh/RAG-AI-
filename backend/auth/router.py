@@ -15,8 +15,8 @@ from auth.schemas import (
     CurrentUser,
     ForgotPasswordRequest,
     GoogleLoginRequest,
+    RegisterRequest,
     ResetPasswordRequest,
-    UserCreate,
     UserLogin,
     UserOut,
     VerifyEmailRequest,
@@ -87,13 +87,23 @@ def auth_config():
 
 
 @router.post("/register", response_model=AuthResponse)
-async def register(data: UserCreate, request: Request, response: Response, db: Session = Depends(get_db)):
+async def register(data: RegisterRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     ratelimit.hit("register:ip", ratelimit.client_ip(request))
+    from auth.privacy import record_consent
+    from config import PRIVACY_POLICY_VERSION
+
+    if data.accepted_privacy_version != PRIVACY_POLICY_VERSION:
+        raise HTTPException(
+            status_code=422, detail="Bạn cần đọc và đồng ý Chính sách quyền riêng tư phiên bản mới nhất"
+        )
     try:
         user = register_user(db, data)
     except ValueError as exc:
         _auth_event("register", "rejected")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    record_consent(db, user, data.accepted_privacy_version, "register")
+    db.commit()
+    db.refresh(user)
     _auth_event("register", "ok")
     _queue_verification(user)
     return _issue(request, response, user, is_new_user=True)
@@ -133,6 +143,16 @@ async def google_login(data: GoogleLoginRequest, request: Request, response: Res
         _auth_event("google", "rejected")
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     _auth_event("google", "created" if created else "ok")
+    from config import PRIVACY_POLICY_VERSION
+
+    # Ô đồng ý ở màn đăng nhập Google: lưu nếu đúng phiên bản hiện hành và chưa đồng ý bản này.
+    # Thiếu thì app tự hỏi lại ngay sau khi đăng nhập (POST /auth/me/consent).
+    if data.accepted_privacy_version == PRIVACY_POLICY_VERSION and user.privacy_version != PRIVACY_POLICY_VERSION:
+        from auth.privacy import record_consent
+
+        record_consent(db, user, PRIVACY_POLICY_VERSION, "google")
+        db.commit()
+        db.refresh(user)
     return _issue(request, response, user, is_new_user=created)
 
 
