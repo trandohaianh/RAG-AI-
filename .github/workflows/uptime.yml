@@ -1,7 +1,8 @@
 name: Uptime
 
 # Monitor dự phòng miễn phí: mỗi giờ gọi /api/health/ready. Lỗi → GitHub gửi email
-# cho người có quyền repo. Biến repo: PUBLIC_URL (VD https://fieldops.duckdns.org).
+# cho người có quyền repo. Biến repo: PUBLIC_URL (VD https://fieldops.duckdns.org) — bắt buộc:
+# thiếu thì job báo lỗi (đỏ), không thoát 0.
 on:
   schedule:
     - cron: "7 * * * *"   # mỗi giờ (repo private: 2.000 phút Actions free/tháng)
@@ -16,7 +17,11 @@ jobs:
         env:
           URL: ${{ vars.PUBLIC_URL }}
         run: |
-          if [ -z "$URL" ]; then echo "::warning::Chưa đặt biến PUBLIC_URL"; exit 0; fi
+          # F6-A: thiếu URL là cấu hình hỏng, không phải "đang chạy tốt" -> báo đỏ thay vì xanh giả.
+          if [ -z "$URL" ]; then
+            echo "::error::Chưa đặt biến repo PUBLIC_URL (Settings → Secrets and variables → Actions → Variables), VD https://fieldops.duckdns.org — uptime không kiểm được gì"
+            exit 1
+          fi
           for i in 1 2 3; do
             code=$(curl -s -o body.txt -w '%{http_code}' --max-time 20 "$URL/api/health/ready") || code=000
             [ "$code" = "200" ] && { echo "OK $code"; cat body.txt; exit 0; }

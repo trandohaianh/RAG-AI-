@@ -119,6 +119,7 @@ Các workflow:
 - **Eval (live Gemini)** (`evals-live.yml`): 02:30 giờ Việt Nam mỗi đêm. Kết quả xem trong tab
   Summary, report tải về ở mục Artifacts.
 - **Uptime** (`uptime.yml`): gọi `/api/health/ready` mỗi giờ. Nếu lỗi, GitHub gửi email.
+  Cần đặt biến repo `PUBLIC_URL`; chưa đặt thì job báo **đỏ** (trước đây thoát 0, báo xanh giả).
 
 ## Vận hành hằng ngày
 
