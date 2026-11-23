@@ -186,6 +186,10 @@ uploads/{user_id}/file.pdf
   sẽ chờ khoá rồi lỗi `database is locked`, và chỉ số BM25, bộ đếm rate-limit, cache đều nằm trong bộ nhớ của
   từng tiến trình. Đủ cho một đội nhỏ (< 50 người dùng). Muốn mở rộng thì đặt `DATABASE_URL` sang PostgreSQL
   (migration đã hỗ trợ) và chuyển trạng thái trong bộ nhớ sang Redis — ước lượng 10–15 người-ngày.
+- **Tìm từ khoá: giữ BM25 tự viết (F3-A).** `backend/rag/bm25.py` (BM25L + bộ tách từ giữ nguyên mã lỗi/mã
+  model như `E-204`, `GPON-2412B` và dấu tiếng Việt) chạy song song với vector. Không chuyển ParadeDB `pg_search`
+  vì nó chỉ có nghĩa khi đã lên PostgreSQL (F2-B) và phải viết lại bộ tách từ; `ts_rank` của Postgres không phải
+  BM25 nên sẽ tìm kém hơn.
 
 ---
 
