@@ -7,12 +7,15 @@ export type AuthConfig = {
   google_client_id: string | null;
   email_verification_required: boolean;
   password_reset_enabled: boolean;
+  /** "invite" = đăng ký cần mã mời do quản trị tạo (F1-A). */
+  signup_mode: "invite" | "open";
 };
 
 const FALLBACK: AuthConfig = {
   google_client_id: null,
   email_verification_required: false,
   password_reset_enabled: false,
+  signup_mode: "open",
 };
 
 let cached: Promise<AuthConfig> | null = null;

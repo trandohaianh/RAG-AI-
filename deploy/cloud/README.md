@@ -75,7 +75,9 @@ bash ~/fieldops/deploy/cloud/setup-vm.sh     # lần 2: build + chạy + smoke t
 ```
 
 Smoke test phải in ra 6 dòng ✓. Sau đó mở `https://<APP_DOMAIN>` và đăng ký tài khoản đầu tiên.
-**Tài khoản đầu tiên tự động là admin.**
+**Tài khoản đầu tiên tự động là admin.** Bản cloud chạy `SIGNUP_MODE=invite`: sau tài khoản đầu tiên, người
+khác chỉ đăng ký được bằng link mời do admin tạo ở trang **Quản trị → Lời mời đăng ký**. Vì vậy hãy đăng ký tài
+khoản admin ngay sau khi smoke test chạy xong.
 
 > Repo private: `git clone` cần Personal Access Token (quyền read) hoặc deploy key.
 

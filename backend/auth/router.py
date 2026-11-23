@@ -77,12 +77,15 @@ def _queue_verification(user: User) -> None:
 @router.get("/config")
 def auth_config():
     """Frontend đọc để biết nên hiện nút Google / màn hình xác thực email hay không."""
+    import config
     from config import GOOGLE_CLIENT_IDS
 
     return {
         "google_client_id": GOOGLE_CLIENT_IDS[0] if GOOGLE_CLIENT_IDS else None,
         "email_verification_required": email_verification_required(),
         "password_reset_enabled": is_email_configured(),
+        # F1-A: "invite" = màn đăng ký phải hỏi mã mời.
+        "signup_mode": config.SIGNUP_MODE,
     }
 
 
@@ -96,8 +99,16 @@ async def register(data: RegisterRequest, request: Request, response: Response, 
         raise HTTPException(
             status_code=422, detail="Bạn cần đọc và đồng ý Chính sách quyền riêng tư phiên bản mới nhất"
         )
+    from auth.invites import InviteInvalid, InviteRequired
+
     try:
-        user = register_user(db, data)
+        user = register_user(db, data, invite_code=data.invite_code)
+    except InviteRequired as exc:
+        _auth_event("register", "invite_required")
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except InviteInvalid as exc:
+        _auth_event("register", "invite_invalid")
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         _auth_event("register", "rejected")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -137,8 +148,13 @@ async def google_login(data: GoogleLoginRequest, request: Request, response: Res
     except google_auth.GoogleTokenError as exc:
         _auth_event("google", "invalid_token")
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+    from auth.invites import InviteInvalid, InviteRequired
+
     try:
-        user, created = login_with_google(db, identity)
+        user, created = login_with_google(db, identity, invite_code=data.invite_code)
+    except (InviteRequired, InviteInvalid) as exc:
+        _auth_event("google", "invite_required" if isinstance(exc, InviteRequired) else "invite_invalid")
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         _auth_event("google", "rejected")
         raise HTTPException(status_code=403, detail=str(exc)) from exc

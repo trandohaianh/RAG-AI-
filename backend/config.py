@@ -181,6 +181,18 @@ def is_production(app_env: str | None = None) -> bool:
     return (APP_ENV if app_env is None else app_env).strip().lower() not in DEV_ENVS
 
 
+# F1-A (chủ sản phẩm chọn 2026-11-23): đăng ký tài khoản.
+#   invite — chỉ tạo tài khoản mới (mật khẩu hoặc Google) bằng mã mời do quản trị tạo
+#            (POST /admin/invites). Ngoại lệ duy nhất: tài khoản ĐẦU TIÊN (id=1, thành admin).
+#   open   — ai cũng tự đăng ký được (chỉ nên dùng khi chạy dev/local).
+# Mặc định: invite khi is_production(), open khi dev.
+SIGNUP_MODE: str = (os.getenv("SIGNUP_MODE") or ("invite" if is_production() else "open")).strip().lower()
+if SIGNUP_MODE not in {"invite", "open"}:
+    raise ValueError("SIGNUP_MODE must be 'invite' or 'open'")
+INVITE_DEFAULT_DAYS: int = int(os.getenv("INVITE_DEFAULT_DAYS", "7"))
+INVITE_MAX_DAYS: int = 30
+
+
 def _public_url_problem(name: str, value: str) -> str | None:
     from urllib.parse import urlparse
 

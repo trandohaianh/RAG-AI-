@@ -7,6 +7,8 @@ name: fieldops
 
 x-api-env: &api-env
   APP_ENV: production
+  # F1-A: chỉ đăng ký bằng lời mời do admin tạo (tài khoản đầu tiên là ngoại lệ). "open" = đăng ký tự do.
+  SIGNUP_MODE: ${SIGNUP_MODE:-invite}
   DATA_DIR: /app/data
   APP_PUBLIC_URL: https://${APP_DOMAIN}
   API_PUBLIC_URL: https://${APP_DOMAIN}/api

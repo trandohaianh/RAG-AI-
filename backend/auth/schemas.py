@@ -23,6 +23,8 @@ class UserCreate(PasswordInput):
 class RegisterRequest(UserCreate):
     # Phiên bản Chính sách quyền riêng tư người dùng đã đọc và đồng ý khi đăng ký (bắt buộc qua API).
     accepted_privacy_version: str = Field(..., min_length=1, max_length=32)
+    # F1-A: bắt buộc khi SIGNUP_MODE=invite (trừ tài khoản đầu tiên).
+    invite_code: str | None = Field(default=None, max_length=128)
 
 
 class UserLogin(BaseModel):
@@ -83,6 +85,8 @@ class UserOut(BaseModel):
 class GoogleLoginRequest(BaseModel):
     credential: str = Field(..., min_length=20, max_length=4096)
     accepted_privacy_version: str | None = Field(default=None, max_length=32)
+    # F1-A: chỉ dùng khi lần đăng nhập Google này TẠO tài khoản mới ở chế độ invite.
+    invite_code: str | None = Field(default=None, max_length=128)
 
 
 class ConsentIn(BaseModel):

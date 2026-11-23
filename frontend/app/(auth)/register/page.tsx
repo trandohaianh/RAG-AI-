@@ -9,6 +9,7 @@ import AuthBackdrop, { darkInputClass } from "@/components/AuthBackdrop";
 import { LogoMark } from "@/components/Logo";
 import GoogleSignInButton from "@/components/GoogleSignInButton";
 import { PRIVACY_VERSION } from "@/lib/privacy";
+import { useAuthConfig } from "@/lib/authConfig";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -17,6 +18,15 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [agreed, setAgreed] = useState(false);
+  const [inviteCode, setInviteCode] = useState("");
+  const authConfig = useAuthConfig();
+  const inviteOnly = authConfig?.signup_mode === "invite";
+
+  useEffect(() => {
+    // Link mời dạng /register?invite=... (quản trị sao chép từ trang Quản trị).
+    const fromUrl = new URLSearchParams(window.location.search).get("invite");
+    if (fromUrl) setInviteCode(fromUrl);
+  }, []);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -41,7 +51,12 @@ export default function RegisterPage() {
     }
     setLoading(true);
     try {
-      const res = await api.post("/auth/register", { email, password, accepted_privacy_version: PRIVACY_VERSION });
+      const res = await api.post("/auth/register", {
+        email,
+        password,
+        accepted_privacy_version: PRIVACY_VERSION,
+        invite_code: inviteCode.trim() || undefined,
+      });
       login(res.data.user);
       router.replace("/chat");
     } catch (err: unknown) {
@@ -66,7 +81,21 @@ export default function RegisterPage() {
         </p>
 
         <form onSubmit={onSubmit} className="mt-8 space-y-3 text-left">
-          <GoogleSignInButton onError={setError} />
+          {inviteOnly && (
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-white/60">Mã mời</label>
+              <input
+                type="text"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                autoComplete="off"
+                placeholder="Mã do quản trị gửi cho bạn"
+                className={darkInputClass()}
+              />
+              <p className="mt-1 text-xs text-white/40">Hệ thống chỉ nhận đăng ký bằng lời mời.</p>
+            </div>
+          )}
+          <GoogleSignInButton onError={setError} inviteCode={inviteCode} />
           {error && (
             <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>
           )}

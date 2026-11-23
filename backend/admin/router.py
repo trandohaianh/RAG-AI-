@@ -5,7 +5,7 @@ import shutil
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -128,3 +128,88 @@ def delete_user(
         "message": "Tài khoản đã bị vô hiệu hóa và thu hồi quyền truy cập",
         "cleanup_pending": cleanup_pending,
     }
+
+
+# ------------------------------------------------------------------ lời mời (F1-A)
+class InviteCreateIn(BaseModel):
+    email: EmailStr | None = None
+    days: int | None = Field(default=None, ge=1, le=30)
+    note: str | None = Field(default=None, max_length=200)
+
+
+class InviteOut(BaseModel):
+    id: int
+    email: str | None
+    note: str | None
+    created_at: datetime
+    expires_at: datetime
+    used_at: datetime | None
+    used_by: int | None
+    revoked_at: datetime | None
+    status: str
+
+
+class InviteCreatedOut(InviteOut):
+    # Mã gốc chỉ trả về MỘT lần lúc tạo; máy chủ chỉ giữ SHA-256.
+    code: str
+    signup_url: str
+
+
+def _invite_out(invite) -> dict:
+    from auth.invites import invite_status
+
+    return {
+        "id": invite.id,
+        "email": invite.email,
+        "note": invite.note,
+        "created_at": invite.created_at,
+        "expires_at": invite.expires_at,
+        "used_at": invite.used_at,
+        "used_by": invite.used_by,
+        "revoked_at": invite.revoked_at,
+        "status": invite_status(invite),
+    }
+
+
+@router.post("/invites", response_model=InviteCreatedOut)
+def create_signup_invite(
+    data: InviteCreateIn,
+    admin: CurrentUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from urllib.parse import quote
+
+    from auth.invites import create_invite
+    from config import APP_PUBLIC_URL
+
+    try:
+        invite, code = create_invite(db, created_by=admin.id, email=data.email, days=data.days, note=data.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info("Admin %s created signup invite %s", admin.id, invite.id)
+    return {**_invite_out(invite), "code": code, "signup_url": f"{APP_PUBLIC_URL}/register?invite={quote(code)}"}
+
+
+@router.get("/invites", response_model=list[InviteOut])
+def list_signup_invites(
+    _admin: CurrentUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from auth.models import SignupInvite
+
+    rows = db.query(SignupInvite).order_by(SignupInvite.id.desc()).limit(200).all()
+    return [_invite_out(r) for r in rows]
+
+
+@router.delete("/invites/{invite_id}")
+def revoke_signup_invite(
+    invite_id: int,
+    admin: CurrentUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from auth.invites import revoke_invite
+
+    if not revoke_invite(db, invite_id):
+        raise HTTPException(status_code=404, detail="Không có lời mời đang hiệu lực với mã số này")
+    logger.info("Admin %s revoked signup invite %s", admin.id, invite_id)
+    return {"message": "Đã thu hồi lời mời"}

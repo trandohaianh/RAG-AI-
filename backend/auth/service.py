@@ -169,8 +169,10 @@ def set_password(db: Session, user: User, new_password: str) -> None:
     db.refresh(user)
 
 
-def register_user(db: Session, data: UserCreate) -> User:
+def register_user(db: Session, data: UserCreate, invite_code: str | None = None) -> User:
     from sqlalchemy import func as sa_func
+
+    from auth.invites import require_invite_for_new_user
 
     # Hộp thư không phân biệt hoa/thường: "Alice@x.com" và "alice@x.com" là cùng một người.
     # Không chặn ở đây thì có thể có hai tài khoản, và đăng nhập Google (so sánh lower(email))
@@ -189,10 +191,15 @@ def register_user(db: Session, data: UserCreate) -> User:
         # avoids granting admin to two concurrent registrations on an empty DB.
         if user.id == 1:
             user.role = "admin"
+        # F1-A: ở chế độ invite, mã mời được tiêu thụ trong CÙNG transaction với tài khoản.
+        require_invite_for_new_user(db, user.id, user.email, invite_code)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
         raise ValueError("Email đã được sử dụng") from exc
+    except ValueError:
+        db.rollback()
+        raise
     db.refresh(user)
     return user
 
@@ -264,7 +271,7 @@ def hmac_compare(a: str, b: str) -> bool:
 _UNUSABLE_PASSWORD = "!external-login"
 
 
-def login_with_google(db: Session, identity) -> tuple[User, bool]:
+def login_with_google(db: Session, identity, invite_code: str | None = None) -> tuple[User, bool]:
     """Đăng nhập/đăng ký bằng Google. Trả về (user, created).
 
     - Đã liên kết google_sub → đăng nhập.
@@ -311,13 +318,20 @@ def login_with_google(db: Session, identity) -> tuple[User, bool]:
         email_verified_at=now,
     )
     db.add(user)
+    from auth.invites import require_invite_for_new_user
+
     try:
         db.flush()
         if user.id == 1:
             user.role = "admin"
+        # F1-A: chỉ TẠO tài khoản Google mới cần mã mời; đăng nhập/liên kết tài khoản sẵn có thì không.
+        require_invite_for_new_user(db, user.id, user.email, invite_code)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
         raise ValueError("Không thể tạo tài khoản, vui lòng thử lại") from exc
+    except ValueError:
+        db.rollback()
+        raise
     db.refresh(user)
     return user, True

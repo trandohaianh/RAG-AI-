@@ -48,8 +48,17 @@ function loadGoogleScript(): Promise<void> {
 }
 
 /** Nút "Tiếp tục với Google" (Google Identity Services). Ẩn nếu backend chưa bật. */
-export default function GoogleSignInButton({ onError }: { onError?: (message: string) => void }) {
+export default function GoogleSignInButton({
+  onError,
+  inviteCode,
+}: {
+  onError?: (message: string) => void;
+  /** Mã mời (F1-A): chỉ có tác dụng khi lần đăng nhập này tạo tài khoản mới. */
+  inviteCode?: string;
+}) {
   const config = useAuthConfig();
+  const inviteRef = useRef(inviteCode);
+  inviteRef.current = inviteCode;
   const { login } = useAuth();
   const router = useRouter();
   const holder = useRef<HTMLDivElement>(null);
@@ -75,6 +84,7 @@ export default function GoogleSignInButton({ onError }: { onError?: (message: st
             try {
               const res = await api.post<{ user: User }>("/auth/google", {
                 credential: response.credential,
+                invite_code: inviteRef.current?.trim() || undefined,
               });
               login(res.data.user);
               router.replace("/chat");

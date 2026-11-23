@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import api, { getApiErrorMessage } from "@/lib/api";
 import { StatsCards, UsersTable, type AdminStats, type AdminUser } from "@/components/AdminTable";
+import { InvitesPanel } from "@/components/AdminInvites";
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
@@ -77,6 +78,14 @@ export default function AdminPage() {
         ) : (
           <UsersTable users={users} onRefresh={load} />
         )}
+      </div>
+
+      <div>
+        <h2 className="font-medium mb-1">Lời mời đăng ký</h2>
+        <p className="text-sm text-muted-foreground mb-3">
+          Khi máy chủ chạy SIGNUP_MODE=invite (mặc định ở production), chỉ người có mã mời mới tạo được tài khoản.
+        </p>
+        <InvitesPanel />
       </div>
     </div>
   );

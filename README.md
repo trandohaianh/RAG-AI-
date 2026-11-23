@@ -305,6 +305,13 @@ docker compose up --build
 | GET | `/metrics` | — |
 | GET | `/de/gold/stats` | admin |
 | GET | `/admin/stats`, `/admin/users` | admin |
+| POST/GET/DELETE | `/admin/invites` — tạo / liệt kê / thu hồi lời mời đăng ký | admin |
+
+**Đăng ký bằng lời mời (`SIGNUP_MODE`).** `invite` (mặc định khi `APP_ENV` là production) — `/auth/register`
+và lần đăng nhập Google *tạo tài khoản mới* đều trả 403 nếu thiếu `invite_code` hợp lệ. Mã do admin tạo ở trang
+**Quản trị → Lời mời đăng ký** (hoặc `POST /admin/invites`, tuỳ chọn khoá theo email, hạn 1–30 ngày, mặc định 7):
+ngẫu nhiên ~144 bit, chỉ hiện một lần, máy chủ chỉ lưu SHA-256, dùng một lần, thu hồi được. Ngoại lệ duy nhất là
+tài khoản đầu tiên (thành admin) để khởi tạo hệ thống. `open` (mặc định khi dev) — ai cũng tự đăng ký được.
 
 ---
 
