@@ -82,7 +82,7 @@ flowchart LR
 
 **Kết nối CRM/NMS (`/field/integrations`).**
 - Ticket/cảnh báo gửi vào webhook có ký HMAC sẽ tự tạo, cập nhật hoặc đóng ca. Gửi lặp cùng `event_id` thì bỏ qua.
-- Khi ca đổi trạng thái, người phụ trách hoặc lịch, FieldOps gửi webhook báo ngược (outbox, tự thử lại; thất bại 8 lần thì vào dead-letter, gửi lại được từ giao diện).
+- Khi ca đổi trạng thái, người phụ trách hoặc lịch, FieldOps gửi webhook báo ngược (outbox, tự thử lại trong khoảng ~63,5 phút; thất bại 8 lần thì vào dead-letter, gửi lại được từ giao diện).
 - Có thể thử bằng `backend/scripts/simulate_integration.py`. Chưa có adapter riêng cho một CRM/NMS cụ thể: hệ thống đó cần gửi đúng định dạng webhook chung (xem docstring `backend/field/integrations.py`).
 
 ```mermaid

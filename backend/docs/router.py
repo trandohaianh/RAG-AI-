@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth.schemas import CurrentUser
-from config import ALLOWED_EXTENSIONS, UPLOAD_DIR
+from config import ALLOWED_EXTENSIONS, LEGACY_DOC_MESSAGE, UPLOAD_DIR
 from database import get_db
 from dependencies import get_current_user, require_csrf_header
 from field.models import FieldWorkspaceMember
@@ -151,6 +151,8 @@ async def upload_doc(
     filename = safe_filename(file.filename)
 
     suffix = Path(filename).suffix.lower()
+    if suffix == ".doc":
+        raise HTTPException(status_code=400, detail=LEGACY_DOC_MESSAGE)
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,

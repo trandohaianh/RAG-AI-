@@ -2,19 +2,25 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Đường dẫn tương đối tính từ thư mục chứa tệp này: mount cả thư mục monitoring/ vào
+# /etc/prometheus (ví dụ `-v ./monitoring:/etc/prometheus:ro`). Thiếu mục này thì 12 luật trong
+# alerts/fieldops-rules.yml không bao giờ được nạp.
+rule_files:
+  - alerts/*.yml
+
 scrape_configs:
-  # Backend chạy trong docker compose
-  - job_name: rag-backend-docker
+  # Một job duy nhất: hai job trỏ cùng một API (docker + host) thì luôn có một target down và
+  # FieldOpsApiDown kêu mãi. Chạy backend ngoài docker thì đổi target thành host.docker.internal:8000.
+  - job_name: rag-backend
     metrics_path: /metrics
+    # Production bắt buộc METRICS_TOKEN cho /metrics (backend/main.py). Ghi đúng giá trị đó vào
+    # monitoring/secrets/metrics_token (đã gitignore). Prometheus không đọc biến môi trường trong
+    # cấu hình, nên token đi qua tệp chứ không ghi thẳng ở đây. Chạy local không đặt
+    # METRICS_TOKEN thì header thừa này vô hại, nhưng tệp vẫn phải tồn tại (để một dòng bất kỳ).
+    authorization:
+      type: Bearer
+      credentials_file: secrets/metrics_token
     static_configs:
       - targets: ["backend:8000"]
         labels:
           service: rag-api
-
-  # Backend chạy local (uvicorn / start-web.ps1) — Windows/Mac Docker Desktop
-  - job_name: rag-backend-host
-    metrics_path: /metrics
-    static_configs:
-      - targets: ["host.docker.internal:8000"]
-        labels:
-          service: rag-api-local

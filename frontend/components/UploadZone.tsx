@@ -16,7 +16,7 @@ import { Progress } from "@/components/ui/progress";
 import LineageBadge from "@/components/LineageBadge";
 import { cn } from "@/lib/utils";
 
-const ALLOWED_EXT = ["pdf", "docx", "doc", "txt", "png", "jpg", "jpeg", "gif", "webp"];
+const ALLOWED_EXT = ["pdf", "docx", "txt", "png", "jpg", "jpeg", "gif", "webp"];
 
 type FileRow = {
   name: string;
@@ -52,7 +52,10 @@ export default function UploadZone({
             name: file.name,
             status: "error",
             progress: 0,
-            error: `Chỉ hỗ trợ: ${ALLOWED_EXT.join(", ").toUpperCase()}`,
+            error:
+              ext === "doc"
+                ? "Tệp Word cũ (.doc) không được hỗ trợ — hãy mở bằng Word và lưu lại dạng .docx"
+                : `Chỉ hỗ trợ: ${ALLOWED_EXT.join(", ").toUpperCase()}`,
           },
         ]);
         return;
@@ -177,7 +180,7 @@ export default function UploadZone({
         </p>
         <input
           type="file"
-          accept=".pdf,.docx,.doc,.txt,.png,.jpg,.jpeg,.gif,.webp"
+          accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.gif,.webp"
           multiple
           className="absolute inset-0 opacity-0 cursor-pointer"
           onChange={(e) => Array.from(e.target.files ?? []).forEach(uploadOne)}

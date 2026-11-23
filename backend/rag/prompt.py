@@ -3,6 +3,8 @@
 import re
 from typing import Any
 
+from rag.evidence import _prompt_safe
+
 SYSTEM_PROMPT = (
     "Bạn là trợ lý RAG — chỉ trả lời dựa trên đoạn tài liệu trong Context. "
     "Không dùng kiến thức bên ngoài (Wikipedia, sách giáo khoa, v.v.). "
@@ -16,13 +18,15 @@ SYSTEM_PROMPT = (
 
 
 def format_context(chunks: list[tuple[str, str, int | None]]) -> str:
+    """Context không kèm bằng chứng. Trung hoà ngoặc nhãn và dòng `---` giống evidence_context:
+    tài liệu là dữ liệu, không được giả nhãn 【E#】 hay tự mở một khối nguồn mới."""
     if not chunks:
         return "(Chưa có tài liệu — hãy upload trước.)"
 
     parts: list[str] = []
     for i, (text, source, page) in enumerate(chunks, 1):
         page_str = f", trang {page}" if page else ""
-        parts.append(f"[{i}] Nguồn: {source}{page_str}\n{text}")
+        parts.append(f"[{i}] Nguồn: {_prompt_safe(source)}{page_str}\n{_prompt_safe(text)}")
     return "\n\n---\n\n".join(parts)
 
 

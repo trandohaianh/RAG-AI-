@@ -43,6 +43,8 @@ backend/.pytest*_run/
 
 # Cloud deploy (VM): secrets only on the server
 /deploy/cloud/.env
+# Token Bearer cho Prometheus scrape /metrics (monitoring/prometheus.yml)
+/monitoring/secrets/
 # Eval run outputs (CI uploads them as artifacts; baselines live in backend/evals/baselines)
 /reports/evals/
 

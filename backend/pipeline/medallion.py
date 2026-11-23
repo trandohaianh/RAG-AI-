@@ -81,7 +81,6 @@ def discover_upload_files(upload_root: Path) -> list[tuple[int, Path]]:
             if f.is_file() and f.suffix.lower() in {
                 ".pdf",
                 ".docx",
-                ".doc",
                 ".txt",
                 ".png",
                 ".jpg",

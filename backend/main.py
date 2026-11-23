@@ -21,6 +21,7 @@ from billing.router import router as billing_router
 from chat.router import router as chat_router
 from config import APP_ENV, CHROMA_DIR, UPLOAD_DIR, validate_security_config
 from cors import cors_options
+from costs.budget import validate_budget_config
 from costs.router import refresh_infra_gauge
 from costs.router import router as costs_router
 from database import init_db
@@ -48,6 +49,7 @@ from security_headers import SecurityHeadersMiddleware
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     validate_security_config()
+    validate_budget_config()
     CHROMA_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     init_db()

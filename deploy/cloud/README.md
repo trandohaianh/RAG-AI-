@@ -177,6 +177,9 @@ Muốn nhiều dự án trên **cùng một VM** thì chúng không thể cùng 
    - Dự án kia tắt Caddy của chính nó, gắn container vào mạng `edge`, thả `<tên>.caddy` vào
      `/opt/edge/sites`, rồi chạy:
      `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile`
+   - Chỉ Caddy gắn vào mạng `edge`, **không** gắn `api`: uvicorn tin `X-Forwarded-For` từ các dải
+     IP Docker nội bộ (thay cho `--forwarded-allow-ips=*`), nên container nào gọi thẳng được API
+     cũng giả được IP để vượt rate limit đăng nhập.
    - Tắt chế độ này: chạy lại `bash deploy.sh` (không có `SHARED_EDGE`). Site của dự án kia sẽ
      ngừng được phục vụ, nên trước đó dự án kia phải bật lại Caddy riêng của nó.
 

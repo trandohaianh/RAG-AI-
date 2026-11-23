@@ -1,6 +1,7 @@
 """Chặn gọi AI khi vượt ngân sách ngày (toàn hệ thống hoặc từng người dùng).
 
-LLM_DAILY_BUDGET_USD=0 / LLM_USER_DAILY_BUDGET_USD=0 nghĩa là không giới hạn.
+LLM_DAILY_BUDGET_USD=0 / LLM_USER_DAILY_BUDGET_USD=0 (hoặc để trống) nghĩa là không giới hạn.
+Giá trị sai (chữ, NaN, vô cực, số âm) làm API từ chối khởi động — không bị hiểu là không giới hạn.
 
 Trần CỨNG theo đặt chỗ: chi phí thật chỉ được ghi SAU khi model trả lời, nên nếu chỉ so với
 chi phí đã ghi thì N request đồng thời ở sát trần đều lọt qua. Mỗi request vì vậy phải đặt
@@ -17,6 +18,7 @@ còn có thể xảy ra khi chi phí thật của MỘT request lớn hơn kho�
 from __future__ import annotations
 
 import logging
+import math
 import os
 from datetime import UTC, datetime, timedelta
 
@@ -30,12 +32,40 @@ logger = logging.getLogger(__name__)
 _PG_LOCK_KEY = 0x46_4F_42_55  # "FOBU": khoá advisory dùng chung cho mọi lượt đặt chỗ
 
 
+BUDGET_ENV_VARS = ("LLM_DAILY_BUDGET_USD", "LLM_USER_DAILY_BUDGET_USD", "LLM_BUDGET_RESERVE_USD")
+
+
+class BudgetConfigError(RuntimeError):
+    """Biến ngân sách có giá trị không hợp lệ (chữ, NaN, vô cực, số âm)."""
+
+
 def _limit(name: str) -> float:
-    try:
-        value = float(os.getenv(name, "0") or 0)
-    except ValueError:
+    """Rỗng hoặc 0 = không giới hạn (như tài liệu). Giá trị sai KHÔNG được hiểu là "không giới hạn":
+    trước đây "nan", "-1", "2,5" lặng lẽ thành 0 và tắt trần chi phí (fail-open)."""
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
         return 0.0
-    return value if value > 0 else 0.0
+    try:
+        value = float(raw)
+    except ValueError:
+        value = math.nan
+    if not math.isfinite(value) or value < 0:
+        raise BudgetConfigError(
+            f"{name}={raw!r} không hợp lệ: cần số USD ≥ 0 dạng 1.5 (để trống hoặc 0 = không giới hạn)"
+        )
+    return value
+
+
+def validate_budget_config() -> None:
+    """Gọi lúc khởi động: cấu hình ngân sách sai thì từ chối chạy thay vì mở trần chi phí."""
+    problems = []
+    for name in BUDGET_ENV_VARS:
+        try:
+            _limit(name)
+        except BudgetConfigError as exc:
+            problems.append(str(exc))
+    if problems:
+        raise BudgetConfigError("; ".join(problems))
 
 
 def daily_limits() -> tuple[float, float]:

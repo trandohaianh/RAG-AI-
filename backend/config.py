@@ -151,7 +151,10 @@ MEDALLION_ENABLED: bool = os.getenv("MEDALLION_ENABLED", "false").lower() in (
     "yes",
 )
 
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".png", ".jpg", ".jpeg", ".webp", ".gif"}
+# Không có ".doc": Word 97-2003 là tệp nhị phân OLE, Docx2txtLoader (đọc zip) không đọc được và
+# kiểm tra zip-bomb cũng không áp dụng. Người dùng được hướng dẫn lưu lại dạng .docx.
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".png", ".jpg", ".jpeg", ".webp", ".gif"}
+LEGACY_DOC_MESSAGE = "Tệp Word cũ (.doc) không được hỗ trợ — hãy mở bằng Word và lưu lại dạng .docx"
 
 # Tuần 5–8: SaaS
 APP_PUBLIC_URL: str = os.getenv("APP_PUBLIC_URL", "http://localhost:3000")

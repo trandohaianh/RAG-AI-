@@ -119,7 +119,7 @@ Dashboard hiển thị:
 
 1. Mở http://localhost:9090  
 2. Tab **Status** → **Targets**  
-3. Job `rag-backend-host` hoặc `rag-backend-docker` phải **UP** (màu xanh)
+3. Job `rag-backend` phải **UP** (màu xanh). Production cần tệp `monitoring/secrets/metrics_token` chứa đúng `METRICS_TOKEN`, không thì target báo 401
 
 Nếu **DOWN**:
 

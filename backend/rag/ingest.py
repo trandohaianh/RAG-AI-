@@ -129,7 +129,7 @@ def _load_sync(file_path: Path) -> list[Document]:
     if suffix == ".pdf":
         loader = PyPDFLoader(str(file_path))
 
-    elif suffix in (".docx", ".doc"):
+    elif suffix == ".docx":
         _check_zip_bomb(file_path)
         loader = Docx2txtLoader(str(file_path))
 
@@ -150,6 +150,11 @@ def _load_sync(file_path: Path) -> list[Document]:
                 metadata={"source": file_path.name},
             )
         ]
+
+    elif suffix == ".doc":
+        from config import LEGACY_DOC_MESSAGE
+
+        raise PublicIngestError(LEGACY_DOC_MESSAGE)
 
     else:
         raise PublicIngestError(f"Định dạng không hỗ trợ: {suffix}")

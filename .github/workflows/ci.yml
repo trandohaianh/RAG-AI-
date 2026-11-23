@@ -102,6 +102,9 @@ jobs:
         run: |
           curl -sSL https://github.com/prometheus/prometheus/releases/download/v3.5.0/prometheus-3.5.0.linux-amd64.tar.gz | tar xz
           ./prometheus-3.5.0.linux-amd64/promtool check rules monitoring/alerts/fieldops-rules.yml
+          # credentials_file phải tồn tại để check config qua; token giả chỉ dùng cho bước kiểm tra.
+          mkdir -p monitoring/secrets && echo ci-placeholder > monitoring/secrets/metrics_token
+          ./prometheus-3.5.0.linux-amd64/promtool check config monitoring/prometheus.yml
 
       - name: Validate docker compose
         run: |

@@ -12,8 +12,10 @@ VÀO — POST /public/field/integrations/{public_id}/events
 
 RA — khi ca có nguồn từ một kết nối đổi trạng thái/người phụ trách/lịch: một bản ghi outbox
     (field_webhook_deliveries) được gửi tới outbound_url với cùng kiểu chữ ký. Lỗi -> thử lại
-    với backoff 30s·2^(n-1) ±20% jitter (lần thử lại đầu sau ~30 s, tối đa 6 giờ), sau 8 lần ->
-    dead-letter (xem và gửi lại trong giao diện). Lỗi 4xx vĩnh viễn (trừ 408/429) -> dead ngay.
+    với backoff 30s·2^(n-1) ±20% jitter (30 s, 1, 2, 4, 8, 16, 32 phút), sau 8 lần gửi ->
+    dead-letter (xem và gửi lại trong giao diện). Tổng cửa sổ thử lại chỉ ~63,5 phút (±20%:
+    ~51–76 phút) kể từ lần gửi đầu; đối tác sập lâu hơn thì phải gửi lại bằng tay.
+    Lỗi 4xx vĩnh viễn (trừ 408/429) -> dead ngay.
     Mỗi lần gửi có hạn chót tổng WEBHOOK_DEADLINE_SECONDS và chỉ đọc tối đa 4 KB phản hồi.
     URL ra phải là https và không trỏ vào mạng nội bộ (chống SSRF).
 """
@@ -598,7 +600,8 @@ def enqueue_case_event(db: Session, case: ServiceCase, event_type: str, extra: d
 
 def _backoff(attempts: int) -> timedelta:
     """Chờ trước lần thử thứ attempts+1: 30 s, 60 s, 120 s… (±20% jitter để các delivery hỏng
-    cùng lúc không dội lại đối tác cùng một giây), tối đa 6 giờ."""
+    cùng lúc không dội lại đối tác cùng một giây). Trần 6 giờ cho MỘT lần chờ không bao giờ chạm
+    tới với MAX_ATTEMPTS=8: lần chờ dài nhất là 32 phút, tổng 7 lần chờ ~63,5 phút."""
     import random
 
     base = min(30 * 2 ** max(attempts - 1, 0), 6 * 3600)

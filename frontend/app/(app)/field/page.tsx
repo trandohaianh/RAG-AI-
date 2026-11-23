@@ -957,7 +957,7 @@ export default function FieldOperationsPage() {
                     <input
                       className="hidden"
                       type="file"
-                      accept=".pdf,.docx,.doc,.txt,.png,.jpg,.jpeg,.webp"
+                      accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp"
                       onChange={(event) => {
                         void uploadKnowledge(event.target.files?.[0]);
                         event.currentTarget.value = "";

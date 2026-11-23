@@ -54,9 +54,13 @@ services:
     restart: unless-stopped
     environment: *api-env
     # 1 worker: SQLite + rate-limit trong bộ nhớ. --root-path để các route chạy đúng sau proxy /api.
+    # X-Forwarded-For chỉ được tin khi đến từ mạng Docker nội bộ (dải private RFC 1918), KHÔNG
+    # dùng "*" (xem auth/ratelimit.py). API không publish cổng nên chỉ container trong project
+    # này (Caddy) kết nối được; Caddy ghi đè X-Forwarded-For bằng IP thật của client. Mạng
+    # compose không có subnet cố định nên không ghim một IP Caddy duy nhất như deploy/production.
     command: >
       uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
-      --proxy-headers --forwarded-allow-ips=* --root-path /api
+      --proxy-headers --forwarded-allow-ips=172.16.0.0/12,192.168.0.0/16,10.0.0.0/8 --root-path /api
     volumes:
       - fieldops_data:/app/data
     expose: ["8000"]
