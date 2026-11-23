@@ -177,6 +177,16 @@ uploads/{user_id}/file.pdf
 | Monitoring | Prometheus + Grafana |
 | CI | GitHub Actions (pytest, build) |
 
+### Giới hạn kiến trúc đã chọn
+
+- **SQLite: một máy, một tiến trình ghi (chủ dự án chọn F2-A, 23/11/2026).** Dữ liệu ứng dụng (user, đội,
+  ca sửa, lời mời…) nằm trong một file SQLite (WAL + `busy_timeout` 30 giây). API chạy **một** tiến trình
+  (`uvicorn --workers 1`) trên **một** máy; job pipeline cùng máy cũng ghi nhưng phải xếp hàng chờ khoá.
+  Không chạy nhiều bản API song song hay nhiều máy dùng chung file này (kể cả qua ổ mạng/NFS): ghi đồng thời
+  sẽ chờ khoá rồi lỗi `database is locked`, và chỉ số BM25, bộ đếm rate-limit, cache đều nằm trong bộ nhớ của
+  từng tiến trình. Đủ cho một đội nhỏ (< 50 người dùng). Muốn mở rộng thì đặt `DATABASE_URL` sang PostgreSQL
+  (migration đã hỗ trợ) và chuyển trạng thái trong bộ nhớ sang Redis — ước lượng 10–15 người-ngày.
+
 ---
 
 ## Deploy live (Render — free)

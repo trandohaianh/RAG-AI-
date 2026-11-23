@@ -62,4 +62,4 @@
 | P2 | Cảnh báo ca sắp trễ (SLA) | PRD §5.2, cần bạn cho mốc thời gian |
 | P2 | Bản vá Expo để hết cảnh báo `node-forge` / `zod` | Bảo trì thư viện |
 | P3 | iPhone (cần Apple Developer 99 USD/năm) | Giai đoạn 2 |
-| P3 | Chuyển sang PostgreSQL khi có hơn 1 đội hoặc cần nhiều tiến trình | SQLite + 1 worker đủ cho < 50 người dùng |
+| P3 | Chuyển sang PostgreSQL khi có hơn 1 đội hoặc cần nhiều tiến trình | Đã chọn giữ SQLite (F2-A, 23/11): **một máy, một tiến trình API ghi** (`--workers 1`); không chạy nhiều bản song song. Đủ cho < 50 người dùng |
