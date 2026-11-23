@@ -134,10 +134,10 @@ FieldOps gom các việc này vào một chỗ: nhận ca (tay hoặc từ CRM/N
 2. **Kiểm thử:** toàn bộ test tự động đạt (hiện 613 test backend + 23 test client), lint sạch, build thành công.
 3. **Vận hành:**
    - Chạy được bằng `docker compose up --build` với HTTPS.
-   - Có sao lưu hằng ngày và **đã thử khôi phục thành công**. ⚠ Việc thử khôi phục chưa làm.
+   - Có sao lưu hằng ngày và **đã thử khôi phục thành công**. ✅ Đã diễn tập trên máy phát triển 2026-11-23 (`docs/HIEU_NANG_VA_KHOI_PHUC.md`); còn phải chạy lại trên VM.
    - Có rollback khi deploy lỗi.
 4. **Giao diện:** dùng được trên điện thoại rộng 375 px. Có màn lỗi tiếng Việt. Thông báo tiếng Việt.
-5. **Hiệu năng:** ⚠ cần chốt con số mục tiêu, ví dụ trang ca mở < 2 giây, trợ lý trả lời < 15 giây, chịu được N người dùng đồng thời. Hiện chưa đo.
+5. **Hiệu năng:** ✅ đã chốt 2026-11-23: 50 người dùng cùng lúc, 95% yêu cầu API thường < 1 giây, xếp tuyến 50 ca < 1 giây, trợ lý AI < 15 giây, không lỗi 5xx. Đã đo trên máy phát triển: đạt (p95 83 ms; xếp tuyến 0,06 giây); trợ lý AI chưa đo. Chi tiết: `docs/HIEU_NANG_VA_KHOI_PHUC.md`.
 
 ## 8. Ngoài phạm vi
 
@@ -155,6 +155,6 @@ Các tính năng mới làm theo **thứ tự giá trị trên công sức**. T�
 | 2 | **M11** Lịch hôm nay trên mobile | API lịch đã có (`/schedule`). Chỉ thêm màn hình mobile và cache offline. Giá trị lớn nhất cho thợ. |
 | 3 | **M12** Biên bản đóng ca | Cần thay đổi CSDL (migration), màn hình chữ ký, offline và báo ngược CRM. Công sức lớn nhất. |
 | 4 | **M13** Địa chỉ → toạ độ | Gọi dịch vụ ngoài (Nominatim) và chịu giới hạn tốc độ của nó. Thiếu thì vẫn nhập tay được, nên rủi ro thấp nhất nếu lùi. |
-| Song song | Bước 7–8 còn thiếu | Rà pháp lý dữ liệu cá nhân Việt Nam; **thử khôi phục từ bản sao lưu**; chốt và đo các con số hiệu năng (§7 mục 5). |
+| Song song | Bước 7–8 *(đã làm 2026-11-23: `docs/BAO_MAT_VA_DU_LIEU_CA_NHAN.md`, `docs/HIEU_NANG_VA_KHOI_PHUC.md`; còn các việc pháp lý P1 chờ chủ dự án chọn)* | Rà pháp lý dữ liệu cá nhân Việt Nam; **thử khôi phục từ bản sao lưu**; chốt và đo các con số hiệu năng (§7 mục 5). |
 
 Mỗi tính năng đi đủ các bước của quy trình: thiết kế (bước 2–4) → **chủ dự án xác nhận** → code → kiểm thử theo tiêu chí ở §5.1 → báo cáo → commit.

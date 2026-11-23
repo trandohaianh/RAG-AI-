@@ -185,9 +185,26 @@ Muốn nhiều dự án trên **cùng một VM** thì chúng không thể cùng 
 - `deploy.sh` gắn tag `:previous` cho image đang chạy trước khi build. Nếu `smoke.sh` thất bại, nó
   quay về image cũ và trả mã lỗi.
   - Nếu bản mới đã chạy migration CSDL, bản cũ sẽ từ chối khởi động vì gặp migration lạ. Khi đó
-    khôi phục `app.db` từ bản backup tạo ngay trước lần deploy:
-    `docker compose run --rm --no-deps api ls /app/data/backups`, rồi chép `app-<thời điểm>.db` đè
-    lên `/app/data/app.db` khi API đang dừng.
+    khôi phục từ bản backup tạo ngay trước lần deploy (xem mục "Khôi phục từ bản sao lưu").
+
+## Khôi phục từ bản sao lưu (đã diễn tập 2026-11-23)
+
+Công cụ `pipeline.jobs.restore` kiểm tra bản sao lưu trước (CSDL toàn vẹn, tệp nén an toàn), rồi
+mới ghi. Dữ liệu đang dùng **không bị xoá** mà được chuyển sang `/app/data/pre-restore-<thời điểm>/`.
+
+```bash
+cd ~/fieldops/deploy/cloud
+docker compose --env-file .env stop api pipeline
+docker compose --env-file .env run --rm --no-deps api python -m pipeline.jobs.restore --list
+docker compose --env-file .env run --rm --no-deps api python -m pipeline.jobs.restore --latest --dry-run
+docker compose --env-file .env run --rm --no-deps api python -m pipeline.jobs.restore --latest --yes
+# hoặc chọn một bộ cụ thể: --stamp 20261123T030207497906Z
+docker compose --env-file .env up -d
+bash smoke.sh https://$APP_DOMAIN
+```
+
+Khôi phục từ bản đã chép ra ngoài VM: chép các tệp `app-*.db`, `photos-*.tar.gz`… cùng một dấu
+thời gian vào `/app/data/backups` (ví dụ `docker cp`), rồi chạy các lệnh trên.
 - API chạy bằng uid 1000. Volume tạo từ thời còn chạy root được `deploy.sh` tự `chown` một lần
   (lệnh `compose run --user root … chown`).
 

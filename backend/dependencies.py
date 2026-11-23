@@ -55,11 +55,15 @@ def email_verification_required() -> bool:
     return bool(config.REQUIRE_EMAIL_VERIFICATION and is_email_configured())
 
 
-async def get_current_user_allow_unverified(
+def get_current_user_allow_unverified(
     request: Request,
     bearer: str | None = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> CurrentUser:
+    # Hàm thường (không async): FastAPI chạy nó trong threadpool. Nếu là async, truy vấn đồng bộ
+    # bên dưới chạy ngay trên event loop; khi pool kết nối đã hết, event loop đứng chờ kết nối mà
+    # các request khác chỉ trả lại được qua chính event loop -> mọi request treo tới pool_timeout
+    # (30 giây). Đo tải 50 người dùng ngày 2026-11-23 đã gặp đúng lỗi này.
     token = request_token(request, bearer)
     if not token:
         raise HTTPException(
