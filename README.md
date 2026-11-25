@@ -14,23 +14,16 @@
 > [backend/evals/README.md](backend/evals/README.md).
 
 
-[![CI](https://github.com/YOUR_USERNAME/rag-chatbot/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/rag-chatbot/actions/workflows/ci.yml)
+[![CI](https://github.com/trandohaianh/RAG-AI-/actions/workflows/ci.yml/badge.svg)](https://github.com/trandohaianh/RAG-AI-/actions/workflows/ci.yml)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
 
 > Nền tảng vận hành dịch vụ hiện trường: workspace đội kỹ thuật, ca sửa, checklist, tri thức dùng chung và trợ lý RAG có dẫn nguồn. Mobile-first cho kỹ thuật viên; web console cho điều phối.
 
 ---
 
-## Live Demo
+## Demo
 
-| | URL |
-|---|-----|
-| **App (UI)** | `https://rag-web.onrender.com` ← thay sau khi deploy |
-| **API** | `https://rag-api.onrender.com` |
-| **Health** | `https://rag-api.onrender.com/health` |
-| **Swagger** | `https://rag-api.onrender.com/docs` |
-
-> **Free tier:** service sleep sau ~15 phút không dùng — lần mở đầu có thể chờ 30–60s.
+Hiện chưa có bản chạy công khai cố định. Cách xem nhanh nhất là chạy trên máy (mục **Chạy local** bên dưới) hoặc xem video demo. Cấu hình deploy lên Render free (`render.yaml`) đã có sẵn ở mục **Deploy live**.
 
 ### Luồng demo sản phẩm
 
@@ -43,8 +36,9 @@
 
 > Chỉ dùng dữ liệu giả lập/công khai trong demo. Trợ lý hỗ trợ tra cứu và gợi ý; kỹ thuật viên chịu trách nhiệm xác nhận thao tác. Không tự chạy lệnh lên thiết bị.
 
-<!-- Thêm GIF sau khi quay màn hình (15–30s): -->
-<!-- ![Demo](docs/assets/demo.gif) -->
+Có video demo khoảng 2,5 phút (bản tiếng Việt và tiếng Anh) đi qua đúng luồng trên: hàng đợi ca, hồ sơ ca, checklist, trợ lý trả lời có dẫn nguồn, từ chối khi không có căn cứ, nhật ký ca, điều phối tuyến, kết nối CRM và chi phí AI.
+
+**Tài liệu thiết kế:** [lý do các lựa chọn kỹ thuật](docs/DECISIONS.md) · [cơ sở dữ liệu](docs/DATABASE.md) · [yêu cầu sản phẩm](docs/PRD.md)
 
 ---
 
@@ -191,6 +185,10 @@ uploads/{user_id}/file.pdf
   vì nó chỉ có nghĩa khi đã lên PostgreSQL (F2-B) và phải viết lại bộ tách từ; `ts_rank` của Postgres không phải
   BM25 nên sẽ tìm kém hơn.
 
+Toàn bộ các quyết định (vấn đề, phương án đã cân nhắc, lý do, ưu/nhược, việc sẽ đổi):
+[docs/DECISIONS.md](docs/DECISIONS.md). Bảng, khoá, cách ly theo đội và cách nâng cấp schema:
+[docs/DATABASE.md](docs/DATABASE.md).
+
 ---
 
 ## Deploy live (Render — free)
@@ -245,7 +243,7 @@ Script sẽ:
 ### Quick start (thủ công)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/rag-chatbot.git
+git clone https://github.com/trandohaianh/RAG-AI-.git
 cd rag-chatbot
 cp .env.example .env
 # Sửa GEMINI_API_KEY, SECRET_KEY trong .env
@@ -286,17 +284,6 @@ docker compose up --build
 | Airflow | http://localhost:8080 |
 | Grafana (ops only, **không phải app chat**) | http://localhost:3002 — user **`admin`** / pass **`gig`** (xem [TAI-KHOAN.md](TAI-KHOAN.md)) |
 | Prometheus | http://localhost:9090 |
-
----
-
-## Quay GIF demo (cho README)
-
-```bash
-# Windows: Xbox Game Bar Win+G, hoặc OBS
-# Quay: đăng ký → upload PDF → hỏi → hiện câu trả lời + nguồn
-# Lưu: docs/assets/demo.gif (≤ 10MB)
-# Bỏ comment dòng ![Demo] ở mục Live Demo
-```
 
 ---
 
@@ -343,7 +330,7 @@ mobile/                Expo — screens/, components/, lib/, navigation/
 tests/                 pytest + client_state.test.cjs
 deploy/cloud/          1 VM + Caddy (HTTPS riêng của FieldOps)
 deploy/production/     nhiều dịch vụ sau nginx
-docs/                  tài liệu; quy ước: docs/CONVENTIONS.md
+docs/                  tài liệu; quy ước: docs/CONVENTIONS.md; quyết định: docs/DECISIONS.md; CSDL: docs/DATABASE.md
 reports/               báo cáo audit (01–08)
 ```
 
