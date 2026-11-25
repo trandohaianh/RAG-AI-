@@ -68,5 +68,3 @@ export const radius = {
   lg: 16,
   full: 999,
 };
-
-export const spacing = (n: number) => n * 4;

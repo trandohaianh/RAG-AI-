@@ -223,7 +223,7 @@ cd d:\self
 .\start-web.ps1
 ```
 
-Hoặc **double-click** file `chay-web.bat` / `start-web.bat` trong thư mục project.
+Hoặc **double-click** file `start-web.bat` trong thư mục project.
 
 Script sẽ:
 - Mở **2 cửa sổ PowerShell** (Backend API + Frontend web)

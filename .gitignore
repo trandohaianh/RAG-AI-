@@ -55,3 +55,4 @@ evaluation.local
 .env.*
 !.env.example
 !**/.env.example
+data/dev-embed-token.txt

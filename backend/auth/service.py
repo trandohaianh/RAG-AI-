@@ -161,14 +161,6 @@ def reset_password_with_token(db: Session, token: str, new_password: str) -> boo
         raise
 
 
-def set_password(db: Session, user: User, new_password: str) -> None:
-    if not _change_password(db, user.id, user.token_version, new_password):
-        db.rollback()
-        raise ValueError("Thông tin xác thực đã thay đổi; hãy thử lại")
-    db.commit()
-    db.refresh(user)
-
-
 def register_user(db: Session, data: UserCreate, invite_code: str | None = None) -> User:
     from sqlalchemy import func as sa_func
 
