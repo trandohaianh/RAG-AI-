@@ -142,6 +142,9 @@ def test_backup_rotates_sqlite_and_chroma(factory, tmp_path, monkeypatch):
     (chroma / "index.bin").write_bytes(b"vectors")
     monkeypatch.setattr(config, "DATABASE_URL", f"sqlite:///{db_file}")
     monkeypatch.setattr(config, "CHROMA_DIR", chroma)
+    # Job also archives uploads/field photos; isolate them so real local data never leaks in.
+    monkeypatch.setattr(config, "FIELD_PHOTO_DIR", tmp_path / "no_photos")
+    monkeypatch.setattr(config, "UPLOAD_DIR", tmp_path / "no_uploads")
     monkeypatch.setenv("BACKUP_DIR", str(tmp_path / "backups"))
     for _ in range(3):
         result = run_job("backup", session_factory=factory, keep=2)
